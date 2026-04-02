@@ -1,0 +1,65 @@
+{
+    "extName": {
+        "message": "m3u8-ext- downloader"
+    },
+    "extDescription": {
+        "message": "download m3u8 files"
+    },
+    "title":{
+        "message": "m3u8-ext- downloader"
+    },
+    "home":{
+        "message": "Home"
+    },
+    "download":{
+        "message": "Download"
+    },
+    "help":{
+        "message": "Help"
+    },
+    "about":{
+        "message": "About"
+    },
+    "copy":{
+        "message": "Copy"
+    },
+    "copyTips":{
+        "message": "Copy success!"
+    },
+    "copyUrl":{
+        "message": "Copy URL"
+    },
+    "settings":{
+        "message": "Settings"
+    },
+    "more":{
+        "message": "More"
+    },
+    "clear":{
+        "message": "Clear"
+    },
+    "unknown":{
+        "message": "Unknown"
+    },
+    "feedback":{
+        "message": "Feedback"
+    },
+    "found":{
+        "message": "Found: "
+    },
+    "item":{
+        "message": "item"
+    },
+    "clearList":{
+        "message": "Clear"
+    },
+    "play":{
+        "message": "Play"
+    },
+    "notFound":{
+        "message": "No streaming media detected"
+    },
+    "playTips":{
+        "message": "Some videos must start playing to be detected."
+    }
+}
