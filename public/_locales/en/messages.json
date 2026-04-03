@@ -50,9 +50,6 @@
     "item":{
         "message": "item"
     },
-    "clearList":{
-        "message": "Clear"
-    },
     "play":{
         "message": "Play"
     },

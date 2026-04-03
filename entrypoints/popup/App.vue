@@ -1,33 +1,37 @@
 <script lang="ts" setup>
-  interface M3U8Item {
+  interface MediaItem {
     url: string
-    type?: string
+    format: string
   }
 
-  function urlToItem(url: string): M3U8Item {
-    try {
-      const pathname = new URL(url).pathname
-      const ext = pathname.split('.').pop()?.toLowerCase() || ''
-      return { url, type: ext || undefined }
-    } catch {
-      return { url }
+  function itemToMediaItem(item: any): MediaItem {
+    // 兼容旧数据格式
+    if (typeof item === 'string') {
+      return { url: item, format: 'm3u8' }
+    } else if (item && typeof item === 'object') {
+      return {
+        url: item.url || '',
+        format: item.format || 'm3u8'
+      }
     }
+    return { url: '', format: 'm3u8' }
   }
 
   const expandedId = ref<number | null>(null)
   const showMore = ref(false)
   const showToast = ref(false)
   const toastMessage = ref('')
-  const m3u8List = ref<M3U8Item[]>([])
+  const mediaList = ref<MediaItem[]>([])
+  const activeTab = ref<'all' | 'm3u8' | 'mp4' | 'mp3' | 'other'>('all')
   let currentTabId: number | undefined
 
   const version = browser.runtime.getManifest().version
 
-  function onMessage(msg: { type: string; tabId?: number; list?: string[] }) {
+  function onMessage(msg: { type: string; tabId?: number; list?: Array<{url: string, format: string}> }) {
     console.log('Popup: Received message:', msg.type, 'for tab:', msg.tabId, 'current tab:', currentTabId)
     if (msg.type === 'LIST_UPDATED' && msg.tabId === currentTabId && msg.list) {
       console.log('Popup: Updating list with', msg.list.length, 'items')
-      m3u8List.value = msg.list.map(urlToItem)
+      mediaList.value = msg.list.map(itemToMediaItem)
     }
   }
 
@@ -37,9 +41,9 @@
     currentTabId = tabs[0]?.id
     console.log('Popup: Current tab ID:', currentTabId)
     if (currentTabId === undefined) return
-    const list = (await browser.runtime.sendMessage({ type: 'GET_LIST', tabId: currentTabId })) as string[] | undefined
+    const list = (await browser.runtime.sendMessage({ type: 'GET_LIST', tabId: currentTabId })) as Array<{url: string, format: string}> | undefined
     console.log('Popup: Received list with', list?.length || 0, 'items')
-    m3u8List.value = (list ?? []).map(urlToItem)
+    mediaList.value = (list ?? []).map(itemToMediaItem)
     browser.runtime.onMessage.addListener(onMessage)
   })
 
@@ -57,21 +61,37 @@
     }
   }
 
-  const getTypeLabel = (type: string | undefined): string => {
-    if (!type) return browser.i18n.getMessage('unknown')
-    const typeMap: Record<string, string> = {
+  const getFormatLabel = (format: string): string => {
+    if (!format) return browser.i18n.getMessage('unknown')
+    const formatMap: Record<string, string> = {
       m3u8: 'HLS',
       mp4: 'MP4',
       mp3: 'MP3',
       flv: 'FLV',
       mkv: 'MKV',
       webm: 'WebM',
+      mov: 'MOV',
+      avi: 'AVI',
+      wmv: 'WMV',
+      ogv: 'OGV',
+      m4a: 'M4A',
+      oga: 'OGA',
+      weba: 'WEBA',
+      wav: 'WAV',
+      flac: 'FLAC',
+      aac: 'AAC',
+      gif: 'GIF',
+      jpg: 'JPG',
+      png: 'PNG',
+      webp: 'WebP',
+      svg: 'SVG',
+      media: 'MEDIA',
     }
-    return typeMap[type.toLowerCase()] || type.toUpperCase()
+    return formatMap[format.toLowerCase()] || format.toUpperCase()
   }
 
-  const getTypeColor = (type: string | undefined): string => {
-    if (!type) return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+  const getFormatColor = (format: string): string => {
+    if (!format) return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
     const colorMap: Record<string, string> = {
       m3u8: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
       mp4: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
@@ -79,9 +99,70 @@
       flv: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
       mkv: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
       webm: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300',
+      mov: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
+      avi: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+      wmv: 'bg-lime-100 text-lime-700 dark:bg-lime-900 dark:text-lime-300',
+      ogv: 'bg-emerald-100 text-emerald1-700 dark:bg-emerald1-900 dark:text-emerald1-300',
+      m4a: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300',
+      oga: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900 dark:text-fuchsia-300',
+      weba: 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-300',
+      wav: 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-300',
+      flac: 'bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300',
+      aac: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300',
+      gif: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+      jpg: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+      png: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+      webp: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+      svg: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+      media: 'bg-gray-100 text-gray-700 dark:bg-gray-900 dark:text-gray-300',
     }
-    return colorMap[type.toLowerCase()] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+    return colorMap[format.toLowerCase()] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
   }
+
+  // 计算各个tab的数量
+  const tabCounts = computed(() => {
+    const counts = {
+      all: mediaList.value.length,
+      m3u8: 0,
+      mp4: 0,
+      mp3: 0,
+      other: 0
+    }
+    
+    mediaList.value.forEach(item => {
+      const format = item.format.toLowerCase()
+      if (format === 'm3u8') {
+        counts.m3u8++
+      } else if (format === 'mp4') {
+        counts.mp4++
+      } else if (format === 'mp3') {
+        counts.mp3++
+      } else {
+        counts.other++
+      }
+    })
+    
+    return counts
+  })
+
+  // 根据当前激活的tab过滤列表
+  const filteredMediaList = computed(() => {
+    if (activeTab.value === 'all') {
+      return mediaList.value
+    } else if (activeTab.value === 'm3u8') {
+      return mediaList.value.filter(item => item.format.toLowerCase() === 'm3u8')
+    } else if (activeTab.value === 'mp4') {
+      return mediaList.value.filter(item => item.format.toLowerCase() === 'mp4')
+    } else if (activeTab.value === 'mp3') {
+      return mediaList.value.filter(item => item.format.toLowerCase() === 'mp3')
+    } else if (activeTab.value === 'other') {
+      return mediaList.value.filter(item => {
+        const format = item.format.toLowerCase()
+        return format !== 'm3u8' && format !== 'mp4' && format !== 'mp3'
+      })
+    }
+    return mediaList.value
+  })
 
   const toggleExpand = (id: number) => {
     expandedId.value = expandedId.value === id ? null : id
@@ -108,14 +189,6 @@
     browser.downloads.download({ url, filename })
   }
 
-  const clearList = () => {
-    if (currentTabId !== undefined) {
-      browser.runtime.sendMessage({ type: 'CLEAR_LIST', tabId: currentTabId })
-    }
-    m3u8List.value = []
-    expandedId.value = null
-  }
-
   const openSettings = () => {
     browser.runtime.openOptionsPage?.()
   }
@@ -132,31 +205,70 @@
 </script>
 
 <template>
-  <div class="w-96 min-w-96 min-h-96 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col">
-    <header class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <svg class="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-        <p class="text-sm font-bold">{{ browser.i18n.getMessage('title') }}</p>
-      </div>
-    </header>
-
-    <div class="p-3 bg-gray-100 dark:bg-gray-800 flex items-center justify-between text-sm">
-      <div class="flex items-center gap-3">
-        <span class="text-gray-600 dark:text-gray-400">{{ browser.i18n.getMessage('found') }}<span
-            class="text-blue-500 dark:text-blue-400 font-medium">{{ m3u8List.length }}</span>{{ browser.i18n.getMessage('item') }}</span>
-      </div>
-      <button @click="clearList"
-        class="px-3 py-1 rounded-full bg-red-600 dark:bg-red-700 text-white text-xs font-medium hover:bg-red-700 dark:hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900">
-        {{ browser.i18n.getMessage('clearList') }}
-      </button>
+  <div class="w-[500px] min-w-[500px] h-[600px] max-h-[600px] bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col">
+    <div class="border-b border-gray-200 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900 z-10 shrink-0">
+      <nav class="flex -mb-px">
+        <button
+          @click="activeTab = 'all'"
+          :class="[
+            activeTab === 'all'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300',
+            'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors'
+          ]"
+        >
+          全部({{ tabCounts.all }})
+        </button>
+        <button
+          @click="activeTab = 'm3u8'"
+          :class="[
+            activeTab === 'm3u8'
+              ? 'border-purple-500 text-purple-600 dark:text-purple-400 dark:border-purple-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300',
+            'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors'
+          ]"
+        >
+          HLS({{ tabCounts.m3u8 }})
+        </button>
+        <button
+          @click="activeTab = 'mp4'"
+          :class="[
+            activeTab === 'mp4'
+              ? 'border-blue-500 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300',
+            'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors'
+          ]"
+        >
+          MP4({{ tabCounts.mp4 }})
+        </button>
+        <button
+          @click="activeTab = 'mp3'"
+          :class="[
+            activeTab === 'mp3'
+              ? 'border-green-500 text-green-600 dark:text-green-400 dark:border-green-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300',
+            'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors'
+          ]"
+        >
+          MP3({{ tabCounts.mp3 }})
+        </button>
+        <button
+          @click="activeTab = 'other'"
+          :class="[
+            activeTab === 'other'
+              ? 'border-gray-500 text-gray-600 dark:text-gray-400 dark:border-gray-400'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300',
+            'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors'
+          ]"
+        >
+          其他({{ tabCounts.other }})
+        </button>
+      </nav>
     </div>
 
-    <main class="flex-1 overflow-y-auto">
-      <div v-if="m3u8List.length === 0"
-        class="flex-1 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 px-6 py-12">
+    <main class="flex-1 overflow-y-auto min-h-0">
+      <div v-if="filteredMediaList.length === 0"
+        class="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 px-6 py-12">
         <div class="w-20 h-20 mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
           <svg class="w-10 h-10 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -168,7 +280,7 @@
       </div>
 
       <ul v-else class="divide-y divide-gray-200 dark:divide-gray-800">
-        <li v-for="(item, index) in m3u8List" :key="index"
+        <li v-for="(item, index) in filteredMediaList" :key="index"
           class="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
           <div @click="toggleExpand(index)" class="p-3 flex items-center justify-between gap-2 cursor-pointer">
             <div class="flex-1 min-w-0 flex items-center gap-2">
@@ -179,8 +291,8 @@
               <p class="font-medium text-sm truncate">{{ getFileName(item.url) }}</p>
             </div>
             <div class="flex items-center gap-2" @click.stop>
-              <span :class="getTypeColor(item.type)" class="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0">
-                {{ getTypeLabel(item.type) }}
+              <span :class="getFormatColor(item.format)" class="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0">
+                {{ getFormatLabel(item.format) }}
               </span>
               <div class="flex gap-1">
                 <button @click="copyUrl(item.url)"
@@ -222,7 +334,7 @@
     </main>
 
     <footer
-      class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs relative">
+      class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs relative shrink-0 bg-white dark:bg-gray-900">
       <button @click="openSettings"
         class="flex items-center gap-1 text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

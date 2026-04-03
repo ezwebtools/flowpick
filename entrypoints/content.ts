@@ -23,7 +23,13 @@ export default defineContentScript({
         }
         
         if (currentTabId) {
-          browser.runtime.sendMessage({ type: 'M3U8_FOUND', url: event.data.url, tabId: currentTabId })
+          // 发送MEDIA_FOUND消息，使用检测到的格式或默认为m3u8
+          browser.runtime.sendMessage({ 
+            type: 'MEDIA_FOUND', 
+            url: event.data.url, 
+            tabId: currentTabId,
+            format: event.data.format || 'm3u8'
+          })
         }
       }
     })

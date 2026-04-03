@@ -50,9 +50,6 @@
     "item":{
         "message": "条"
     },
-    "clearList":{
-        "message": "清空"
-    },
     "play":{
         "message": "播放"
     },

@@ -1,4 +1,4 @@
-import { isM3U8 } from '../utils/detect'
+import { isMediaFormat, detectMediaFromUrl, detectMediaFromContentType, detectMedia } from '../utils/detect'
 import { loadAllTabData, saveTabList, deleteTabList } from '../utils/storage'
 
 // 语言映射配置
@@ -74,15 +74,29 @@ export default defineBackground(() => {
   browser.runtime.setUninstallURL(uninstallUrl)
   console.log('Set uninstall URL:', uninstallUrl)
 
-  const tabMap = new Map<number, Set<string>>()
+  const tabMap = new Map<number, Map<string, string>>()
   let isDataLoaded = false
   const pendingMessages: Array<{msg: any, sender: any, sendResponse: (response?: any) => void}> = []
 
   loadAllTabData().then(data => {
     console.log('Background: Data loaded, tab count:', data.size)
-    data.forEach((set, tabId) => {
-      console.log(`Background: Tab ${tabId} has ${set.size} items`)
-      tabMap.set(tabId, set)
+    data.forEach((urls, tabId) => {
+      console.log(`Background: Tab ${tabId} has ${urls.size} items`)
+      // 将数组转换为Map格式
+      const mediaMap = new Map<string, string>()
+      // 旧数据格式：string[]，新数据格式：Map<string, string>
+      if (Array.isArray(urls)) {
+        // 旧数据格式，默认格式为'm3u8'
+        urls.forEach(url => {
+          mediaMap.set(url, 'm3u8')
+        })
+      } else if (urls instanceof Map) {
+        // 新数据格式
+        urls.forEach((format, url) => {
+          mediaMap.set(url, format)
+        })
+      }
+      tabMap.set(tabId, mediaMap)
     })
     isDataLoaded = true
     browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
@@ -99,19 +113,82 @@ export default defineBackground(() => {
     pendingMessages.length = 0
   })
 
-  browser.tabs.onRemoved.addListener((tabId) => {
-    tabMap.delete(tabId)
-    deleteTabList(tabId)
-  })
-
-  browser.webRequest.onCompleted.addListener(
+  // 用于跟踪已经处理过的请求，避免重复添加
+  const processedRequests = new Set<string>()
+  
+  // 在接收到响应头时检测媒体格式（优先使用content-type）
+  browser.webRequest.onHeadersReceived.addListener(
     (details) => {
-      if (details.tabId > 0 && isM3U8(details.url)) {
-        addM3U8(details.url, details.tabId)
+      if (details.tabId > 0) {
+        const requestKey = `${details.tabId}:${details.url}`
+        
+        // 如果已经处理过这个请求，跳过
+        if (processedRequests.has(requestKey)) {
+          return
+        }
+        
+        // 提取content-type
+        let contentType: string | null = null
+        if (details.responseHeaders) {
+          for (const header of details.responseHeaders) {
+            if (header.name.toLowerCase() === 'content-type' && header.value) {
+              contentType = header.value
+              break
+            }
+          }
+        }
+        
+        // 使用综合检测函数：优先content-type，备选URL检测
+        const detectedFormat = detectMedia(details.url, contentType)
+        if (detectedFormat) {
+          console.log('Detected media format:', detectedFormat, 
+                     contentType ? 'from content-type' : 'from URL (fallback)', 
+                     'URL:', details.url)
+          addMedia(details.url, details.tabId, detectedFormat)
+          processedRequests.add(requestKey)
+        }
       }
+      return undefined // 返回undefined表示不修改响应头
     },
     { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'other'] },
   )
+  
+  // 在请求开始前检测URL中的媒体格式（对于没有content-type或content-type不明确的请求）
+  browser.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      if (details.tabId > 0) {
+        const requestKey = `${details.tabId}:${details.url}`
+        
+        // 如果已经处理过这个请求，跳过
+        if (processedRequests.has(requestKey)) {
+          return
+        }
+        
+        // 对于某些类型的请求，可能在onHeadersReceived阶段没有content-type
+        // 这里使用URL检测作为补充
+        const urlFormat = detectMediaFromUrl(details.url)
+        if (urlFormat) {
+          console.log('Detected media format from URL (pre-request):', urlFormat, 'URL:', details.url)
+          addMedia(details.url, details.tabId, urlFormat)
+          processedRequests.add(requestKey)
+        }
+      }
+      return undefined // 返回undefined表示不阻塞请求
+    },
+    { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'other'] },
+  )
+  
+  // 清理已处理的请求记录（当标签页关闭时）
+  browser.tabs.onRemoved.addListener((tabId) => {
+    // 移除该标签页的所有请求记录
+    for (const key of processedRequests) {
+      if (key.startsWith(`${tabId}:`)) {
+        processedRequests.delete(key)
+      }
+    }
+    tabMap.delete(tabId)
+    deleteTabList(tabId)
+  })
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!isDataLoaded) {
@@ -124,27 +201,25 @@ export default defineBackground(() => {
   function handleMessage(msg: any, sender: any, sendResponse: (response?: any) => void) {
     console.log('Background: Received message:', msg.type, 'from tab:', sender.tab?.id)
     
-    if (msg.type === 'M3U8_FOUND') {
+    if (msg.type === 'MEDIA_FOUND') {
       const tabId = msg.tabId || sender.tab?.id
-      console.log('Background: M3U8_FOUND for tab', tabId, 'url:', msg.url)
-      if (tabId) addM3U8(msg.url, tabId)
+      const format = msg.format || 'm3u8'
+      console.log('Background: MEDIA_FOUND for tab', tabId, 'url:', msg.url, 'format:', format)
+      if (tabId) addMedia(msg.url, tabId, format)
     }
 
     if (msg.type === 'GET_LIST') {
       const tabId = msg.tabId as number
-      const list = [...(tabMap.get(tabId) ?? [])]
+      const mediaMap = tabMap.get(tabId)
+      const list: Array<{url: string, format: string}> = []
+      if (mediaMap) {
+        mediaMap.forEach((format, url) => {
+          list.push({ url, format })
+        })
+      }
       console.log('Background: GET_LIST for tab', tabId, 'returning', list.length, 'items')
       sendResponse(list)
       return true
-    }
-
-    if (msg.type === 'CLEAR_LIST') {
-      const tabId = msg.tabId as number
-      console.log('Background: CLEAR_LIST for tab', tabId)
-      tabMap.delete(tabId)
-      deleteTabList(tabId)
-      updateBadge(tabId)
-      broadcast(tabId, [])
     }
 
     if (msg.type === 'GET_CURRENT_TAB') {
@@ -153,34 +228,38 @@ export default defineBackground(() => {
     return false
   }
 
-  function addM3U8(url: string, tabId: number) {
-    console.log('Background: addM3U8 for tab', tabId, 'url:', url)
+  function addMedia(url: string, tabId: number, format: string) {
+    console.log('Background: addMedia for tab', tabId, 'url:', url, 'format:', format)
     if (!tabMap.has(tabId)) {
-      console.log('Background: Creating new set for tab', tabId)
-      tabMap.set(tabId, new Set())
+      console.log('Background: Creating new map for tab', tabId)
+      tabMap.set(tabId, new Map())
     }
-    const set = tabMap.get(tabId)!
-    if (set.has(url)) {
+    const mediaMap = tabMap.get(tabId)!
+    if (mediaMap.has(url)) {
       console.log('Background: URL already exists for tab', tabId)
       return
     }
-    set.add(url)
-    const list = [...set]
+    mediaMap.set(url, format)
+    const list: Array<{url: string, format: string}> = []
+    mediaMap.forEach((format, url) => {
+      list.push({ url, format })
+    })
     console.log('Background: Tab', tabId, 'now has', list.length, 'items')
-    saveTabList(tabId, list)
+    saveTabList(tabId, mediaMap)
     updateBadge(tabId)
     broadcast(tabId, list)
   }
 
   function updateBadge(tabId: number) {
-    const count = tabMap.get(tabId)?.size ?? 0
+    const mediaMap = tabMap.get(tabId)
+    const count = mediaMap?.size ?? 0
     console.log('Background: updateBadge for tab', tabId, 'count:', count)
     browser.action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })
     browser.action.setBadgeTextColor({ color: '#FFFFFF', tabId })
     browser.action.setBadgeBackgroundColor({ color: '#3B82F6', tabId })
   }
 
-  function broadcast(tabId: number, list: string[]) {
+  function broadcast(tabId: number, list: Array<{url: string, format: string}>) {
     browser.runtime.sendMessage({ type: 'LIST_UPDATED', tabId, list }).catch(() => {})
   }
 })
