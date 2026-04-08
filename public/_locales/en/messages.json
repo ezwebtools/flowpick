@@ -58,5 +58,17 @@
     },
     "playTips":{
         "message": "Some videos must start playing to be detected."
+    },
+    "unplayable":{
+        "message": "Your browser does not support video playback."
+    },
+    "playError":{
+        "message": "Play error: "
+    },
+    "stopPlay":{
+        "message": "Stop play"
+    },
+    "audioPlayError":{
+        "message": "Audio play error"
     }
 }

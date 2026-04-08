@@ -58,5 +58,17 @@
     },
     "playTips":{
         "message": "某些视频必须播放才能被检测到。"
+    },
+    "unplayable":{
+        "message": "您的浏览器不支持视频播放。"
+    },
+    "playError":{
+        "message": "播放错误: "
+    },
+    "stopPlay":{
+        "message": "停止播放"
+    },
+    "audioPlayError":{
+        "message": "音频播放失败"
     }
 }

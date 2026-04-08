@@ -1,0 +1,74 @@
+{
+    "extName": {
+        "message": "m3u8動画ダウンローダー"
+    },
+    "extDescription": {
+        "message": "m3u8ファイルをダウンロードします"
+    },
+    "title":{
+        "message": "m3u8動画ダウンローダー"
+    },
+    "home":{
+        "message": "ホーム"
+    },
+    "download":{
+        "message": "ダウンロード"
+    },
+    "help":{
+        "message": "ヘルプ"
+    },
+    "about":{
+        "message": "この拡張機能について"
+    },
+    "copy":{
+        "message": "コピー"
+    },
+    "copyTips":{
+        "message": "コピーしました"
+    },
+    "copyUrl":{
+        "message": "URLをコピー"
+    },
+    "settings":{
+        "message": "設定"
+    },
+    "more":{
+        "message": "もっと見る"
+    },
+    "clear":{
+        "message": "クリア"
+    },
+    "unknown":{
+        "message": "不明"
+    },
+    "feedback":{
+        "message": "フィードバック"
+    },
+    "found":{
+        "message": "見つかりました："
+    },
+    "item":{
+        "message": "件"
+    },
+    "play":{
+        "message": "再生"
+    },
+    "notFound":{
+        "message": "ストリーミングメディアは検出されませんでした"
+    },
+    "playTips":{
+        "message": "動画を検出するには、再生を開始する必要がある場合があります。"
+    },
+    "unplayable":{
+        "message": "お使いのブラウザは動画再生に対応していません。"
+    },
+    "playError":{
+        "message": "再生エラー："
+    },
+    "stopPlay":{
+        "message": "再生を停止"
+    },
+    "audioPlayError":{
+        "message": "音声の再生に失敗しました"
+    }
+}

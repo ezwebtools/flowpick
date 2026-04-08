@@ -129,20 +129,11 @@ export default defineBackground(() => {
   )
   
   // 在请求开始前检测URL中的媒体格式（对于没有content-type或content-type不明确的请求）
+  // 所有媒体格式都在onHeadersReceived阶段处理以获取文件大小
   browser.webRequest.onBeforeRequest.addListener(
     (details) => {
-      if (details.tabId > 0) {
-        const requestKey = `${details.tabId}:${details.url}`
-        if (processedRequests.has(requestKey)) {
-          return
-        }
-        
-        const urlFormat = detectMediaFromUrl(details.url)
-        if (urlFormat) {
-          addMedia(details.url, details.tabId, urlFormat)
-          processedRequests.add(requestKey)
-        }
-      }
+      // 不再在onBeforeRequest阶段添加任何媒体格式
+      // 所有媒体格式都在onHeadersReceived阶段处理以获取文件大小
       return undefined
     },
     { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'other', 'sub_frame'] },

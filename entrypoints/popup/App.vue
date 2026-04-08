@@ -123,8 +123,8 @@
       gif: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
       jpg: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
       png: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-      webp: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-      svg: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+      webp: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
+      svg: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
     }
     return colorMap[format.toLowerCase()] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
   }
@@ -270,7 +270,7 @@
       audioEl.play().catch(() => {})
       drawSpectrum(index, analyser)
     } catch {
-      showToastMsg('音频播放失败')
+      showToastMsg(browser.i18n.getMessage('audioPlayError'))
     }
   }
 
@@ -373,7 +373,7 @@
               break
             default:
               stopPlayback(newId)
-              showToastMsg('播放错误: ' + data.details)
+              showToastMsg(browser.i18n.getMessage('playError') + data.details)
               break
           }
         }
@@ -385,7 +385,7 @@
       videoEl.src = item.url
       videoEl.play().catch(() => {})
     } else {
-      showToastMsg('当前浏览器不支持HLS播放')
+      showToastMsg(browser.i18n.getMessage('unplayable'))
     }
   })
 
@@ -442,7 +442,7 @@
             'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors'
           ]"
         >
-          全部({{ tabCounts.all }})
+          ALL({{ tabCounts.all }})
         </button>
         <button
           @click="activeTab = 'm3u8'"
@@ -486,7 +486,7 @@
             'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors'
           ]"
         >
-          其他({{ tabCounts.other }})
+          Other({{ tabCounts.other }})
         </button>
       </nav>
     </div>
@@ -535,7 +535,7 @@
                     ? 'bg-red-600 hover:bg-red-500 text-white' 
                     : 'bg-green-600 hover:bg-green-500 text-white'"
                   :title="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index)
-                    ? '停止播放' 
+                    ? browser.i18n.getMessage('stopPlay') 
                     : browser.i18n.getMessage('play')">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <template v-if="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index)">
@@ -583,7 +583,7 @@
                   controls
                   playsinline
                 >
-                  您的浏览器不支持视频播放。
+                  {{ browser.i18n.getMessage('unplayable') }}
                 </video>
                 
                 <!-- 播放器控制栏 -->
@@ -601,13 +601,7 @@
                 </div>
               </div>
               
-              <!-- 播放状态提示 -->
-              <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                <span>正在播放 HLS 流媒体</span>
-              </div>
+              
             </div>
 
             <!-- 图片预览 -->
@@ -619,17 +613,19 @@
                   class="w-full h-auto max-h-[300px] object-contain"
                 />
               </div>
-              <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                <span>{{ getFormatLabel(item.format) }} 图片预览</span>
-              </div>
+              
             </div>
 
             <!-- 音频播放器 -->
             <div v-if="isAudioFormat(item.format) && audioPlayingId === index" class="mt-3">
               <div class="bg-gray-900 dark:bg-gray-950 rounded-lg overflow-hidden p-3 flex flex-col gap-3">
+                
+                <canvas
+                  :id="'spectrum-' + index"
+                  width="auto"
+                  height="80"
+                  class="w-full rounded"
+                />
                 <audio
                   :id="'audio-player-' + index"
                   :src="item.url"
@@ -637,19 +633,8 @@
                   controls
                   crossorigin="anonymous"
                 />
-                <canvas
-                  :id="'spectrum-' + index"
-                  width="420"
-                  height="80"
-                  class="w-full rounded"
-                />
               </div>
-              <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                <span>正在播放 {{ getFormatLabel(item.format) }} 音频</span>
-              </div>
+              
             </div>
           </div>
         </li>

@@ -1,0 +1,74 @@
+{
+    "extName": {
+        "message": "m3u8影片下載器"
+    },
+    "extDescription": {
+        "message": "下載m3u8影片檔案"
+    },
+    "title":{
+        "message": "m3u8影片下載器"
+    },
+    "home":{
+        "message": "首頁"
+    },
+    "download":{
+        "message": "下載"
+    },
+    "help":{
+        "message": "說明"
+    },
+    "about":{
+        "message": "關於"
+    },
+    "copy":{
+        "message": "複製"
+    },
+    "copyTips":{
+        "message": "複製成功！"
+    },
+    "copyUrl":{
+        "message": "複製網址"
+    },
+    "settings":{
+        "message": "設定"
+    },
+    "more":{
+        "message": "更多"
+    },
+    "clear":{
+        "message": "清空"
+    },
+    "unknown":{
+        "message": "未知"
+    },
+    "feedback":{
+        "message": "意見回饋"
+    },
+    "found":{
+        "message": "已發現："
+    },
+    "item":{
+        "message": "個"
+    },
+    "play":{
+        "message": "播放"
+    },
+    "notFound":{
+        "message": "未偵測到任何影片串流"
+    },
+    "playTips":{
+        "message": "某些影片必須播放才能被偵測到。"
+    },
+    "unplayable":{
+        "message": "您的瀏覽器不支援影片播放。"
+    },
+    "playError":{
+        "message": "播放錯誤："
+    },
+    "stopPlay":{
+        "message": "停止播放"
+    },
+    "audioPlayError":{
+        "message": "音訊播放失敗"
+    }
+}
