@@ -15,6 +15,7 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "hls.js": "^1.6.15",
     "vue": "^3.5.29"
   },
   "devDependencies": {

@@ -20,3 +20,45 @@ body {
   width: 100%;
   height: 100%;
 }
+
+/* 视频播放器自定义样式 */
+video::-webkit-media-controls-panel {
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+}
+
+video::-webkit-media-controls-play-button,
+video::-webkit-media-controls-volume-slider,
+video::-webkit-media-controls-mute-button {
+  filter: invert(1);
+}
+
+/* 视频播放器响应式 */
+@media (max-width: 500px) {
+  video {
+    max-height: 200px !important;
+  }
+}
+
+/* 视频加载状态 */
+.video-loading {
+  position: relative;
+}
+
+.video-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-top: 4px solid #fff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

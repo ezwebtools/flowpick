@@ -1,20 +1,31 @@
 <script lang="ts" setup>
+  import Hls from 'hls.js'
   interface MediaItem {
     url: string
     format: string
+    size?: number
   }
 
   function itemToMediaItem(item: any): MediaItem {
-    // 兼容旧数据格式
     if (typeof item === 'string') {
       return { url: item, format: 'm3u8' }
     } else if (item && typeof item === 'object') {
       return {
         url: item.url || '',
-        format: item.format || 'm3u8'
+        format: item.format || 'm3u8',
+        size: typeof item.size === 'number' ? item.size : undefined
       }
     }
     return { url: '', format: 'm3u8' }
+  }
+
+  function formatFileSize(bytes?: number): string {
+    if (bytes === undefined || bytes === null) return ''
+    if (bytes === 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(1024))
+    const value = bytes / Math.pow(1024, i)
+    return value % 1 === 0 ? `${value} ${units[i]}` : `${value.toFixed(1)} ${units[i]}`
   }
 
   const expandedId = ref<number | null>(null)
@@ -23,11 +34,24 @@
   const toastMessage = ref('')
   const mediaList = ref<MediaItem[]>([])
   const activeTab = ref<'all' | 'm3u8' | 'mp4' | 'mp3' | 'other'>('all')
+  const playingId = ref<number | null>(null)
+  const previewingId = ref<number | null>(null)
+  const audioPlayingId = ref<number | null>(null)
+  const hlsInstances = ref<Map<number, Hls>>(new Map())
+
+  interface AudioPlayerState {
+    audioCtx: AudioContext
+    analyser: AnalyserNode
+    source: MediaElementAudioSourceNode
+    animFrameId: number
+  }
+  const audioPlayers = new Map<number, AudioPlayerState>()
+
   let currentTabId: number | undefined
 
   const version = browser.runtime.getManifest().version
 
-  function onMessage(msg: { type: string; tabId?: number; list?: Array<{url: string, format: string}> }) {
+  function onMessage(msg: { type: string; tabId?: number; list?: Array<{url: string, format: string, size?: number}> }) {
     console.log('Popup: Received message:', msg.type, 'for tab:', msg.tabId, 'current tab:', currentTabId)
     if (msg.type === 'LIST_UPDATED' && msg.tabId === currentTabId && msg.list) {
       console.log('Popup: Updating list with', msg.list.length, 'items')
@@ -67,13 +91,7 @@
       m3u8: 'HLS',
       mp4: 'MP4',
       mp3: 'MP3',
-      flv: 'FLV',
-      mkv: 'MKV',
       webm: 'WebM',
-      mov: 'MOV',
-      avi: 'AVI',
-      wmv: 'WMV',
-      ogv: 'OGV',
       m4a: 'M4A',
       oga: 'OGA',
       weba: 'WEBA',
@@ -85,7 +103,6 @@
       png: 'PNG',
       webp: 'WebP',
       svg: 'SVG',
-      media: 'MEDIA',
     }
     return formatMap[format.toLowerCase()] || format.toUpperCase()
   }
@@ -96,13 +113,7 @@
       m3u8: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
       mp4: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
       mp3: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-      flv: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
-      mkv: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
       webm: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300',
-      mov: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
-      avi: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
-      wmv: 'bg-lime-100 text-lime-700 dark:bg-lime-900 dark:text-lime-300',
-      ogv: 'bg-emerald-100 text-emerald1-700 dark:bg-emerald1-900 dark:text-emerald1-300',
       m4a: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300',
       oga: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900 dark:text-fuchsia-300',
       weba: 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-300',
@@ -114,7 +125,6 @@
       png: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
       webp: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
       svg: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
-      media: 'bg-gray-100 text-gray-700 dark:bg-gray-900 dark:text-gray-300',
     }
     return colorMap[format.toLowerCase()] || 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
   }
@@ -174,8 +184,223 @@
     setTimeout(() => { showToast.value = false }, 2000)
   }
 
-  const playUrl = (url: string) => {
-    browser.tabs.create({ url })
+  const IMAGE_FORMATS = ['gif', 'jpg', 'jpeg', 'png', 'webp', 'svg']
+  const AUDIO_FORMATS = ['mp3', 'm4a', 'oga', 'weba', 'wav', 'flac', 'aac']
+  const isImageFormat = (format: string) => IMAGE_FORMATS.includes(format.toLowerCase())
+  const isAudioFormat = (format: string) => AUDIO_FORMATS.includes(format.toLowerCase())
+
+  const stopAudioPlayback = (index: number) => {
+    const state = audioPlayers.get(index)
+    if (state) {
+      cancelAnimationFrame(state.animFrameId)
+      const audioEl = document.getElementById(`audio-player-${index}`) as HTMLAudioElement | null
+      if (audioEl) {
+        audioEl.pause()
+        audioEl.src = ''
+      }
+      state.source.disconnect()
+      state.analyser.disconnect()
+      state.audioCtx.close()
+      audioPlayers.delete(index)
+    }
+    if (audioPlayingId.value === index) {
+      audioPlayingId.value = null
+    }
+  }
+
+  const drawSpectrum = (index: number, analyser: AnalyserNode) => {
+    const canvas = document.getElementById(`spectrum-${index}`) as HTMLCanvasElement | null
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const bufferLength = analyser.frequencyBinCount
+    const dataArray = new Uint8Array(bufferLength)
+
+    const draw = () => {
+      const state = audioPlayers.get(index)
+      if (!state) return
+      state.animFrameId = requestAnimationFrame(draw)
+
+      analyser.getByteFrequencyData(dataArray)
+
+      const W = canvas.width
+      const H = canvas.height
+      ctx.clearRect(0, 0, W, H)
+
+      const barCount = 60
+      const barWidth = (W / barCount) * 0.7
+      const gap = (W / barCount) * 0.3
+      const step = Math.floor(bufferLength / barCount)
+
+      for (let i = 0; i < barCount; i++) {
+        const value = dataArray[i * step] / 255
+        const barHeight = value * H
+
+        const hue = 200 + value * 60
+        ctx.fillStyle = `hsla(${hue}, 80%, 55%, 0.9)`
+
+        const x = i * (barWidth + gap)
+        ctx.beginPath()
+        ctx.roundRect(x, H - barHeight, barWidth, barHeight, 2)
+        ctx.fill()
+      }
+    }
+
+    draw()
+  }
+
+  const startAudioPlayback = async (index: number) => {
+    await nextTick()
+    const audioEl = document.getElementById(`audio-player-${index}`) as HTMLAudioElement | null
+    if (!audioEl) return
+
+    try {
+      const audioCtx = new AudioContext()
+      const analyser = audioCtx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.8
+
+      const source = audioCtx.createMediaElementSource(audioEl)
+      source.connect(analyser)
+      analyser.connect(audioCtx.destination)
+
+      audioPlayers.set(index, { audioCtx, analyser, source, animFrameId: 0 })
+
+      audioEl.play().catch(() => {})
+      drawSpectrum(index, analyser)
+    } catch {
+      showToastMsg('音频播放失败')
+    }
+  }
+
+  watch(audioPlayingId, async (newId, oldId) => {
+    if (oldId !== null && oldId !== newId) {
+      stopAudioPlayback(oldId)
+    }
+    if (newId === null) return
+    await startAudioPlayback(newId)
+  })
+
+  const playUrl = (url: string, index: number, format: string) => {
+    if (format.toLowerCase() === 'm3u8') {
+      if (playingId.value === index) {
+        stopPlayback(index)
+        playingId.value = null
+      } else {
+        if (playingId.value !== null) {
+          stopPlayback(playingId.value)
+        }
+        playingId.value = index
+        if (expandedId.value !== index) {
+          expandedId.value = index
+        }
+      }
+    } else if (isAudioFormat(format)) {
+      if (audioPlayingId.value === index) {
+        stopAudioPlayback(index)
+      } else {
+        if (audioPlayingId.value !== null) {
+          stopAudioPlayback(audioPlayingId.value)
+        }
+        audioPlayingId.value = index
+        if (expandedId.value !== index) {
+          expandedId.value = index
+        }
+      }
+    } else if (isImageFormat(format)) {
+      if (previewingId.value === index) {
+        previewingId.value = null
+      } else {
+        previewingId.value = index
+        if (expandedId.value !== index) {
+          expandedId.value = index
+        }
+      }
+    } else {
+      browser.tabs.create({ url })
+    }
+  }
+
+  // 停止播放
+  const stopPlayback = (index: number) => {
+    const hls = hlsInstances.value.get(index)
+    if (hls) {
+      hls.destroy()
+      hlsInstances.value.delete(index)
+    }
+    if (playingId.value === index) {
+      playingId.value = null
+    }
+  }
+
+  // 监听 playingId 变化，在 DOM 更新后初始化 HLS
+  watch(playingId, async (newId, oldId) => {
+    if (oldId !== null && oldId !== newId) {
+      const oldHls = hlsInstances.value.get(oldId)
+      if (oldHls) {
+        oldHls.destroy()
+        hlsInstances.value.delete(oldId)
+      }
+    }
+
+    if (newId === null) return
+
+    await nextTick()
+
+    const item = filteredMediaList.value[newId]
+    if (!item) return
+
+    const videoEl = document.getElementById(`video-player-${newId}`) as HTMLVideoElement | null
+    if (!videoEl) return
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true, backBufferLength: 90 })
+      hlsInstances.value.set(newId, hls)
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        videoEl.play().catch(() => {})
+      })
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad()
+              break
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError()
+              break
+            default:
+              stopPlayback(newId)
+              showToastMsg('播放错误: ' + data.details)
+              break
+          }
+        }
+      })
+
+      hls.loadSource(item.url)
+      hls.attachMedia(videoEl)
+    } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+      videoEl.src = item.url
+      videoEl.play().catch(() => {})
+    } else {
+      showToastMsg('当前浏览器不支持HLS播放')
+    }
+  })
+
+  // 清理HLS实例
+  onUnmounted(() => {
+    hlsInstances.value.forEach(hls => hls.destroy())
+    hlsInstances.value.clear()
+    audioPlayers.forEach((_, index) => stopAudioPlayback(index))
+    audioPlayers.clear()
+  })
+
+  // 检查视频是否正在播放
+  const isVideoPlaying = (index: number): boolean => {
+    const videoElement = document.getElementById(`video-player-${index}`) as HTMLVideoElement
+    return videoElement ? !videoElement.paused : false
   }
 
   const copyUrl = (url: string) => {
@@ -289,6 +514,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
               <p class="font-medium text-sm truncate">{{ getFileName(item.url) }}</p>
+              <span v-if="item.size" class="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">{{ formatFileSize(item.size) }}</span>
             </div>
             <div class="flex items-center gap-2" @click.stop>
               <span :class="getFormatColor(item.format)" class="px-1.5 py-0.5 rounded text-xs font-medium flex-shrink-0">
@@ -303,14 +529,33 @@
                       d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </button>
-                <button @click="playUrl(item.url)"
-                  class="p-1.5 rounded bg-green-600 hover:bg-green-500 text-white transition-colors"
-                  :title="browser.i18n.getMessage('play')">
+                <button @click="playUrl(item.url, index, item.format)"
+                  class="p-1.5 rounded transition-colors"
+                  :class="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index)
+                    ? 'bg-red-600 hover:bg-red-500 text-white' 
+                    : 'bg-green-600 hover:bg-green-500 text-white'"
+                  :title="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index)
+                    ? '停止播放' 
+                    : browser.i18n.getMessage('play')">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                      d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <template v-if="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index)">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" />
+                    </template>
+                    <template v-else-if="isAudioFormat(item.format)">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    </template>
+                    <template v-else-if="isImageFormat(item.format)">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </template>
+                    <template v-else>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </template>
                   </svg>
                 </button>
                 <button @click="downloadUrl(item.url)"
@@ -325,9 +570,87 @@
             </div>
           </div>
           <div v-if="expandedId === index" class="px-3 pb-3 pl-9">
-            <p class="text-xs text-gray-500 dark:text-gray-400 break-all bg-gray-50 dark:bg-gray-800 p-2 rounded">
+            <p class="text-xs text-gray-500 dark:text-gray-400 break-all bg-gray-50 dark:bg-gray-800 p-2 rounded mb-3">
               {{ item.url }}
             </p>
+            
+            <!-- HLS视频播放器 -->
+            <div v-if="item.format.toLowerCase() === 'm3u8' && playingId === index" class="mt-3">
+              <div class="relative bg-black rounded-lg overflow-hidden">
+                <video 
+                  :id="'video-player-' + index"
+                  class="w-full h-auto max-h-[300px]"
+                  controls
+                  playsinline
+                >
+                  您的浏览器不支持视频播放。
+                </video>
+                
+                <!-- 播放器控制栏 -->
+                <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs text-white/80 font-medium">
+                      {{ getFileName(item.url) }}
+                    </span>
+                  </div>
+                  
+                  <!-- <button @click="stopPlayback(index)" 
+                    class="p-1.5 rounded-full bg-red-600 hover:bg-red-500 text-white text-xs font-medium">
+                    停止播放
+                  </button> -->
+                </div>
+              </div>
+              
+              <!-- 播放状态提示 -->
+              <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>正在播放 HLS 流媒体</span>
+              </div>
+            </div>
+
+            <!-- 图片预览 -->
+            <div v-if="isImageFormat(item.format) && previewingId === index" class="mt-3">
+              <div class="relative bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden flex items-center justify-center">
+                <img
+                  :src="item.url"
+                  :alt="getFileName(item.url)"
+                  class="w-full h-auto max-h-[300px] object-contain"
+                />
+              </div>
+              <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>{{ getFormatLabel(item.format) }} 图片预览</span>
+              </div>
+            </div>
+
+            <!-- 音频播放器 -->
+            <div v-if="isAudioFormat(item.format) && audioPlayingId === index" class="mt-3">
+              <div class="bg-gray-900 dark:bg-gray-950 rounded-lg overflow-hidden p-3 flex flex-col gap-3">
+                <audio
+                  :id="'audio-player-' + index"
+                  :src="item.url"
+                  class="w-full h-8"
+                  controls
+                  crossorigin="anonymous"
+                />
+                <canvas
+                  :id="'spectrum-' + index"
+                  width="420"
+                  height="80"
+                  class="w-full rounded"
+                />
+              </div>
+              <div class="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                <svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>正在播放 {{ getFormatLabel(item.format) }} 音频</span>
+              </div>
+            </div>
           </div>
         </li>
       </ul>

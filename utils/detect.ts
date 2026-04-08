@@ -10,15 +10,16 @@ const MEDIA_FORMATS = {
   // 视频格式
   'video/mp4': 'mp4',
   'video/x-m4v': 'mp4',
-  'video/quicktime': 'mov',
-  'video/x-msvideo': 'avi',
-  'video/x-ms-wmv': 'wmv',
-  'video/x-flv': 'flv',
-  'video/x-matroska': 'mkv',
   'video/webm': 'webm',
   'video/ogg': 'ogv',
+  'video/x-flv': 'flv',
+  'video/x-matroska': 'mkv',
+  'video/quicktime': 'mov',
+  'video/x-msvideo': 'avi',
   'video/3gpp': '3gp',
   'video/3gpp2': '3g2',
+  'video/mp2t': 'ts',
+  'video/mpeg': 'mpeg',
   
   // 音频格式
   'audio/mpeg': 'mp3',
@@ -27,13 +28,17 @@ const MEDIA_FORMATS = {
   'audio/ogg': 'oga',
   'audio/webm': 'weba',
   'audio/x-wav': 'wav',
+  'audio/wav': 'wav',
   'audio/x-flac': 'flac',
+  'audio/flac': 'flac',
   'audio/aac': 'aac',
+  'audio/x-aac': 'aac',
   
   // 流媒体格式
   'application/x-mpegurl': 'm3u8',
   'application/vnd.apple.mpegurl': 'm3u8',
   'application/dash+xml': 'mpd',
+  'application/x-mpegURL': 'm3u8',
   
   // 其他媒体格式
   'image/gif': 'gif',
@@ -48,15 +53,17 @@ const EXTENSION_MAP: Record<string, string> = {
   // 视频
   '.mp4': 'mp4',
   '.m4v': 'mp4',
-  '.mov': 'mov',
-  '.avi': 'avi',
-  '.wmv': 'wmv',
-  '.flv': 'flv',
-  '.mkv': 'mkv',
   '.webm': 'webm',
   '.ogv': 'ogv',
+  '.flv': 'flv',
+  '.mkv': 'mkv',
+  '.mov': 'mov',
+  '.avi': 'avi',
   '.3gp': '3gp',
   '.3g2': '3g2',
+  '.ts': 'ts',
+  '.mpeg': 'mpeg',
+  '.mpg': 'mpeg',
   
   // 音频
   '.mp3': 'mp3',
@@ -83,13 +90,14 @@ const EXTENSION_MAP: Record<string, string> = {
 
 // 支持的媒体类型（用于过滤）
 export const SUPPORTED_MEDIA_TYPES = [
-  'm3u8', 'mp4', 'mov', 'avi', 'wmv', 'flv', 'mkv', 'webm', 'ogv',
+  'm3u8', 'mpd', 'mp4', 'webm', 'ogv', 'flv', 'mkv', 'mov', 'avi', '3gp', '3g2', 'ts', 'mpeg',
   'mp3', 'm4a', 'oga', 'weba', 'wav', 'flac', 'aac',
-  'gif', 'jpg', 'png', 'webp', 'svg', 'media'
+  'gif', 'jpg', 'png', 'webp', 'svg'
 ]
 
 // 根据content-type检测媒体格式
 export function detectMediaFromContentType(contentType: string): string | null {
+  console.log(contentType,"detectMediaFromContentType")
   if (!contentType) return null
   
   const normalizedType = contentType.toLowerCase().split(';')[0].trim()
@@ -176,7 +184,7 @@ export function isVideoFormat(value: unknown): boolean {
   if (!url) return false
   
   const format = detectMediaFromUrl(url)
-  const videoFormats = ['mp4', 'mov', 'avi', 'wmv', 'flv', 'mkv', 'webm', 'ogv', '3gp', '3g2']
+  const videoFormats = ['mp4', 'webm']
   return format !== null && videoFormats.includes(format)
 }
 
