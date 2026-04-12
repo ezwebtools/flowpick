@@ -1,13 +1,20 @@
 export default defineUnlistedScript(() => {
-  // 媒体文件扩展名列表
+  // 媒体文件扩展名列表（排除DASH/HLS片段格式）
   const mediaExtensions = [
     '.m3u8', '.mp4', '.mp3', '.flv', '.mkv', '.webm', '.mov',
-    '.avi', '.wmv', '.m4v', '.m4a', '.aac', '.ogg', '.wav'
+    '.avi', '.wmv', '.aac', '.ogg', '.wav', '.mpd'
   ]
+  
+  // 排除的片段格式
+  const excludedExtensions = ['.m4s', '.m4v', '.m4a', '.m4f', '.m4i', '.cmfv', '.cmfa', '.cmft', '.ts']
   
   // 检查URL是否包含媒体扩展名
   function isMediaUrl(url: string): boolean {
     const urlLower = url.toLowerCase()
+    // 先检查是否是排除的格式
+    if (excludedExtensions.some(ext => urlLower.includes(ext))) {
+      return false
+    }
     return mediaExtensions.some(ext => urlLower.includes(ext))
   }
   

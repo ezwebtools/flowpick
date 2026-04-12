@@ -67,6 +67,7 @@ export default defineBackground(() => {
   browser.runtime.setUninstallURL(uninstallUrl)
 
   const tabMap = new Map<number, Map<string, MediaEntry>>()
+  const tabPageUrls = new Map<number, string>()
   let isDataLoaded = false
   const pendingMessages: Array<{msg: any, sender: any, sendResponse: (response?: any) => void}> = []
 
@@ -83,6 +84,14 @@ export default defineBackground(() => {
   browser.storage.local.onChanged.addListener((changes) => {
     if (changes['ext_settings']) {
       loadSettings().then(s => { currentSettings = s })
+    }
+  })
+
+  browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.url) {
+      tabPageUrls.set(tabId, changeInfo.url)
+    } else if (tab.url) {
+      tabPageUrls.set(tabId, tab.url)
     }
   })
 
@@ -121,6 +130,8 @@ export default defineBackground(() => {
         
         let contentType: string | null = null
         let contentLength: number | undefined = undefined
+        let hasContentRange = false
+        let isFullFileRequest = false
         if (details.responseHeaders) {
           for (const header of details.responseHeaders) {
             const lowerName = header.name.toLowerCase()
@@ -129,14 +140,32 @@ export default defineBackground(() => {
             } else if (lowerName === 'content-length' && header.value) {
               const parsed = parseInt(header.value, 10)
               if (!isNaN(parsed)) contentLength = parsed
+            } else if (lowerName === 'content-range' && header.value) {
+              hasContentRange = true
+              // 解析 content-range: bytes start-end/total
+              const match = header.value.match(/bytes\s+(\d+)-(\d+)\/(\d+)/i)
+              if (match) {
+                const start = parseInt(match[1], 10)
+                const end = parseInt(match[2], 10)
+                const total = parseInt(match[3], 10)
+                // 如果从0开始，且end+1等于total，说明是完整文件
+                if (start === 0 && end + 1 === total) {
+                  isFullFileRequest = true
+                }
+              }
             }
           }
         }
         
         const detectedFormat = detectMedia(details.url, contentType)
         if (detectedFormat) {
+          // 如果是mp4格式且带有content-range，但不是完整文件请求，则排除
+          if (detectedFormat === 'mp4' && hasContentRange && !isFullFileRequest) {
+            return
+          }
           const settings = currentSettings
-          if (settings && isDomainExcluded(details.url, settings)) return
+          const pageUrl = tabPageUrls.get(details.tabId)
+          if (settings && pageUrl && isDomainExcluded(pageUrl, settings)) return
           if (settings && !isFormatAllowed(detectedFormat, settings)) return
           if (settings && !isSizeAllowed(detectedFormat, contentLength, settings)) return
           addMedia(details.url, details.tabId, detectedFormat, contentLength)
@@ -169,6 +198,7 @@ export default defineBackground(() => {
       }
     }
     tabMap.delete(tabId)
+    tabPageUrls.delete(tabId)
     deleteTabList(tabId)
   })
 

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
   import Hls from 'hls.js'
+  import * as dashjs from 'dashjs'
   import { loadSettings, saveSettings, DEFAULT_SETTINGS, type Settings, type SniffingGroup } from '../../utils/settings'
 
   type View = 'list' | 'settings'
@@ -39,11 +40,12 @@
   const showToast = ref(false)
   const toastMessage = ref('')
   const mediaList = ref<MediaItem[]>([])
-  const activeTab = ref<'all' | 'm3u8' | 'mp4' | 'mp3' | 'other'>('all')
+  const activeTab = ref<'all' | 'm3u8' | 'mpd' | 'mp4' | 'mp3' | 'other'>('all')
   const playingId = ref<number | null>(null)
   const previewingId = ref<number | null>(null)
   const audioPlayingId = ref<number | null>(null)
   const hlsInstances = ref<Map<number, Hls>>(new Map())
+  const dashInstances = ref<Map<number, dashjs.MediaPlayerClass>>(new Map())
   const listLoaded = ref(false)
 
   interface AudioPlayerState {
@@ -66,7 +68,7 @@
   let resetConfirmTimer: ReturnType<typeof setTimeout> | null = null
   
   const SNIFFING_ROWS: { key: SniffingGroup; label: string; icon: string }[] = [
-    { key: 'streaming', label: 'Streaming', icon: '📡' },
+    { key: 'streaming', label: 'Streaming (HLS/MPD)', icon: '📡' },
     { key: 'video',     label: 'Video',     icon: '🎬' },
     { key: 'audio',     label: 'Audio',     icon: '🎵' },
     { key: 'image',     label: 'Image',     icon: '🖼️' },
@@ -74,10 +76,11 @@
 
   // ── Computed ─────────────────────────────────────────────────────
   const tabCounts = computed(() => {
-    const counts = { all: mediaList.value.length, m3u8: 0, mp4: 0, mp3: 0, other: 0 }
+    const counts = { all: mediaList.value.length, m3u8: 0, mpd: 0, mp4: 0, mp3: 0, other: 0 }
     mediaList.value.forEach(item => {
       const f = item.format.toLowerCase()
       if (f === 'm3u8') counts.m3u8++
+      else if (f === 'mpd') counts.mpd++
       else if (f === 'mp4') counts.mp4++
       else if (f === 'mp3') counts.mp3++
       else counts.other++
@@ -88,7 +91,7 @@
   const filteredMediaList = computed(() => {
     if (activeTab.value === 'all') return mediaList.value
     if (activeTab.value === 'other') {
-      return mediaList.value.filter(i => !['m3u8', 'mp4', 'mp3'].includes(i.format.toLowerCase()))
+      return mediaList.value.filter(i => !['m3u8', 'mpd', 'mp4', 'mp3'].includes(i.format.toLowerCase()))
     }
     return mediaList.value.filter(i => i.format.toLowerCase() === activeTab.value)
   })
@@ -112,6 +115,8 @@
     browser.runtime.onMessage.removeListener(onMessage)
     hlsInstances.value.forEach(hls => hls.destroy())
     hlsInstances.value.clear()
+    dashInstances.value.forEach(dash => dash.destroy())
+    dashInstances.value.clear()
     audioPlayers.forEach((_, index) => stopAudioPlayback(index))
     audioPlayers.clear()
     if (saveTimer) clearTimeout(saveTimer)
@@ -139,7 +144,7 @@
   const getFormatLabel = (format: string): string => {
     if (!format) return browser.i18n.getMessage('unknown')
     const map: Record<string, string> = {
-      m3u8: 'HLS', mp4: 'MP4', mp3: 'MP3', webm: 'WebM', m4a: 'M4A',
+      m3u8: 'HLS', mpd: 'DASH', mp4: 'MP4', mp3: 'MP3', webm: 'WebM', m4a: 'M4A',
       oga: 'OGA', weba: 'WEBA', wav: 'WAV', flac: 'FLAC', aac: 'AAC',
       gif: 'GIF', jpg: 'JPG', png: 'PNG', webp: 'WebP', svg: 'SVG',
     }
@@ -150,6 +155,7 @@
     if (!format) return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
     const map: Record<string, string> = {
       m3u8: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+      mpd: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
       mp4: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
       mp3: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
       webm: 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300',
@@ -257,7 +263,7 @@
 
   // ── Playback ──────────────────────────────────────────────────────
   const playUrl = (url: string, index: number, format: string) => {
-    if (format.toLowerCase() === 'm3u8') {
+    if (format.toLowerCase() === 'm3u8' || format.toLowerCase() === 'mpd') {
       if (playingId.value === index) { stopPlayback(index); playingId.value = null }
       else {
         if (playingId.value !== null) stopPlayback(playingId.value)
@@ -285,6 +291,8 @@
   const stopPlayback = (index: number) => {
     const hls = hlsInstances.value.get(index)
     if (hls) { hls.destroy(); hlsInstances.value.delete(index) }
+    const dash = dashInstances.value.get(index)
+    if (dash) { dash.destroy(); dashInstances.value.delete(index) }
     if (playingId.value === index) playingId.value = null
   }
 
@@ -292,6 +300,8 @@
     if (oldId !== null && oldId !== newId) {
       const oldHls = hlsInstances.value.get(oldId)
       if (oldHls) { oldHls.destroy(); hlsInstances.value.delete(oldId) }
+      const oldDash = dashInstances.value.get(oldId)
+      if (oldDash) { oldDash.destroy(); dashInstances.value.delete(oldId) }
     }
     if (newId === null) return
     await nextTick()
@@ -299,26 +309,40 @@
     if (!item) return
     const videoEl = document.getElementById(`video-player-${newId}`) as HTMLVideoElement | null
     if (!videoEl) return
-    if (Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, backBufferLength: 90 })
-      hlsInstances.value.set(newId, hls)
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { videoEl.play().catch(() => {}) })
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          switch (data.type) {
-            case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break
-            case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break
-            default: stopPlayback(newId); showToastMsg(browser.i18n.getMessage('playError') + data.details)
+    const format = item.format.toLowerCase()
+    if (format === 'm3u8') {
+      if (Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true, backBufferLength: 90 })
+        hlsInstances.value.set(newId, hls)
+        hls.on(Hls.Events.MANIFEST_PARSED, () => { videoEl.play().catch(() => {}) })
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break
+              case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break
+              default: stopPlayback(newId); showToastMsg(browser.i18n.getMessage('playError') + data.details)
+            }
           }
+        })
+        hls.loadSource(item.url)
+        hls.attachMedia(videoEl)
+      } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+        videoEl.src = item.url
+        videoEl.play().catch(() => {})
+      } else {
+        showToastMsg(browser.i18n.getMessage('unplayable'))
+      }
+    } else if (format === 'mpd') {
+      const dash = dashjs.MediaPlayer().create()
+      dashInstances.value.set(newId, dash)
+      dash.initialize(videoEl, item.url, false)
+      dash.on(dashjs.MediaPlayer.events.ERROR, (e: any) => {
+        if (e.error) {
+          showToastMsg(browser.i18n.getMessage('playError') + (e.error.message || 'Unknown error'))
+          stopPlayback(newId)
         }
       })
-      hls.loadSource(item.url)
-      hls.attachMedia(videoEl)
-    } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-      videoEl.src = item.url
-      videoEl.play().catch(() => {})
-    } else {
-      showToastMsg(browser.i18n.getMessage('unplayable'))
+      dash.play()
     }
   })
 
@@ -422,19 +446,22 @@
       <div v-if="view === 'list'" class="flex flex-col h-full">
         <div class="border-b border-gray-200 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-900 z-10 shrink-0">
           <nav class="flex -mb-px">
-            <button @click="activeTab = 'all'" :class="[activeTab === 'all' ? 'border-blue-500 text-blue-600 dark:text-blue-400 dark:border-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors']">
+            <button @click="activeTab = 'all'" :class="[activeTab === 'all' ? 'border-blue-500 text-blue-600 dark:text-blue-400 dark:border-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-xs transition-colors']">
               ALL({{ tabCounts.all }})
             </button>
-            <button @click="activeTab = 'm3u8'" :class="[activeTab === 'm3u8' ? 'border-purple-500 text-purple-600 dark:text-purple-400 dark:border-purple-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors']">
+            <button @click="activeTab = 'm3u8'" :class="[activeTab === 'm3u8' ? 'border-purple-500 text-purple-600 dark:text-purple-400 dark:border-purple-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-xs transition-colors']">
               HLS({{ tabCounts.m3u8 }})
             </button>
-            <button @click="activeTab = 'mp4'" :class="[activeTab === 'mp4' ? 'border-blue-500 text-blue-600 dark:text-blue-400 dark:border-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors']">
+            <button @click="activeTab = 'mpd'" :class="[activeTab === 'mpd' ? 'border-orange-500 text-orange-600 dark:text-orange-400 dark:border-orange-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-xs transition-colors']">
+              DASH({{ tabCounts.mpd }})
+            </button>
+            <button @click="activeTab = 'mp4'" :class="[activeTab === 'mp4' ? 'border-blue-500 text-blue-600 dark:text-blue-400 dark:border-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-xs transition-colors']">
               MP4({{ tabCounts.mp4 }})
             </button>
-            <button @click="activeTab = 'mp3'" :class="[activeTab === 'mp3' ? 'border-green-500 text-green-600 dark:text-green-400 dark:border-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors']">
+            <button @click="activeTab = 'mp3'" :class="[activeTab === 'mp3' ? 'border-green-500 text-green-600 dark:text-green-400 dark:border-green-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-xs transition-colors']">
               MP3({{ tabCounts.mp3 }})
             </button>
-            <button @click="activeTab = 'other'" :class="[activeTab === 'other' ? 'border-gray-500 text-gray-600 dark:text-gray-400 dark:border-gray-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-sm transition-colors']">
+            <button @click="activeTab = 'other'" :class="[activeTab === 'other' ? 'border-gray-500 text-gray-600 dark:text-gray-400 dark:border-gray-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300', 'flex-1 py-3 px-1 text-center border-b-2 font-medium text-xs transition-colors']">
               Other({{ tabCounts.other }})
             </button>
           </nav>
@@ -490,10 +517,10 @@
                     </button>
                     <button @click="playUrl(item.url, index, item.format)"
                       class="p-1.5 rounded transition-all duration-150 active:scale-90"
-                      :class="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index) ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white'"
-                      :title="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index) ? browser.i18n.getMessage('stopPlay') : browser.i18n.getMessage('play')">
+                      :class="(item.format.toLowerCase() === 'm3u8' || item.format.toLowerCase() === 'mpd') && playingId === index || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index) ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white'"
+                      :title="(item.format.toLowerCase() === 'm3u8' || item.format.toLowerCase() === 'mpd') && playingId === index || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index) ? browser.i18n.getMessage('stopPlay') : browser.i18n.getMessage('play')">
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <template v-if="(item.format.toLowerCase() === 'm3u8' && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index)">
+                        <template v-if="((item.format.toLowerCase() === 'm3u8' || item.format.toLowerCase() === 'mpd') && playingId === index) || (isImageFormat(item.format) && previewingId === index) || (isAudioFormat(item.format) && audioPlayingId === index)">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" />
                         </template>
@@ -531,7 +558,7 @@
                   <p class="text-xs text-gray-500 dark:text-gray-400 break-all bg-gray-50 dark:bg-gray-800 p-2 rounded mb-3">
                     {{ item.url }}
                   </p>
-                  <div v-if="item.format.toLowerCase() === 'm3u8' && playingId === index" class="mt-3">
+                  <div v-if="(item.format.toLowerCase() === 'm3u8' || item.format.toLowerCase() === 'mpd') && playingId === index" class="mt-3">
                     <div class="relative bg-black rounded-lg overflow-hidden">
                       <video :id="'video-player-' + index" class="w-full h-auto max-h-[300px]" controls playsinline>
                         {{ browser.i18n.getMessage('unplayable') }}

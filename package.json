@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wxt",
+    "dev:proxy": "cross-env HTTP_PROXY=http://127.0.0.1:10809 HTTPS_PROXY=http://127.0.0.1:10809 wxt",
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
@@ -15,6 +16,7 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "dashjs": "^5.1.1",
     "hls.js": "^1.6.15",
     "vue": "^3.5.29"
   },
@@ -22,6 +24,7 @@
     "@tailwindcss/vite": "^4.2.2",
     "@wxt-dev/module-vue": "^1.0.3",
     "autoprefixer": "^10.4.27",
+    "cross-env": "^7.0.3",
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",

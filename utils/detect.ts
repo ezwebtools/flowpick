@@ -18,13 +18,13 @@ const MEDIA_FORMATS = {
   'video/x-msvideo': 'avi',
   'video/3gpp': '3gp',
   'video/3gpp2': '3g2',
-  'video/mp2t': 'ts',
+  // 'video/mp2t': 'ts',
   'video/mpeg': 'mpeg',
   
   // 音频格式
   'audio/mpeg': 'mp3',
-  'audio/mp4': 'm4a',
-  'audio/x-m4a': 'm4a',
+  // 'audio/mp4': 'm4a',
+  // 'audio/x-m4a': 'm4a',
   'audio/ogg': 'oga',
   'audio/webm': 'weba',
   'audio/x-wav': 'wav',
@@ -52,7 +52,7 @@ const MEDIA_FORMATS = {
 const EXTENSION_MAP: Record<string, string> = {
   // 视频
   '.mp4': 'mp4',
-  '.m4v': 'mp4',
+  // '.m4v': 'mp4',
   '.webm': 'webm',
   '.ogv': 'ogv',
   '.flv': 'flv',
@@ -61,13 +61,13 @@ const EXTENSION_MAP: Record<string, string> = {
   '.avi': 'avi',
   '.3gp': '3gp',
   '.3g2': '3g2',
-  '.ts': 'ts',
+  // '.ts': 'ts',
   '.mpeg': 'mpeg',
   '.mpg': 'mpeg',
   
   // 音频
   '.mp3': 'mp3',
-  '.m4a': 'm4a',
+  // '.m4a': 'm4a',
   '.oga': 'oga',
   '.weba': 'weba',
   '.wav': 'wav',
@@ -90,10 +90,18 @@ const EXTENSION_MAP: Record<string, string> = {
 
 // 支持的媒体类型（用于过滤）
 export const SUPPORTED_MEDIA_TYPES = [
-  'm3u8', 'mpd', 'mp4', 'webm', 'ogv', 'flv', 'mkv', 'mov', 'avi', '3gp', '3g2', 'ts', 'mpeg',
-  'mp3', 'm4a', 'oga', 'weba', 'wav', 'flac', 'aac',
+  'm3u8', 'mpd', 'mp4', 'webm', 'ogv', 'flv', 'mkv', 'mov', 'avi', '3gp', '3g2', 'mpeg',
+  'mp3',  'oga', 'weba', 'wav', 'flac', 'aac',
   'gif', 'jpg', 'png', 'webp', 'svg'
 ]
+
+// 排除的媒体类型（DASH/HLS片段格式，不单独显示）
+const EXCLUDED_EXTENSIONS = ['.m4s', '.m4v', '.m4a', '.m4f', '.m4i', '.cmfv', '.cmfa', '.cmft', '.ts']
+
+function isExcludedExtension(pathname: string): boolean {
+  const lower = pathname.toLowerCase()
+  return EXCLUDED_EXTENSIONS.some(ext => lower.endsWith(ext))
+}
 
 // 根据content-type检测媒体格式
 export function detectMediaFromContentType(contentType: string): string | null {
@@ -111,6 +119,11 @@ export function detectMediaFromUrl(url: string): string | null {
   try {
     const parsed = new URL(url)
     const pathname = parsed.pathname.toLowerCase()
+    
+    // 排除DASH/HLS片段格式
+    if (isExcludedExtension(pathname)) {
+      return null
+    }
     
     // 只检查路径末尾的完整文件扩展名
     // 避免匹配URL路径中间或查询参数中的关键词
@@ -157,6 +170,11 @@ export function detectMediaFromUrl(url: string): string | null {
     // 如果URL解析失败，进行保守的检测
     const lowerUrl = url.toLowerCase()
     
+    // 排除DASH/HLS片段格式
+    if (isExcludedExtension(lowerUrl)) {
+      return null
+    }
+    
     // 只检查明显的扩展名模式（前面有点号，后面是查询参数或结束）
     for (const [ext, format] of Object.entries(EXTENSION_MAP)) {
       const extPattern = new RegExp(`\\${ext}(?:[?#]|$)`, 'i')
@@ -194,7 +212,7 @@ export function isAudioFormat(value: unknown): boolean {
   if (!url) return false
   
   const format = detectMediaFromUrl(url)
-  const audioFormats = ['mp3', 'm4a', 'oga', 'weba', 'wav', 'flac', 'aac']
+  const audioFormats = ['mp3',  'oga', 'weba', 'wav', 'flac', 'aac']
   return format !== null && audioFormats.includes(format)
 }
 
