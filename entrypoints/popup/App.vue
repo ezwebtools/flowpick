@@ -604,11 +604,24 @@
     imageLoadStatus.set(url, true)
   }
 
+  const sanitizeFilename = (name: string): string => {
+    const invalidChars = /[<>:"/\\|?*\x00-\x1f]/g
+    let sanitized = name.replace(invalidChars, '_')
+    sanitized = sanitized.replace(/[\s.]+$/g, '').replace(/^[.\s]+/g, '')
+    sanitized = sanitized.replace(/\.{2,}/g, '_')
+    sanitized = sanitized.replace(/\s+/g, '_')
+    if (sanitized.length === 0) sanitized = 'download'
+    if (sanitized.length > 100) sanitized = sanitized.slice(0, 100)
+    return sanitized
+  }
+
   const downloadUrl = (url: string, format: string) => {
-    const filename = getDownloadFilename(url, format)
+    let filename: string
     if (isStreamFormat(format)) {
+      filename = sanitizeFilename(currentTabTitle)
       browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename })
     } else {
+      filename = getDownloadFilename(url, format)
       browser.downloads.download({ url, filename })
     }
   }
@@ -632,11 +645,15 @@
   const batchDownload = () => {
     const items = filteredMediaList.value.filter((_, index) => selectedItems.value.has(index))
     const subDir = sanitizeDirectoryName(currentTabTitle)
-    items.forEach(item => {
-      const filename = getBatchDownloadFilename(item.url, item.format, subDir)
+    items.forEach((item, idx) => {
+      let filename: string
       if (isStreamFormat(item.format)) {
+        const baseName = sanitizeFilename(currentTabTitle)
+        const suffix = items.length > 1 ? `_${idx + 1}` : ''
+        filename = `${baseName}${suffix}`
         browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url: item.url, format: item.format, filename })
       } else {
+        filename = getBatchDownloadFilename(item.url, item.format, subDir)
         browser.downloads.download({ url: item.url, filename })
       }
     })

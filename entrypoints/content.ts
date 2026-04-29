@@ -15,6 +15,26 @@ export default defineContentScript({
       if (event.data?.type === 'FLOWPICK_PING') {
         window.postMessage({ type: 'FLOWPICK_PONG' }, '*')
       }
+      if (event.data?.type === 'FLOWPICK_REQUEST_DOWNLOAD') {
+        let retries = 0
+        function tryFetch() {
+          browser.runtime.sendMessage({ type: 'FLOWPICK_DOWNLOAD_READY' }).then((resp: any) => {
+            if (resp?.ok && resp.url) {
+              window.postMessage({
+                type: 'FLOWPICK_DOWNLOAD_DATA',
+                url: resp.url,
+                format: resp.format,
+                filename: resp.filename,
+                sourceUrl: resp.sourceUrl,
+              }, '*')
+            } else if (retries < 20) {
+              retries++
+              setTimeout(tryFetch, 300)
+            }
+          })
+        }
+        tryFetch()
+      }
     })
 
     window.dispatchEvent(new CustomEvent('m3u8ext:ready'))
@@ -62,18 +82,6 @@ export default defineContentScript({
       }
     })
 
-    if (location.hostname === 'localhost' && location.pathname === '/m3u8-download') {
-      browser.runtime.sendMessage({ type: 'FLOWPICK_DOWNLOAD_READY' }).then((resp: any) => {
-        if (resp?.ok && resp.url) {
-          window.postMessage({
-            type: 'FLOWPICK_DOWNLOAD_DATA',
-            url: resp.url,
-            format: resp.format,
-            filename: resp.filename,
-          }, '*')
-        }
-      })
-    }
 
     function getFilenameFromUrl(url: string): string {
       try {

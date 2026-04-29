@@ -70,7 +70,7 @@ export function useM3u8Ext(options: UseM3u8ExtOptions = {}) {
       setTimeout(() => {
         window.removeEventListener('message', handler)
         resolve(false)
-      }, 5000)
+      }, 15000)
     })
   }
 

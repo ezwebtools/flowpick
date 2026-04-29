@@ -89,6 +89,7 @@ export default defineBackground(() => {
     url: string
     format: string
     filename: string
+    sourceUrl: string
   }
   const downloadSessions = new Map<string, DownloadSession>()
   const pendingDownloads = new Map<number, DownloadSession>()
@@ -218,14 +219,17 @@ export default defineBackground(() => {
   })
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    if (msg.type === 'OPEN_DOWNLOAD_PAGE' || msg.type === 'FLOWPICK_DOWNLOAD_READY') {
-      return handleMessage(msg, sender, sendResponse)
+    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS']
+    if (asyncTypes.includes(msg.type)) {
+      handleMessage(msg, sender, sendResponse)
+      return true
     }
     if (!isDataLoaded) {
       pendingMessages.push({msg, sender, sendResponse})
       return true
     }
-    return handleMessage(msg, sender, sendResponse)
+    handleMessage(msg, sender, sendResponse)
+    return true
   })
 
   async function handleMessage(msg: any, sender: any, sendResponse: (response?: any) => void) {
@@ -237,9 +241,11 @@ export default defineBackground(() => {
 
     if (msg.type === 'OPEN_DOWNLOAD_PAGE') {
       const { url, format, filename } = msg
-      const tab = await browser.tabs.create({ url: 'http://localhost:3001/m3u8-downloader' })
+      const sourceUrl = sender.tab?.url || ''
+      const downloaderPage = format === 'mpd' ? 'dash-downloader' : 'm3u8-downloader'
+      const tab = await browser.tabs.create({ url: `http://localhost:3001/${downloaderPage}` })
       if (tab.id) {
-        pendingDownloads.set(tab.id, { url, format, filename })
+        pendingDownloads.set(tab.id, { url, format, filename, sourceUrl })
       }
       sendResponse({ ok: true })
       return true
@@ -250,7 +256,7 @@ export default defineBackground(() => {
       if (tabId && pendingDownloads.has(tabId)) {
         const session = pendingDownloads.get(tabId)!
         pendingDownloads.delete(tabId)
-        sendResponse({ ok: true, url: session.url, format: session.format, filename: session.filename })
+        sendResponse({ ok: true, url: session.url, format: session.format, filename: session.filename, sourceUrl: session.sourceUrl })
       } else {
         sendResponse({ ok: false })
       }
@@ -271,7 +277,8 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'GET_CURRENT_TAB') {
-      return Promise.resolve(sender.tab)
+      sendResponse(sender.tab)
+      return true
     }
 
     if (msg.type === 'GET_VIDEO_DIMENSIONS') {
