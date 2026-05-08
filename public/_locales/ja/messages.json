@@ -80,14 +80,11 @@
     "sniffingRules":{
         "message": "スニッフィングルール"
     },
-    "sniffingRulesDesc":{
-        "message": "リソースタイプごとにスニッフィングを制御し、最小キャプチャサイズを設定"
-    },
     "type":{
         "message": "タイプ"
     },
     "sniff":{
-        "message": "スニッフ"
+        "message": "有効"
     },
     "minSizeKB":{
         "message": "最小サイズ (KB)"
@@ -262,6 +259,12 @@
     },
     "downloadSelected":{
         "message": "選択をダウンロード"
+    },
+    "clearList":{
+        "message": "現在のページのメディアリストをクリア"
+    },
+    "refreshPage":{
+        "message": "現在のページを更新"
     },
     "filter":{
         "message": "フィルター"

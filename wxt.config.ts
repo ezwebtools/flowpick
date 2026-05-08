@@ -11,7 +11,7 @@ export default defineConfig({
     default_locale: 'en',
     permissions: [
       'storage', 'tabs', 'webRequest', 'downloads',
-      ...(browser !== 'firefox' ? ['sidePanel'] : []),
+      ...(browser !== 'firefox' ? ['sidePanel'] : ['webRequestBlocking']),
     ],
     host_permissions: ['<all_urls>'],
     web_accessible_resources: [
@@ -20,13 +20,25 @@ export default defineConfig({
         matches: ['<all_urls>'],
       },
     ],
-    homepage_url: 'https://github.com/ezwebtools/flowpick',
+    homepage_url: 'https://flowpick.net',
     minimum_chrome_version: browser === 'firefox' ? undefined : '102',
-    ...(browser !== 'firefox' ? {
-      side_panel: {
-        default_path: 'sidepanel.html',
-        open_at_install: false,
-      },
-    } : {}),
+    ...(browser !== 'firefox'
+      ? {}
+      : {
+        sidebar_action: {
+          default_panel: 'sidepanel.html',
+          default_title: 'FlowPick',
+          open_at_install: false,
+        },
+        browser_action: {
+          default_title: 'FlowPick',
+          default_icon: {
+            '16': 'icon/16.png',
+            '32': 'icon/32.png',
+            '48': 'icon/48.png',
+            '128': 'icon/128.png',
+          },
+        },
+      }),
   }),
 });

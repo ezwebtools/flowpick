@@ -80,14 +80,11 @@
     "sniffingRules":{
         "message": "嗅探规则"
     },
-    "sniffingRulesDesc":{
-        "message": "按资源类型控制嗅探并设置最小捕获大小"
-    },
     "type":{
         "message": "类型"
     },
     "sniff":{
-        "message": "嗅探"
+        "message": "启用"
     },
     "minSizeKB":{
         "message": "最小大小 (KB)"
@@ -262,6 +259,12 @@
     },
     "downloadSelected":{
         "message": "下载所选"
+    },
+    "clearList":{
+        "message": "清理当前页面媒体列表"
+    },
+    "refreshPage":{
+        "message": "刷新当前页面"
     },
     "filter":{
         "message": "过滤"

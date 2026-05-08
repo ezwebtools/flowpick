@@ -258,6 +258,21 @@
     }
   }
 
+  async function clearCurrentList() {
+    if (currentTabId === undefined) return
+    await browser.runtime.sendMessage({ type: 'CLEAR_LIST', tabId: currentTabId })
+    mediaList.value = []
+    selectedItems.value.clear()
+    imageLoadStatus.value.clear()
+    videoDimensionCache.value.clear()
+    audioDurationCache.value.clear()
+  }
+
+  async function refreshPage() {
+    if (currentTabId === undefined) return
+    await browser.tabs.reload(currentTabId)
+  }
+
   // ── Helpers ───────────────────────────────────────────────────────
   const getFileName = (url: string): string => {
     try {
@@ -710,10 +725,12 @@
   async function triggerSave() {
     const domains = parseExcludeDomains(excludeDomainsText.value)
     settings.value.excludeDomains = domains
-    await saveSettings({
-      sniffingRules: settings.value.sniffingRules,
-      excludeDomains: Array.from(domains),
-    })
+    try {
+      await saveSettings({
+        sniffingRules: settings.value.sniffingRules,
+        excludeDomains: Array.from(domains),
+      })
+    } catch {}
     settingsSaved.value = true
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => { settingsSaved.value = false }, 2500)
@@ -767,7 +784,9 @@
       clearTimeout(textSaveTimer)
       textSaveTimer = null
     }
-    await triggerSave()
+    try {
+      await triggerSave()
+    } catch {}
     view.value = 'list'
   }
 </script>
@@ -827,7 +846,22 @@
                 <span v-if="selectedItems.size > 0">{{ selectedItems.size }}</span>
               </button>
             </div>
-            <button @click="showFilter = !showFilter" 
+            <div class="flex items-center gap-1">
+              <button @click="clearCurrentList"
+                class="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                :title="browser.i18n.getMessage('clearList' as any)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                </svg>
+              </button>
+              <button @click="refreshPage"
+                class="flex items-center justify-center w-7 h-7 rounded-md text-gray-500 dark:text-gray-400 hover:text-green-500 dark:hover:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                :title="browser.i18n.getMessage('refreshPage' as any)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                </svg>
+              </button>
+              <button @click="showFilter = !showFilter" 
               :class="[
                 'flex items-center justify-center w-7 h-7 rounded-md transition-all',
                 showFilter || typeFilter !== 'any' || sizeFilter.min > 0 || sizeFilter.max > 0 || dimensionFilter.minWidth > 0 || dimensionFilter.minHeight > 0 || resolutionFilter !== 'any'
@@ -835,10 +869,11 @@
                   : 'text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800'
               ]"
               :title="browser.i18n.getMessage('filter')">
-              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
               </svg>
             </button>
+            </div>
           </div>
           <Transition
             enter-active-class="transition-all duration-200 ease-out"
@@ -1218,23 +1253,19 @@
               <div class="w-1.5 h-4 bg-blue-500 rounded-full"></div>
               <p class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{{ browser.i18n.getMessage('sniffingRules') }}</p>
             </div>
-            <!-- 表头 -->
-            <div class="grid grid-cols-[1fr_auto_120px] items-center px-4 py-2 border-b border-gray-100 dark:border-gray-700/50 bg-gray-100/60 dark:bg-gray-700/40">
+            <div class="grid grid-cols-[1fr_72px_160px] items-center px-4 py-2 border-b border-gray-100 dark:border-gray-700/50 bg-gray-100/60 dark:bg-gray-700/40">
               <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{{ browser.i18n.getMessage('type') }}</span>
-              <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider text-center pr-3">{{ browser.i18n.getMessage('sniffingRulesDesc') }}</span>
-              <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{{ browser.i18n.getMessage('minSizeKB') }}</span>
+              <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider text-center">{{ browser.i18n.getMessage('sniff') }}</span>
+              <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider text-right">{{ browser.i18n.getMessage('minSizeKB') }}</span>
             </div>
-            <!-- 数据行 -->
             <div class="divide-y divide-gray-100 dark:divide-gray-700/50">
               <div v-for="row in SNIFFING_ROWS" :key="row.key"
-                class="grid grid-cols-[1fr_auto_120px] items-center px-4 py-3 hover:bg-gray-100/60 dark:hover:bg-gray-700/40 transition-colors duration-150">
-                <!-- 第一列：类型 -->
-                <div class="flex items-center gap-2 min-w-0">
+                class="grid grid-cols-[1fr_72px_160px] items-center px-4 py-3 hover:bg-gray-100/60 dark:hover:bg-gray-700/40 transition-colors duration-150">
+                <div class="flex items-center gap-1.5 min-w-10">
                   <span class="text-base leading-none select-none">{{ row.icon }}</span>
                   <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ row.label }}</span>
                 </div>
-                <!-- 第二列：嗅探开关 -->
-                <div class="flex justify-center pr-3">
+                <div class="flex justify-center gap-2">
                   <button
                     type="button"
                     role="switch"
@@ -1245,14 +1276,13 @@
                     <span :class="['pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out', settings.sniffingRules[row.key].enabled ? 'translate-x-4' : 'translate-x-0']" />
                   </button>
                 </div>
-                <!-- 第三列：最小大小 -->
-                <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-1.5 justify-end">
                   <input
                     type="number" min="0" step="1"
                     v-model.number="settings.sniffingRules[row.key].minSizeKB"
                     @change="triggerSave"
                     :disabled="!settings.sniffingRules[row.key].enabled"
-                    class="w-full px-2 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed"
+                    class="w-20 px-2.5 py-1.5 text-sm text-right rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed"
                   />
                   <span class="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">{{ browser.i18n.getMessage('kb') }}</span>
                 </div>
@@ -1343,5 +1373,4 @@
 
   </div>
 </template>
-
 <style scoped></style>

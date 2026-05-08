@@ -72,9 +72,11 @@ async function fetchVideoDimensions(url: string): Promise<{ width: number; heigh
 
 export default defineBackground(() => {
   const chromeGlobal = (globalThis as any).chrome
-  const supportsSidepanel = !!chromeGlobal?.sidePanel
+  const nativeBrowser = (globalThis as any).browser
+  const supportsChromeSidepanel = !!chromeGlobal?.sidePanel
+  const supportsFirefoxSidebar = !!nativeBrowser?.sidebarAction
 
-  if (supportsSidepanel) {
+  if (supportsChromeSidepanel) {
     const canOpenSidepanel = typeof chromeGlobal.sidePanel.open === 'function'
 
     if (canOpenSidepanel) {
@@ -95,6 +97,17 @@ export default defineBackground(() => {
       chromeGlobal.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
       chromeGlobal.action.setPopup({ popup: '' })
     }
+  } else if (supportsFirefoxSidebar) {
+    const browserAction = nativeBrowser.browserAction || nativeBrowser.action
+    browserAction.setPopup({ popup: '' })
+
+    browserAction.onClicked.addListener(async () => {
+      try {
+        await nativeBrowser.sidebarAction.open()
+      } catch (e) {
+        console.warn('Failed to open sidebar:', e)
+      }
+    })
   }
 
   browser.runtime.onInstalled.addListener((details) => {
@@ -218,7 +231,7 @@ export default defineBackground(() => {
       }
       return undefined
     },
-    { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'other', 'sub_frame','image'] },
+    { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'sub_frame', 'image'] },
     ['responseHeaders'],
   )
   
@@ -230,7 +243,7 @@ export default defineBackground(() => {
       // 所有媒体格式都在onHeadersReceived阶段处理以获取文件大小
       return undefined
     },
-    { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'other', 'sub_frame'] },
+    { urls: ['<all_urls>'], types: ['media', 'xmlhttprequest', 'sub_frame'] },
   )
   
   // 清理已处理的请求记录（当标签页关闭时）
@@ -265,6 +278,7 @@ export default defineBackground(() => {
       const tabId = msg.tabId || sender.tab?.id
       const format = msg.format || 'm3u8'
       if (tabId) addMedia(msg.url, tabId, format)
+      sendResponse({ ok: true })
     }
 
     if (msg.type === 'OPEN_DOWNLOAD_PAGE') {
@@ -288,6 +302,19 @@ export default defineBackground(() => {
       } else {
         sendResponse({ ok: false })
       }
+      return true
+    }
+
+    if (msg.type === 'CLEAR_LIST') {
+      const tabId = msg.tabId as number
+      tabMap.delete(tabId)
+      deleteTabList(tabId)
+      for (const key of processedRequests) {
+        if (key.startsWith(`${tabId}:`)) {
+          processedRequests.delete(key)
+        }
+      }
+      sendResponse(true)
       return true
     }
 
@@ -359,19 +386,21 @@ export default defineBackground(() => {
     mediaMap.forEach((entry, url) => {
       list.push({ url, format: entry.format, size: entry.size })
     })
-    saveTabList(tabId, mediaMap)
-    updateBadge(tabId)
+    saveTabList(tabId, mediaMap).catch(() => {})
+    try { updateBadge(tabId) } catch {}
     broadcast(tabId, list)
   }
 
   function updateBadge(tabId: number) {
     const mediaMap = tabMap.get(tabId)
     const count = mediaMap?.size ?? 0
-    browser.action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })
-    if (browser.action.setBadgeTextColor) {
-      browser.action.setBadgeTextColor({ color: '#FFFFFF', tabId })
+    const action = (browser as any).action || (browser as any).browserAction
+    if (!action) return
+    action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })
+    if (action.setBadgeTextColor) {
+      action.setBadgeTextColor({ color: '#FFFFFF', tabId })
     }
-    browser.action.setBadgeBackgroundColor({ color: '#EF4444', tabId })
+    action.setBadgeBackgroundColor({ color: '#EF4444', tabId })
   }
 
   function broadcast(tabId: number, list: Array<{url: string, format: string, size?: number}>) {

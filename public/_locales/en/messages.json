@@ -80,14 +80,11 @@
     "sniffingRules":{
         "message": "Sniffing Rules"
     },
-    "sniffingRulesDesc":{
-        "message": "Control sniffing per resource type and set minimum capture size"
-    },
     "type":{
         "message": "Type"
     },
     "sniff":{
-        "message": "Sniff"
+        "message": "Enabled"
     },
     "minSizeKB":{
         "message": "Min Size (KB)"
@@ -262,6 +259,12 @@
     },
     "downloadSelected":{
         "message": "Download Selected"
+    },
+    "clearList":{
+        "message": "Clear current page media list"
+    },
+    "refreshPage":{
+        "message": "Refresh current page"
     },
     "filter":{
         "message": "Filter"
