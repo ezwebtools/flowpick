@@ -1,0 +1,317 @@
+{
+    "extName": {
+        "message": "FlowPick - Medien-Sniffer und Downloader"
+    },
+    "extDescription": {
+        "message": "Automatische Erkennung und Download von M3U8/HLS-Streams, Videos, Audio und Bildern. Integrierter Player. Stapel-Download. 100% lokal und privat."
+    },
+    "title":{
+        "message": "FlowPick"
+    },
+    "home":{
+        "message": "Startseite"
+    },
+    "download":{
+        "message": "Herunterladen"
+    },
+    "help":{
+        "message": "Hilfe"
+    },
+    "about":{
+        "message": "Über"
+    },
+    "copy":{
+        "message": "Kopieren"
+    },
+    "copyTips":{
+        "message": "Erfolgreich kopiert!"
+    },
+    "copyUrl":{
+        "message": "URL kopieren"
+    },
+    "settings":{
+        "message": "Einstellungen"
+    },
+    "more":{
+        "message": "Mehr"
+    },
+    "clear":{
+        "message": "Löschen"
+    },
+    "unknown":{
+        "message": "Unbekannt"
+    },
+    "feedback":{
+        "message": "Feedback"
+    },
+    "found":{
+        "message": "Erkannt: "
+    },
+    "item":{
+        "message": "Element"
+    },
+    "play":{
+        "message": "Abspielen"
+    },
+    "notFound":{
+        "message": "Keine Medien erkannt"
+    },
+    "playTips":{
+        "message": "Spielen Sie ein Video oder Audio ab, oder laden Sie ein Bild, um Medienressourcen zu erkennen."
+    },
+    "unplayable":{
+        "message": "Ihr Browser unterstützt die Videowiedergabe nicht."
+    },
+    "playError":{
+        "message": "Wiedergabefehler: "
+    },
+    "stopPlay":{
+        "message": "Wiedergabe beenden"
+    },
+    "audioPlayError":{
+        "message": "Audio-Wiedergabefehler"
+    },
+    "optionsTitle":{
+        "message": "Einstellungen"
+    },
+    "saved":{
+        "message": "Gespeichert"
+    },
+    "sniffingRules":{
+        "message": "Erkennungsregeln"
+    },
+    "type":{
+        "message": "Typ"
+    },
+    "sniff":{
+        "message": "Aktiviert"
+    },
+    "minSizeKB":{
+        "message": "Min. Größe (KB)"
+    },
+    "streaming":{
+        "message": "Streaming"
+    },
+    "streamingHint":{
+        "message": "HLS / DASH / M3U8"
+    },
+    "video":{
+        "message": "Video"
+    },
+    "videoHint":{
+        "message": "MP4, WebM, MKV…"
+    },
+    "audio":{
+        "message": "Audio"
+    },
+    "audioHint":{
+        "message": "MP3, AAC, FLAC…"
+    },
+    "image":{
+        "message": "Bild"
+    },
+    "imageHint":{
+        "message": "PNG, JPG, WebP…"
+    },
+    "kb":{
+        "message": "KB"
+    },
+    "excludeDomains":{
+        "message": "Ausgeschlossene Domains"
+    },
+    "excludeDomainsDesc":{
+        "message": "Die Erkennung wird auf diesen Domains deaktiviert. Eine pro Zeile (z.B. twitter.com)"
+    },
+    "excludeDomainsPlaceholder":{
+        "message": "twitter.com\nfacebook.com\ninstagram.com"
+    },
+    "keyboardShortcuts":{
+        "message": "Tastenkürzel"
+    },
+    "keyboardShortcutsDesc":{
+        "message": "Tastenkürzel zum Öffnen des Erweiterungs-Panels konfigurieren"
+    },
+    "manageShortcuts":{
+        "message": "Tastenkürzel in den Chrome-Erweiterungseinstellungen verwalten"
+    },
+    "openShortcuts":{
+        "message": "Tastenkürzel öffnen"
+    },
+    "resetToDefaults":{
+        "message": "Auf Standardwerte zurücksetzen"
+    },
+    "resetConfirm":{
+        "message": "Klicken Sie erneut, um das Zurücksetzen zu bestätigen"
+    },
+    "welcomeSubtitle":{
+        "message": "Intelligenter Medien-Sniffer und Downloader"
+    },
+    "tutorialTitle":{
+        "message": "Erste Schritte"
+    },
+    "step1Title":{
+        "message": "Erweiterung installieren"
+    },
+    "step1Desc":{
+        "message": "Nach der Installation erscheint das FlowPick-Symbol in der Browser-Symbolleiste. Klicken Sie auf das Symbol, um das Erweiterungs-Popup zu öffnen."
+    },
+    "step2Title":{
+        "message": "Eine Videoseite öffnen"
+    },
+    "step2Desc":{
+        "message": "Besuchen Sie eine Webseite mit Video- oder Audioinhalten, und FlowPick erkennt automatisch Medienressourcen. Wenn Ressourcen erkannt werden, zeigt das Erweiterungssymbol die Anzahl an."
+    },
+    "step3Title":{
+        "message": "Video abspielen, um Erkennung auszulösen"
+    },
+    "step3Desc":{
+        "message": "Einige Videos müssen zuerst abgespielt werden, bevor die Erweiterung die Streaming-URL erfassen kann. Wenn keine Zahl auf dem Symbol erscheint, versuchen Sie, das Video abzuspielen."
+    },
+    "step4Title":{
+        "message": "Erkannte Ressourcen anzeigen"
+    },
+    "step4Desc":{
+        "message": "Klicken Sie auf das Erweiterungssymbol, um alle erkannten Medienressourcen im Popup anzuzeigen. Sie können nach Typ (Streaming, Video, Audio, Bild) filtern und Format- oder Größenfilter für eine präzise Suche verwenden."
+    },
+    "step5Title":{
+        "message": "Herunterladen oder Kopieren"
+    },
+    "step5Desc":{
+        "message": "Klicken Sie in der Ressourcenliste auf die Download-Schaltfläche, um eine Datei herunterzuladen, oder auf die Kopier-Schaltfläche, um die Ressourcen-URL zu kopieren. Sie können auch mehrere Dateien für den Stapel-Download auswählen."
+    },
+    "step6Title":{
+        "message": "Einstellungen anpassen"
+    },
+    "step6Desc":{
+        "message": "Klicken Sie auf das Einstellungssymbol im Popup, um die Erkennung nach Typ ein-/auszuschalten, die minimale Erfassungsgröße festzulegen, bestimmte Domains auszuschließen und Tastenkürzel zu konfigurieren."
+    },
+    "faqTitle":{
+        "message": "Häufig gestellte Fragen"
+    },
+    "faq1Q":{
+        "message": "Warum werden einige Videos nicht erkannt?"
+    },
+    "faq1A":{
+        "message": "Einige Websites verwenden spezielle Verschlüsselung oder dynamische Ladetechniken (z.B. DRM-Schutz), was verhindert, dass die Erweiterung Videostreams erfasst. Außerdem werden bestimmte Streaming-URLs erst ausgelöst, wenn das Video abgespielt wird. Wir empfehlen, das Video zuerst abzuspielen und zu warten, bis eine Zahl auf dem Erweiterungssymbol erscheint."
+    },
+    "faq2Q":{
+        "message": "Was soll ich tun, wenn die heruntergeladene M3U8-Datei nicht abgespielt wird?"
+    },
+    "faq2A":{
+        "message": "M3U8 ist eine Indexdatei, nicht das Video selbst. Sie müssen einen HLS-kompatiblen Player (wie VLC) verwenden, um sie abzuspielen, oder ein dediziertes Tool verwenden, um M3U8 in das MP4-Format zu konvertieren. Die Erweiterung versucht, eine direkte Download-Option bereitzustellen, wenn ein M3U8-Stream erkannt wird."
+    },
+    "faq3Q":{
+        "message": "Erfasst die Erweiterung meine privaten Daten?"
+    },
+    "faq3A":{
+        "message": "Nein. Diese Erweiterung läuft vollständig lokal und sendet keine Daten an externe Server. Alle Erkennungs- und Download-Vorgänge werden in Ihrem Browser abgeschlossen."
+    },
+    "faq4Q":{
+        "message": "Warum zeigt das Symbol keine Erkennungsanzahl?"
+    },
+    "faq4A":{
+        "message": "Die Erweiterung zeigt nur dann eine Anzahl auf dem Symbol an, wenn Medienressourcen auf der aktuellen Registerkarte erkannt werden. Bitte stellen Sie sicher, dass: 1) Sie eine Webseite mit Video geöffnet haben; 2) Das Video abgespielt wird; 3) Die Website nicht in der Liste der ausgeschlossenen Domains ist."
+    },
+    "faq5Q":{
+        "message": "Wie schließe ich unerwünschte Domains aus?"
+    },
+    "faq5A":{
+        "message": "Klicken Sie auf das Einstellungssymbol im Erweiterungs-Popup, geben Sie die Domains, die Sie ausschließen möchten, im Abschnitt \"Ausgeschlossene Domains\" ein (eine pro Zeile, z.B. twitter.com). Nach dem Speichern wird die Medienerkennung auf diesen Domains deaktiviert."
+    },
+    "faq6Q":{
+        "message": "Warum ist die Download-Geschwindigkeit langsam?"
+    },
+    "faq6A":{
+        "message": "Die Download-Geschwindigkeit hängt von der Bandbreite des Video-Quellservers und Ihrer Netzwerkumgebung ab. Die Erweiterung verwendet die native Download-Funktion des Browsers, sodass die Geschwindigkeit dieselbe ist wie beim direkten Herunterladen von Dateien im Browser. Wenn die Geschwindigkeit ständig langsam ist, drosselt der Quellserver möglicherweise die Downloads."
+    },
+    "faq7Q":{
+        "message": "Wie richte ich Tastenkürzel ein?"
+    },
+    "faq7A":{
+        "message": "Finden Sie auf der Einstellungsseite des Erweiterungs-Popups den Abschnitt \"Tastenkürzel\" und klicken Sie auf die Schaltfläche \"Tastenkürzel öffnen\", um zur Tastenkürzel-Verwaltungsseite des Browsers zu gelangen und diese zu konfigurieren."
+    },
+    "faq8Q":{
+        "message": "Warum zeigt Firefox ein anderes Layout als Chrome?"
+    },
+    "faq8A":{
+        "message": "Firefox und Chrome unterscheiden sich in der Darstellung von CSS-Flexbox- und Grid-Layouts. FlowPick wurde optimiert, um eine konsistente Benutzeroberfläche in beiden Browsern zu gewährleisten. Wenn Sie Anzeigeprobleme feststellen, melden Sie diese bitte auf GitHub."
+    },
+    "faq9Q":{
+        "message": "Warum finde ich auf bestimmten Seiten keine Videos?"
+    },
+    "faq9A":{
+        "message": "Einige Websites verwenden spezielle Verschlüsselung, DRM-Schutz oder verschleierte Lade-Techniken, die die Medien-URL-Erfassung verhindern. Videos können auch über eingebettete iframes mit Cross-Origin-Einschränkungen bereitgestellt werden. Versuchen Sie, die Seite zu aktualisieren und das Video zuerst abzuspielen, um die Erkennung auszulösen."
+    },
+    "needMoreHelp":{
+        "message": "Benötigen Sie weitere Hilfe?"
+    },
+    "needMoreHelpDesc":{
+        "message": "Wenn die oben genannten Inhalte Ihr Problem nicht lösen, können Sie über Folgendes Unterstützung erhalten"
+    },
+    "subtitle":{
+        "message": "Intelligentes Sniffing, Einklick-Download"
+    },
+    "tabAll":{
+        "message": "Alle"
+    },
+    "tabStream":{
+        "message": "Stream"
+    },
+    "selectAll":{
+        "message": "Alle auswählen"
+    },
+    "deselectAll":{
+        "message": "Auswahl aufheben"
+    },
+    "downloadSelected":{
+        "message": "Ausgewählte herunterladen"
+    },
+    "clearList":{
+        "message": "Aktuelle Seiten-Medienliste löschen"
+    },
+    "refreshPage":{
+        "message": "Aktuelle Seite aktualisieren"
+    },
+    "filter":{
+        "message": "Filter"
+    },
+    "filterType":{
+        "message": "Typ"
+    },
+    "any":{
+        "message": "Beliebig"
+    },
+    "filterSize":{
+        "message": "Größe"
+    },
+    "min":{
+        "message": "Min."
+    },
+    "max":{
+        "message": "Max."
+    },
+    "filterDimension":{
+        "message": "Abmessungen"
+    },
+    "width":{
+        "message": "Breite"
+    },
+    "height":{
+        "message": "Höhe"
+    },
+    "filterResolution":{
+        "message": "Auflösung"
+    },
+    "reset":{
+        "message": "Zurücksetzen"
+    },
+    "preview":{
+        "message": "Vorschau"
+    },
+    "batchDownloadStarted":{
+        "message": "Download von $1 Datei(en) gestartet"
+    },
+    "open":{
+        "message": "Öffnen"
+    }
+}

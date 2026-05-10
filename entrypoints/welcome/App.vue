@@ -17,6 +17,7 @@
     { questionKey: 'faq6Q', answerKey: 'faq6A', open: false },
     { questionKey: 'faq7Q', answerKey: 'faq7A', open: false },
     { questionKey: 'faq8Q', answerKey: 'faq8A', open: false },
+    { questionKey: 'faq9Q', answerKey: 'faq9A', open: false },
   ])
 
   function toggleFaq(index: number) {

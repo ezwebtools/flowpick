@@ -1,0 +1,317 @@
+{
+    "extName": {
+        "message": "FlowPick - Detector y Descargador de Medios"
+    },
+    "extDescription": {
+        "message": "Detección y descarga automática de transmisiones M3U8/HLS, vídeos, audio e imágenes. Reproductor integrado. Descarga por lotes. 100% local y privado."
+    },
+    "title":{
+        "message": "FlowPick"
+    },
+    "home":{
+        "message": "Inicio"
+    },
+    "download":{
+        "message": "Descargar"
+    },
+    "help":{
+        "message": "Ayuda"
+    },
+    "about":{
+        "message": "Acerca de"
+    },
+    "copy":{
+        "message": "Copiar"
+    },
+    "copyTips":{
+        "message": "¡Copiado correctamente!"
+    },
+    "copyUrl":{
+        "message": "Copiar URL"
+    },
+    "settings":{
+        "message": "Configuración"
+    },
+    "more":{
+        "message": "Más"
+    },
+    "clear":{
+        "message": "Limpiar"
+    },
+    "unknown":{
+        "message": "Desconocido"
+    },
+    "feedback":{
+        "message": "Comentarios"
+    },
+    "found":{
+        "message": "Detectado: "
+    },
+    "item":{
+        "message": "elemento"
+    },
+    "play":{
+        "message": "Reproducir"
+    },
+    "notFound":{
+        "message": "No se detectaron medios"
+    },
+    "playTips":{
+        "message": "Reproduce un vídeo o audio, o carga una imagen para detectar recursos multimedia."
+    },
+    "unplayable":{
+        "message": "Tu navegador no admite la reproducción de vídeo."
+    },
+    "playError":{
+        "message": "Error de reproducción: "
+    },
+    "stopPlay":{
+        "message": "Detener reproducción"
+    },
+    "audioPlayError":{
+        "message": "Error de reproducción de audio"
+    },
+    "optionsTitle":{
+        "message": "Configuración"
+    },
+    "saved":{
+        "message": "Guardado"
+    },
+    "sniffingRules":{
+        "message": "Reglas de Detección"
+    },
+    "type":{
+        "message": "Tipo"
+    },
+    "sniff":{
+        "message": "Activado"
+    },
+    "minSizeKB":{
+        "message": "Tamaño Mín. (KB)"
+    },
+    "streaming":{
+        "message": "Transmisión"
+    },
+    "streamingHint":{
+        "message": "HLS / DASH / M3U8"
+    },
+    "video":{
+        "message": "Vídeo"
+    },
+    "videoHint":{
+        "message": "MP4, WebM, MKV…"
+    },
+    "audio":{
+        "message": "Audio"
+    },
+    "audioHint":{
+        "message": "MP3, AAC, FLAC…"
+    },
+    "image":{
+        "message": "Imagen"
+    },
+    "imageHint":{
+        "message": "PNG, JPG, WebP…"
+    },
+    "kb":{
+        "message": "KB"
+    },
+    "excludeDomains":{
+        "message": "Dominios Excluidos"
+    },
+    "excludeDomainsDesc":{
+        "message": "La detección estará deshabilitada en estos dominios. Uno por línea (ej. twitter.com)"
+    },
+    "excludeDomainsPlaceholder":{
+        "message": "twitter.com\nfacebook.com\ninstagram.com"
+    },
+    "keyboardShortcuts":{
+        "message": "Atajos de Teclado"
+    },
+    "keyboardShortcutsDesc":{
+        "message": "Configura atajos para abrir el panel de la extensión"
+    },
+    "manageShortcuts":{
+        "message": "Administrar atajos de teclado en la configuración de extensiones de Chrome"
+    },
+    "openShortcuts":{
+        "message": "Abrir Atajos"
+    },
+    "resetToDefaults":{
+        "message": "Restablecer valores predeterminados"
+    },
+    "resetConfirm":{
+        "message": "Haz clic de nuevo para confirmar el restablecimiento"
+    },
+    "welcomeSubtitle":{
+        "message": "Detector y Descargador Inteligente de Medios"
+    },
+    "tutorialTitle":{
+        "message": "Primeros Pasos"
+    },
+    "step1Title":{
+        "message": "Instalar la Extensión"
+    },
+    "step1Desc":{
+        "message": "Después de la instalación, el icono de FlowPick aparecerá en la barra de herramientas del navegador. Haz clic en el icono para abrir el popup de la extensión."
+    },
+    "step2Title":{
+        "message": "Abrir una Página con Vídeo"
+    },
+    "step2Desc":{
+        "message": "Visita una página web que contenga vídeo o audio, y FlowPick detectará automáticamente los recursos multimedia. Cuando se detecten recursos, el icono de la extensión mostrará la cantidad."
+    },
+    "step3Title":{
+        "message": "Reproducir Vídeo para Activar la Detección"
+    },
+    "step3Desc":{
+        "message": "Algunos vídeos necesitan reproducirse primero antes de que la extensión pueda capturar la URL de transmisión. Si no aparece ningún número en el icono, intenta reproducir el vídeo."
+    },
+    "step4Title":{
+        "message": "Ver los Recursos Detectados"
+    },
+    "step4Desc":{
+        "message": "Haz clic en el icono de la extensión para ver todos los recursos multimedia detectados en el popup. Puedes filtrar por tipo (transmisión, vídeo, audio, imagen) y usar filtros de formato o tamaño para una búsqueda precisa."
+    },
+    "step5Title":{
+        "message": "Descargar o Copiar"
+    },
+    "step5Desc":{
+        "message": "En la lista de recursos, haz clic en el botón de descarga para descargar un archivo, o haz clic en el botón de copiar para copiar la URL del recurso. También puedes seleccionar varios archivos para descarga por lotes."
+    },
+    "step6Title":{
+        "message": "Personalizar la Configuración"
+    },
+    "step6Desc":{
+        "message": "Haz clic en el icono de configuración del popup para activar/desactivar la detección por tipo, establecer el tamaño mínimo de captura, excluir dominios específicos y configurar atajos de teclado."
+    },
+    "faqTitle":{
+        "message": "Preguntas Frecuentes"
+    },
+    "faq1Q":{
+        "message": "¿Por qué no se detectan algunos vídeos?"
+    },
+    "faq1A":{
+        "message": "Algunos sitios web utilizan cifrado especial o técnicas de carga dinámica (como protección DRM), lo que impide que la extensión capture las transmisiones de vídeo. Además, ciertas URLs de transmisión no se activan hasta que el vídeo comienza a reproducirse. Recomendamos reproducir el vídeo primero y esperar a que aparezca un número en el icono de la extensión."
+    },
+    "faq2Q":{
+        "message": "¿Qué debo hacer si el archivo M3U8 descargado no se reproduce?"
+    },
+    "faq2A":{
+        "message": "M3U8 es un archivo de índice, no el vídeo en sí. Necesitas usar un reproductor compatible con HLS (como VLC) para reproducirlo, o usar una herramienta dedicada para convertir M3U8 a formato MP4. La extensión intentará proporcionar una opción de descarga directa cuando se detecte una transmisión M3U8."
+    },
+    "faq3Q":{
+        "message": "¿La extensión recopila mis datos privados?"
+    },
+    "faq3A":{
+        "message": "No. Esta extensión se ejecuta completamente en local y no envía ningún dato a servidores externos. Todas las operaciones de detección y descarga se completan en tu navegador."
+    },
+    "faq4Q":{
+        "message": "¿Por qué el icono no muestra la cantidad de detección?"
+    },
+    "faq4A":{
+        "message": "La extensión solo muestra una cantidad en el icono cuando se detectan recursos multimedia en la pestaña actual. Asegúrate de: 1) Haber abierto una página web con vídeo; 2) El vídeo ha comenzado a reproducirse; 3) El sitio web no está en la lista de dominios excluidos."
+    },
+    "faq5Q":{
+        "message": "¿Cómo excluyo dominios no deseados?"
+    },
+    "faq5A":{
+        "message": "Haz clic en el icono de configuración en el popup de la extensión, introduce los dominios que deseas excluir en la sección \"Dominios Excluidos\" (uno por línea), ej. twitter.com. Después de guardar, la detección de medios estará deshabilitada en esos dominios."
+    },
+    "faq6Q":{
+        "message": "¿Por qué la velocidad de descarga es lenta?"
+    },
+    "faq6A":{
+        "message": "La velocidad de descarga depende del ancho de banda del servidor de origen del vídeo y de tu entorno de red. La extensión utiliza la función de descarga nativa del navegador, por lo que la velocidad es la misma que descargar archivos directamente en el navegador. Si la velocidad es constantemente lenta, puede que el servidor de origen esté limitando las descargas."
+    },
+    "faq7Q":{
+        "message": "¿Cómo configuro los atajos de teclado?"
+    },
+    "faq7A":{
+        "message": "En la página de configuración del popup de la extensión, encuentra la sección \"Atajos de Teclado\" y haz clic en el botón \"Abrir Atajos\" para ir a la página de administración de atajos del navegador y configurarlos."
+    },
+    "faq8Q":{
+        "message": "¿Por qué Firefox muestra un diseño diferente a Chrome?"
+    },
+    "faq8A":{
+        "message": "Firefox y Chrome tienen algunas diferencias en la representación de diseños CSS flexbox y grid. FlowPick ha sido optimizado para mantener una interfaz de usuario consistente en ambos navegadores. Si detectas algún problema de visualización, repórtalo en GitHub."
+    },
+    "faq9Q":{
+        "message": "¿Por qué no puedo encontrar vídeos en ciertas páginas?"
+    },
+    "faq9A":{
+        "message": "Algunos sitios web utilizan cifrado especial, protección DRM o técnicas de carga ofuscadas que impiden la captura de URLs multimedia. Los vídeos también pueden servirse desde iframes embebidos con restricciones de origen cruzado. Intenta actualizar la página y reproducir el vídeo primero para activar la detección."
+    },
+    "needMoreHelp":{
+        "message": "¿Necesitas más ayuda?"
+    },
+    "needMoreHelpDesc":{
+        "message": "Si el contenido anterior no resolvió tu problema, no dudes en obtener soporte a través de lo siguiente"
+    },
+    "subtitle":{
+        "message": "Detección Inteligente, Descarga con Un Clic"
+    },
+    "tabAll":{
+        "message": "Todo"
+    },
+    "tabStream":{
+        "message": "Transmisión"
+    },
+    "selectAll":{
+        "message": "Seleccionar Todo"
+    },
+    "deselectAll":{
+        "message": "Deseleccionar Todo"
+    },
+    "downloadSelected":{
+        "message": "Descargar Seleccionados"
+    },
+    "clearList":{
+        "message": "Limpiar lista de medios de la página actual"
+    },
+    "refreshPage":{
+        "message": "Actualizar página actual"
+    },
+    "filter":{
+        "message": "Filtrar"
+    },
+    "filterType":{
+        "message": "Tipo"
+    },
+    "any":{
+        "message": "Cualquiera"
+    },
+    "filterSize":{
+        "message": "Tamaño"
+    },
+    "min":{
+        "message": "Mín."
+    },
+    "max":{
+        "message": "Máx."
+    },
+    "filterDimension":{
+        "message": "Dimensiones"
+    },
+    "width":{
+        "message": "Ancho"
+    },
+    "height":{
+        "message": "Alto"
+    },
+    "filterResolution":{
+        "message": "Resolución"
+    },
+    "reset":{
+        "message": "Restablecer"
+    },
+    "preview":{
+        "message": "Vista Previa"
+    },
+    "batchDownloadStarted":{
+        "message": "Descarga de $1 archivo(s) iniciada"
+    },
+    "open":{
+        "message": "Abrir"
+    }
+}
