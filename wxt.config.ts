@@ -28,6 +28,13 @@ export default defineConfig({
         sidebar_action: {
           default_panel: 'sidepanel.html',
           default_title: 'FlowPick',
+          default_icon: {
+            '16': 'icon/16.png',
+            '32': 'icon/32.png',
+            '48': 'icon/48.png',
+            '128': 'icon/128.png',
+          },
+          browser_style: false,
           open_at_install: false,
         },
         browser_action: {

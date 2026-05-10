@@ -73,29 +73,36 @@ async function fetchVideoDimensions(url: string): Promise<{ width: number; heigh
 export default defineBackground(() => {
   const chromeGlobal = (globalThis as any).chrome
   const nativeBrowser = (globalThis as any).browser
-  const supportsChromeSidepanel = !!chromeGlobal?.sidePanel
-  const supportsFirefoxSidebar = !!nativeBrowser?.sidebarAction
+  const isFirefox = !!(nativeBrowser?.sidebarAction)
+  const supportsChromeSidepanel = !isFirefox && !!chromeGlobal?.sidePanel
+  const supportsFirefoxSidebar = isFirefox
 
   if (supportsChromeSidepanel) {
     const canOpenSidepanel = typeof chromeGlobal.sidePanel.open === 'function'
 
     if (canOpenSidepanel) {
-      chromeGlobal.sidePanel.setOptions({ path: 'sidepanel.html', enabled: true })
+      chromeGlobal.sidePanel.setOptions({ path: 'sidepanel.html', enabled: false })
       chromeGlobal.action.setPopup({ popup: '' })
 
-      browser.action.onClicked.addListener(async (tab) => {
+      browser.action.onClicked.addListener((tab) => {
         if (tab.id !== undefined) {
-          try {
-            await chromeGlobal.sidePanel.open({ tabId: tab.id })
-          } catch (e) {
+          sidebarClosedTabs.delete(tab.id)
+          chromeGlobal.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true }).catch(() => {})
+          chromeGlobal.sidePanel.open({ tabId: tab.id }).catch((e: any) => {
             console.warn('Failed to open sidepanel:', e)
-          }
+          })
         }
       })
     } else {
-      chromeGlobal.sidePanel.setOptions({ path: 'sidepanel.html', enabled: true })
-      chromeGlobal.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+      chromeGlobal.sidePanel.setOptions({ path: 'sidepanel.html', enabled: false })
       chromeGlobal.action.setPopup({ popup: '' })
+
+      browser.action.onClicked.addListener((tab) => {
+        if (tab.id !== undefined) {
+          sidebarClosedTabs.delete(tab.id)
+          chromeGlobal.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true }).catch(() => {})
+        }
+      })
     }
   } else if (supportsFirefoxSidebar) {
     const browserAction = nativeBrowser.browserAction || nativeBrowser.action
@@ -123,6 +130,7 @@ export default defineBackground(() => {
 
   const tabMap = new Map<number, Map<string, MediaEntry>>()
   const tabPageUrls = new Map<number, string>()
+  const sidebarClosedTabs = new Set<number>()
   let isDataLoaded = false
   const pendingMessages: Array<{msg: any, sender: any, sendResponse: (response?: any) => void}> = []
 
@@ -256,11 +264,12 @@ export default defineBackground(() => {
     pendingDownloads.delete(tabId)
     tabMap.delete(tabId)
     tabPageUrls.delete(tabId)
+    sidebarClosedTabs.delete(tabId)
     deleteTabList(tabId)
   })
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS']
+    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB']
     if (asyncTypes.includes(msg.type)) {
       handleMessage(msg, sender, sendResponse)
       return true
@@ -367,6 +376,20 @@ export default defineBackground(() => {
 
     if (msg.type === 'SAVE_SETTINGS') {
       saveSettings(msg.settings).then(() => sendResponse({ ok: true }))
+      return true
+    }
+
+    if (msg.type === 'CLOSE_SIDEBAR_FOR_TAB') {
+      const tabId = msg.tabId as number
+      if (supportsFirefoxSidebar) {
+        nativeBrowser.sidebarAction.close().catch(() => {})
+      } else if (tabId !== undefined) {
+        sidebarClosedTabs.add(tabId)
+        if (supportsChromeSidepanel) {
+          chromeGlobal.sidePanel.setOptions({ tabId, enabled: false }).catch(() => {})
+        }
+      }
+      sendResponse({ ok: true })
       return true
     }
 
