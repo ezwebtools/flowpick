@@ -25,6 +25,14 @@ export default defineConfig({
     ...(browser !== 'firefox'
       ? {}
       : {
+        browser_specific_settings: {
+          gecko: {
+            id: 'flowpick@flowpick.net',
+            data_collection_permissions: {
+              needed: false,
+            },
+          },
+        },
         sidebar_action: {
           default_panel: 'sidepanel.html',
           default_title: 'FlowPick',

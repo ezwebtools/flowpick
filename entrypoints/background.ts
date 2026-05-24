@@ -184,11 +184,7 @@ export default defineBackground(() => {
   browser.webRequest.onHeadersReceived.addListener(
     (details) => {
       if (details.tabId > 0) {
-        
         const requestKey = `${details.tabId}:${details.url}`
-        console.log('Background: onHeadersReceived:', requestKey, 'tabId:', details.tabId)
-        console.log(details, 'details')
-        console.log(details.responseHeaders, 'responseHeaders')
         if (processedRequests.has(requestKey)) {
           return
         }
@@ -294,7 +290,29 @@ export default defineBackground(() => {
       const { url, format, filename } = msg
       const sourceUrl = sender.tab?.url || ''
       const downloaderPage = format === 'mpd' ? 'dash-downloader' : 'm3u8-downloader'
-      const tab = await browser.tabs.create({ url: `http://localhost:3001/${downloaderPage}` })
+      
+      // 语言映射：浏览器语言 -> URL语言路径
+      const languageMapping: Record<string, string> = {
+        'zh-CN': 'zh-Hans',
+        'zh-SG': 'zh-Hans',
+        'zh-TW': 'zh-Hant',
+        'zh-HK': 'zh-Hant',
+        'ja': 'ja',
+        'ko': 'ko',
+        'de': 'de',
+        'es': 'es',
+        'ru': 'ru',
+      }
+      
+      
+      // 获取浏览器语言，优先使用扩展语言设置
+      const browserLang = browser.i18n.getUILanguage()
+      const langSuffix = languageMapping[browserLang]
+      const targetUrl = langSuffix 
+        ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
+        : `http://localhost:3001/${downloaderPage}`
+      
+      const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl })
       }

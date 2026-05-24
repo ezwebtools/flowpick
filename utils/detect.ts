@@ -105,7 +105,7 @@ function isExcludedExtension(pathname: string): boolean {
 
 // 根据content-type检测媒体格式
 export function detectMediaFromContentType(contentType: string): string | null {
-  console.log(contentType,"detectMediaFromContentType")
+  console.log(browser.i18n.getUILanguage(),"detectMediaFromContentType")
   if (!contentType) return null
   
   const normalizedType = contentType.toLowerCase().split(';')[0].trim()
