@@ -1,6 +1,6 @@
 {
     "extName": {
-        "message": "FlowPick - Medien-Sniffer und Downloader"
+        "message": "FlowPick: Video-, Audio- & Bild-Downloader"
     },
     "extDescription": {
         "message": "Automatische Erkennung und Download von M3U8/HLS-Streams, Videos, Audio und Bildern. Integrierter Player. Stapel-Download. 100% lokal und privat."

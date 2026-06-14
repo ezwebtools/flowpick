@@ -1,6 +1,6 @@
 {
     "extName": {
-        "message": "Flowpick - 媒体资源嗅探器 & 下载器"
+        "message": "FlowPick - 万能网页视频/音频/图片下载器"
     },
     "extDescription": {
         "message": "自动嗅探网页中的 M3U8/HLS 流媒体、视频、音频和图片，内置播放预览，支持批量下载，全程本地运行，隐私安全。"

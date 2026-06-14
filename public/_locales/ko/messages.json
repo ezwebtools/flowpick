@@ -1,6 +1,6 @@
 {
     "extName": {
-        "message": "FlowPick - 미디어 스니퍼 및 다운로더"
+        "message": "FlowPick - 만능 동영상/오디오/이미지 다운로더"
     },
     "extDescription": {
         "message": "M3U8/HLS 스트리밍, 영상, 오디오 및 이미지를 자동 감지 및 다운로드. 내장 플레이어 지원. 일괄 다운로드. 100% 로컬 처리 및隐私 보호."

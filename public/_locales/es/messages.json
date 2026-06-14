@@ -1,6 +1,6 @@
 {
     "extName": {
-        "message": "FlowPick - Detector y Descargador de Medios"
+        "message": "FlowPick: Descargador de Videos, Música y Fotos"
     },
     "extDescription": {
         "message": "Detección y descarga automática de transmisiones M3U8/HLS, vídeos, audio e imágenes. Reproductor integrado. Descarga por lotes. 100% local y privado."
