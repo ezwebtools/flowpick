@@ -308,10 +308,12 @@ export default defineBackground(() => {
       // 获取浏览器语言，优先使用扩展语言设置
       const browserLang = browser.i18n.getUILanguage()
       const langSuffix = languageMapping[browserLang]
+      // const targetUrl = langSuffix 
+      //   ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
+      //   : `http://localhost:3001/${downloaderPage}`
       const targetUrl = langSuffix 
-        ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
-        : `http://localhost:3001/${downloaderPage}`
-      
+        ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
+        : `https://flowpick.net/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl })
