@@ -3,6 +3,9 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   vite: () => ({
     plugins: [tailwindcss()],
+    build: {
+      sourcemap: false
+    }
   }),
   modules: ['@wxt-dev/module-vue'],
   manifest: ({ browser }) => ({
@@ -29,8 +32,8 @@ export default defineConfig({
           gecko: {
             id: 'flowpick@flowpick.net',
             data_collection_permissions: {
-              needed: false,
-            },
+              required: ["none"]
+            }
           },
         },
         sidebar_action: {
