@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/github/license/ezwebtools/flowpick)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ezwebtools/flowpick)](stargazers)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Firefox-blue.svg)](#installation)
+[![Website](https://img.shields.io/badge/website-flowpick.net-4B8BBE.svg)](https://flowpick.net)
 
 ---
 
@@ -80,6 +81,16 @@ Automatically fetched and displayed:
 ---
 
 ## 📦 Installation
+
+### Install from Stores
+
+| Browser | Link |
+|---------|------|
+| **Chrome** | [Chrome Web Store](https://chromewebstore.google.com/) |
+| **Edge** | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/flowpick-media-sniffer-/egbfhgcifljmeaomlbhggplohemjombb) |
+| **Firefox** | [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/flowpick/) |
+
+> 🌐 Website: [flowpick.net](https://flowpick.net)
 
 ### Build from Source
 

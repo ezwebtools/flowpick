@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/github/license/ezwebtools/flowpick)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ezwebtools/flowpick)](stargazers)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Firefox-blue.svg)](#安装)
+[![Website](https://img.shields.io/badge/website-flowpick.net-4B8BBE.svg)](https://flowpick.net)
 
 ---
 
@@ -80,6 +81,16 @@
 ---
 
 ## 📦 安装
+
+### 从商店安装
+
+| 浏览器 | 链接 |
+|--------|------|
+| **Chrome** | [Chrome 网上应用店](https://chromewebstore.google.com/) |
+| **Edge** | [Edge 加载项](https://microsoftedge.microsoft.com/addons/detail/flowpick-media-sniffer-/egbfhgcifljmeaomlbhggplohemjombb) |
+| **Firefox** | [Firefox 附加组件](https://addons.mozilla.org/firefox/addon/flowpick/) |
+
+> 🌐 官网：[flowpick.net](https://flowpick.net)
 
 ### 从源码构建
 
