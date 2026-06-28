@@ -86,9 +86,9 @@
 
 | 浏览器 | 链接 |
 |--------|------|
-| **Chrome** | [Chrome 网上应用店](https://chromewebstore.google.com/) |
+| **Chrome** | [Chrome 网上应用店](https://chromewebstore.google.com/detail/flowpick-media-sniffer-do/mfinfkkabangbkanlfhhbokgfekjklea) |
 | **Edge** | [Edge 加载项](https://microsoftedge.microsoft.com/addons/detail/flowpick-media-sniffer-/egbfhgcifljmeaomlbhggplohemjombb) |
-| **Firefox** | [Firefox 附加组件](https://addons.mozilla.org/firefox/addon/flowpick/) |
+| **Firefox** | [Firefox 附加组件](https://addons.mozilla.org/zh-CN/firefox/addon/flowpick/) |
 
 > 🌐 官网：[flowpick.net](https://flowpick.net)
 

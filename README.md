@@ -86,7 +86,7 @@ Automatically fetched and displayed:
 
 | Browser | Link |
 |---------|------|
-| **Chrome** | [Chrome Web Store](https://chromewebstore.google.com/) |
+| **Chrome** | [Chrome Web Store](https://chromewebstore.google.com/detail/flowpick-media-sniffer-do/mfinfkkabangbkanlfhhbokgfekjklea) |
 | **Edge** | [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/flowpick-media-sniffer-/egbfhgcifljmeaomlbhggplohemjombb) |
 | **Firefox** | [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/flowpick/) |
 
