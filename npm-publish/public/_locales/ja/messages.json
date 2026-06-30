@@ -1,0 +1,317 @@
+{
+    "extName": {
+        "message": "FlowPick - 動画・音楽・画像一括ダウンロード"
+    },
+    "extDescription": {
+        "message": "M3U8/HLSストリーム、動画、音声、画像を自動検出。内蔵プレイヤーでプレビュー、一括ダウンロード対応。全てローカル処理でプライバシー安心。"
+    },
+    "title":{
+        "message": "Flowpick"
+    },
+    "home":{
+        "message": "ホーム"
+    },
+    "download":{
+        "message": "ダウンロード"
+    },
+    "help":{
+        "message": "ヘルプ"
+    },
+    "about":{
+        "message": "この拡張機能について"
+    },
+    "copy":{
+        "message": "コピー"
+    },
+    "copyTips":{
+        "message": "コピーしました"
+    },
+    "copyUrl":{
+        "message": "URLをコピー"
+    },
+    "settings":{
+        "message": "設定"
+    },
+    "more":{
+        "message": "もっと見る"
+    },
+    "clear":{
+        "message": "クリア"
+    },
+    "unknown":{
+        "message": "不明"
+    },
+    "feedback":{
+        "message": "フィードバック"
+    },
+    "found":{
+        "message": "見つかりました："
+    },
+    "item":{
+        "message": "件"
+    },
+    "play":{
+        "message": "再生"
+    },
+    "notFound":{
+        "message": "メディアリソースは検出されませんでした"
+    },
+    "playTips":{
+        "message": "動画や音声を再生、または画像を読み込むとメディアリソースを検出できます。"
+    },
+    "unplayable":{
+        "message": "お使いのブラウザは動画再生に対応していません。"
+    },
+    "playError":{
+        "message": "再生エラー："
+    },
+    "stopPlay":{
+        "message": "再生を停止"
+    },
+    "audioPlayError":{
+        "message": "音声の再生に失敗しました"
+    },
+    "optionsTitle":{
+        "message": "設定"
+    },
+    "saved":{
+        "message": "保存しました"
+    },
+    "sniffingRules":{
+        "message": "スニッフィングルール"
+    },
+    "type":{
+        "message": "タイプ"
+    },
+    "sniff":{
+        "message": "有効"
+    },
+    "minSizeKB":{
+        "message": "最小サイズ (KB)"
+    },
+    "streaming":{
+        "message": "ストリーミング"
+    },
+    "streamingHint":{
+        "message": "HLS / DASH / M3U8"
+    },
+    "video":{
+        "message": "動画"
+    },
+    "videoHint":{
+        "message": "MP4, WebM, MKV…"
+    },
+    "audio":{
+        "message": "音声"
+    },
+    "audioHint":{
+        "message": "MP3, AAC, FLAC…"
+    },
+    "image":{
+        "message": "画像"
+    },
+    "imageHint":{
+        "message": "PNG, JPG, WebP…"
+    },
+    "kb":{
+        "message": "KB"
+    },
+    "excludeDomains":{
+        "message": "除外ドメイン"
+    },
+    "excludeDomainsDesc":{
+        "message": "これらのドメインではスニッフィングが無効になります。1行に1つ（例：twitter.com）"
+    },
+    "excludeDomainsPlaceholder":{
+        "message": "twitter.com\nfacebook.com\ninstagram.com"
+    },
+    "keyboardShortcuts":{
+        "message": "キーボードショートカット"
+    },
+    "keyboardShortcutsDesc":{
+        "message": "拡張機能パネルを開くショートカットを設定"
+    },
+    "manageShortcuts":{
+        "message": "Chromeの拡張機能設定でキーボードショートカットを管理"
+    },
+    "openShortcuts":{
+        "message": "ショートカットを開く"
+    },
+    "resetToDefaults":{
+        "message": "デフォルトに戻す"
+    },
+    "resetConfirm":{
+        "message": "もう一度クリックして確認"
+    },
+    "welcomeSubtitle":{
+        "message": "スマートメディアスニッファー＆ダウンローダー"
+    },
+    "tutorialTitle":{
+        "message": "使い方ガイド"
+    },
+    "step1Title":{
+        "message": "拡張機能をインストール"
+    },
+    "step1Desc":{
+        "message": "インストール後、ブラウザのツールバーに FlowPick アイコンが表示されます。アイコンをクリックして拡張機能のポップアップを開きます。"
+    },
+    "step2Title":{
+        "message": "動画ページを開く"
+    },
+    "step2Desc":{
+        "message": "動画や音声を含むウェブページにアクセスすると、FlowPick が自動的にメディアリソースを検出します。リソースが検出されると、拡張機能のアイコンに検出数が表示されます。"
+    },
+    "step3Title":{
+        "message": "動画を再生して検出をトリガー"
+    },
+    "step3Desc":{
+        "message": "一部の動画は、先に再生を開始しないと拡張機能がストリーミングURLをキャプチャできません。アイコンに数値が表示されない場合は、動画を再生してみてください。"
+    },
+    "step4Title":{
+        "message": "検出されたリソースを確認"
+    },
+    "step4Desc":{
+        "message": "拡張機能のアイコンをクリックすると、ポップアップに現在のページで検出されたすべてのメディアリソースが表示されます。タイプ（ストリーミング、動画、音声、画像）でフィルタリングしたり、形式やサイズのフィルターで絞り込むことができます。"
+    },
+    "step5Title":{
+        "message": "ダウンロードまたはコピー"
+    },
+    "step5Desc":{
+        "message": "リソースリストでダウンロードボタンをクリックしてファイルをダウンロードするか、コピーボタンをクリックしてリソースURLをコピーできます。複数のファイルを選択して一括ダウンロードすることもできます。"
+    },
+    "step6Title":{
+        "message": "設定のカスタマイズ"
+    },
+    "step6Desc":{
+        "message": "ポップアップの設定アイコンをクリックして、タイプごとにスニッフィングのオン/オフ、最小キャプチャサイズの設定、特定ドメインの除外、キーボードショートカットの設定を行えます。"
+    },
+    "faqTitle":{
+        "message": "よくある質問"
+    },
+    "faq1Q":{
+        "message": "一部の動画が検出されないのはなぜですか？"
+    },
+    "faq1A":{
+        "message": "一部のウェブサイトは特別な暗号化や動的読み込み技術（DRM保護など）を使用しており、拡張機能が動画ストリームをキャプチャできません。また、動画の再生が開始されるまでストリーミングURLがトリガーされない場合もあります。まず動画を再生し、拡張機能のアイコンに数値が表示されるのをお待ちください。"
+    },
+    "faq2Q":{
+        "message": "ダウンロードしたM3U8ファイルが再生できない場合はどうすればよいですか？"
+    },
+    "faq2A":{
+        "message": "M3U8はインデックスファイルであり、動画自体ではありません。HLS対応プレーヤー（VLCなど）を使用して再生するか、専用ツールでM3U8をMP4形式に変換する必要があります。拡張機能はM3U8ストリームを検出した際、直接ダウンロードオプションの提供を試みます。"
+    },
+    "faq3Q":{
+        "message": "拡張機能はプライバシーデータを収集しますか？"
+    },
+    "faq3A":{
+        "message": "いいえ。この拡張機能は完全にローカルで動作し、外部サーバーにデータを送信することはありません。すべての検出とダウンロード操作はブラウザ内で完了します。"
+    },
+    "faq4Q":{
+        "message": "アイコンに検出数が表示されないのはなぜですか？"
+    },
+    "faq4A":{
+        "message": "拡張機能は、現在のタブでメディアリソースが検出された場合のみアイコンに数値を表示します。以下をご確認ください：1) 動画を含むウェブページを開いていること；2) 動画の再生が開始されていること；3) そのウェブサイトが除外ドメインリストに追加されていないこと。"
+    },
+    "faq5Q":{
+        "message": "不要なドメインを除外するにはどうすればよいですか？"
+    },
+    "faq5A":{
+        "message": "拡張機能ポップアップの設定アイコンをクリックし、「除外ドメイン」セクションに除外したいドメインを1行に1つずつ入力してください（例：twitter.com）。保存後、それらのドメインでのメディアスニッフィングが無効になります。"
+    },
+    "faq6Q":{
+        "message": "ダウンロード速度が遅いのはなぜですか？"
+    },
+    "faq6A":{
+        "message": "ダウンロード速度は、動画ソースサーバーの帯域幅とネットワーク環境に依存します。拡張機能はブラウザのネイティブダウンロード機能を使用するため、速度はブラウザで直接ファイルをダウンロードする場合と同じです。速度が常に遅い場合は、ソースサーバーがダウンロード速度を制限している可能性があります。"
+    },
+    "faq7Q":{
+        "message": "キーボードショートカットを設定するにはどうすればよいですか？"
+    },
+    "faq7A":{
+        "message": "拡張機能ポップアップの設定ページで「キーボードショートカット」セクションを見つけ、「ショートカットを開く」ボタンをクリックしてブラウザのショートカット管理ページに移動し、設定を行ってください。"
+    },
+    "faq8Q":{
+        "message": "FirefoxでChromeと異なるレイアウトが表示されるのはなぜですか？"
+    },
+    "faq8A":{
+        "message": "FirefoxとChromeでは、CSS flexboxとgridレイアウトのレンダリングに若干の違いがあります。FlowPickは両方のブラウザで一貫したUIを維持するために最適化されています。表示の問題を発見した場合は、GitHubで報告してください。"
+    },
+    "faq9Q":{
+        "message": "特定のページで動画が見つからないのはなぜですか？"
+    },
+    "faq9A":{
+        "message": "一部のウェブサイトでは、特殊な暗号化、DRM保護難読化読み込み技術により、メディアURLをキャプチャできません。動画がクロスドメイン制限付きの埋め込みiframeから提供されることもあります。ページの更新と動画の再生を試み、内線をトリガーしてください。"
+    },
+    "needMoreHelp":{
+        "message": "さらにサポートが必要ですか？"
+    },
+    "needMoreHelpDesc":{
+        "message": "上記の内容で問題が解決しない場合は、以下からサポートをご利用ください"
+    },
+    "subtitle":{
+        "message": "スマートスニッフィング、ワンクリックダウンロード"
+    },
+    "tabAll":{
+        "message": "すべて"
+    },
+    "tabStream":{
+        "message": "ストリーム"
+    },
+    "selectAll":{
+        "message": "すべて選択"
+    },
+    "deselectAll":{
+        "message": "選択解除"
+    },
+    "downloadSelected":{
+        "message": "選択をダウンロード"
+    },
+    "clearList":{
+        "message": "現在のページのメディアリストをクリア"
+    },
+    "refreshPage":{
+        "message": "現在のページを更新"
+    },
+    "filter":{
+        "message": "フィルター"
+    },
+    "filterType":{
+        "message": "タイプ"
+    },
+    "any":{
+        "message": "すべて"
+    },
+    "filterSize":{
+        "message": "サイズ"
+    },
+    "min":{
+        "message": "最小"
+    },
+    "max":{
+        "message": "最大"
+    },
+    "filterDimension":{
+        "message": "寸法"
+    },
+    "width":{
+        "message": "幅"
+    },
+    "height":{
+        "message": "高さ"
+    },
+    "filterResolution":{
+        "message": "解像度"
+    },
+    "reset":{
+        "message": "リセット"
+    },
+    "preview":{
+        "message": "プレビュー"
+    },
+    "batchDownloadStarted":{
+        "message": "$1 ファイルのダウンロードを開始しました"
+    },
+    "open":{
+        "message": "開く"
+    }
+}

@@ -1,0 +1,70 @@
+{
+  "name": "flowpick",
+  "version": "1.0.0",
+  "description": "Sniff, preview, and batch-download streaming video and media from any website.",
+  "type": "module",
+  "license": "MIT",
+  "author": "flowpick",
+  "homepage": "https://flowpick.net",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ezwebtools/flowpick.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ezwebtools/flowpick/issues"
+  },
+  "keywords": [
+    "wxt",
+    "browser-extension",
+    "chrome-extension",
+    "firefox-addon",
+    "m3u8",
+    "dash",
+    "video-downloader",
+    "media-sniffer",
+    "sidepanel",
+    "vue"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "vue-tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "dashjs": "^5.1.1",
+    "hls.js": "^1.6.15",
+    "m3u8-parser": "^7.2.0",
+    "mediainfo.js": "^0.3.7",
+    "mpd-parser": "^1.3.1",
+    "vue": "^3.5.29"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@wxt-dev/module-vue": "^1.0.3",
+    "autoprefixer": "^10.4.27",
+    "cross-env": "^7.0.3",
+    "postcss": "^10.4.27",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.2.5",
+    "wxt": "^0.20.20"
+  },
+  "files": [
+    "entrypoints",
+    "utils",
+    "public",
+    "wxt.config.ts",
+    "tsconfig.json",
+    "README.md",
+    "LICENSE",
+    "README_ZH.md"
+  ]
+}

@@ -1,0 +1,317 @@
+{
+    "extName": {
+        "message": "FlowPick - 万能网页视频/音频/图片下载器"
+    },
+    "extDescription": {
+        "message": "自动嗅探网页中的 M3U8/HLS 流媒体、视频、音频和图片，内置播放预览，支持批量下载，全程本地运行，隐私安全。"
+    },
+    "title":{
+        "message": "Flowpick"
+    },
+    "home":{
+        "message": "主页"
+    },
+    "download":{
+        "message": "下载"
+    },
+    "help":{
+        "message": "帮助"
+    },
+    "about":{
+        "message": "关于"
+    },
+    "copy":{
+        "message": "复制"
+    },
+    "copyTips":{
+        "message": "复制成功！"
+    },
+    "copyUrl":{
+        "message": "复制URL"
+    },
+    "settings":{
+        "message": "设置"
+    },
+    "more":{
+        "message": "更多"
+    },
+    "clear":{
+        "message": "清空"
+    },
+    "unknown":{
+        "message": "未知"
+    },
+    "feedback":{
+        "message": "反馈"
+    },
+    "found":{
+        "message": "已发现: "
+    },
+    "item":{
+        "message": "条"
+    },
+    "play":{
+        "message": "播放"
+    },
+    "notFound":{
+        "message": "未检测到任何媒体资源"
+    },
+    "playTips":{
+        "message": "播放视频或音频，或加载图片即可检测媒体资源。"
+    },
+    "unplayable":{
+        "message": "您的浏览器不支持视频播放。"
+    },
+    "playError":{
+        "message": "播放错误: "
+    },
+    "stopPlay":{
+        "message": "停止播放"
+    },
+    "audioPlayError":{
+        "message": "音频播放失败"
+    },
+    "optionsTitle":{
+        "message": "设置"
+    },
+    "saved":{
+        "message": "已保存"
+    },
+    "sniffingRules":{
+        "message": "嗅探规则"
+    },
+    "type":{
+        "message": "类型"
+    },
+    "sniff":{
+        "message": "启用"
+    },
+    "minSizeKB":{
+        "message": "最小大小 (KB)"
+    },
+    "streaming":{
+        "message": "流媒体"
+    },
+    "streamingHint":{
+        "message": "HLS / DASH / M3U8"
+    },
+    "video":{
+        "message": "视频"
+    },
+    "videoHint":{
+        "message": "MP4, WebM, MKV…"
+    },
+    "audio":{
+        "message": "音频"
+    },
+    "audioHint":{
+        "message": "MP3, AAC, FLAC…"
+    },
+    "image":{
+        "message": "图片"
+    },
+    "imageHint":{
+        "message": "PNG, JPG, WebP…"
+    },
+    "kb":{
+        "message": "KB"
+    },
+    "excludeDomains":{
+        "message": "排除域名"
+    },
+    "excludeDomainsDesc":{
+        "message": "在这些域名上将禁用嗅探。每行一个域名（例如：twitter.com）"
+    },
+    "excludeDomainsPlaceholder":{
+        "message": "twitter.com\nfacebook.com\ninstagram.com"
+    },
+    "keyboardShortcuts":{
+        "message": "键盘快捷键"
+    },
+    "keyboardShortcutsDesc":{
+        "message": "配置打开扩展面板的快捷键"
+    },
+    "manageShortcuts":{
+        "message": "在 Chrome 扩展设置中管理键盘快捷键"
+    },
+    "openShortcuts":{
+        "message": "打开快捷键设置"
+    },
+    "resetToDefaults":{
+        "message": "恢复默认设置"
+    },
+    "resetConfirm":{
+        "message": "再次点击确认重置"
+    },
+    "welcomeSubtitle":{
+        "message": "智能媒体嗅探与下载工具"
+    },
+    "tutorialTitle":{
+        "message": "使用教程"
+    },
+    "step1Title":{
+        "message": "安装扩展"
+    },
+    "step1Desc":{
+        "message": "安装完成后，浏览器工具栏会出现 FlowPick 图标。点击图标即可打开扩展弹窗。"
+    },
+    "step2Title":{
+        "message": "打开视频页面"
+    },
+    "step2Desc":{
+        "message": "访问包含视频或音频的网页，FlowPick 会自动检测页面中的媒体资源。当检测到资源时，扩展图标上会显示检测到的数量。"
+    },
+    "step3Title":{
+        "message": "播放视频以触发检测"
+    },
+    "step3Desc":{
+        "message": "部分视频需要先点击播放，扩展才能捕获到流媒体地址。如果图标上没有显示数量，请尝试播放视频。"
+    },
+    "step4Title":{
+        "message": "查看检测到的资源"
+    },
+    "step4Desc":{
+        "message": "点击扩展图标，弹窗中会列出当前页面检测到的所有媒体资源。你可以按类型（流媒体、视频、音频、图片）进行筛选，也可以使用格式和大小过滤器精确查找。"
+    },
+    "step5Title":{
+        "message": "下载或复制"
+    },
+    "step5Desc":{
+        "message": "在资源列表中，点击下载按钮即可下载文件，点击复制按钮可复制资源地址。你也可以勾选多个文件进行批量下载。"
+    },
+    "step6Title":{
+        "message": "自定义设置"
+    },
+    "step6Desc":{
+        "message": "点击弹窗中的设置图标，可以按类型开关嗅探功能、设置最小捕获大小、排除特定域名，以及配置键盘快捷键。"
+    },
+    "faqTitle":{
+        "message": "常见问题"
+    },
+    "faq1Q":{
+        "message": "为什么有些视频检测不到？"
+    },
+    "faq1A":{
+        "message": "部分网站使用了特殊的加密或动态加载技术（如 DRM 保护），导致扩展无法捕获到视频流。此外，如果视频尚未开始播放，某些流媒体地址也不会被触发。建议先播放视频，等待扩展图标上出现数字提示后再查看。"
+    },
+    "faq2Q":{
+        "message": "下载的 M3U8 文件无法播放怎么办？"
+    },
+    "faq2A":{
+        "message": "M3U8 是一个索引文件，不是视频本身。你需要使用支持 HLS 的播放器（如 VLC）来播放它，或者使用专门的下载工具将 M3U8 转换为 MP4 格式。扩展会在检测到 M3U8 流时尝试提供直接下载选项。"
+    },
+    "faq3Q":{
+        "message": "扩展会收集我的隐私数据吗？"
+    },
+    "faq3A":{
+        "message": "不会。本扩展完全在本地运行，不会将任何数据发送到外部服务器。所有检测和下载操作都在你的浏览器中完成。"
+    },
+    "faq4Q":{
+        "message": "为什么图标上没有显示检测数量？"
+    },
+    "faq4A":{
+        "message": "扩展仅在当前标签页检测到媒体资源时才会在图标上显示数量。请确保：1) 你已打开包含视频的网页；2) 视频已经开始播放；3) 该网站未被添加到排除域名列表中。"
+    },
+    "faq5Q":{
+        "message": "如何排除不需要的域名？"
+    },
+    "faq5A":{
+        "message": "点击扩展弹窗中的设置图标，在\"排除域名\"区域输入你想要排除的域名（每行一个），例如：twitter.com。保存后，这些域名上的媒体嗅探将被禁用。"
+    },
+    "faq6Q":{
+        "message": "为什么下载速度很慢？"
+    },
+    "faq6A":{
+        "message": "下载速度取决于视频源服务器的带宽和你的网络环境。扩展使用浏览器原生下载功能，速度与你在浏览器中直接下载文件一致。如果速度持续很慢，可能是源服务器限制了下载速度。"
+    },
+    "faq7Q":{
+        "message": "如何设置快捷键？"
+    },
+    "faq7A":{
+        "message": "在扩展弹窗的设置页面中，找到\"键盘快捷键\"部分，点击\"打开快捷键设置\"按钮即可跳转到浏览器的快捷键管理页面进行配置。"
+    },
+    "faq8Q":{
+        "message": "为什么 Firefox 显示的布局与 Chrome 不一样？"
+    },
+    "faq8A":{
+        "message": "Firefox 和 Chrome 在 CSS flexbox 和 grid 布局渲染上存在一些差异。FlowPick 已针对两个浏览器进行优化以保持一致的 UI。如果你发现任何显示问题，请在 GitHub 上报告。"
+    },
+    "faq9Q":{
+        "message": "为什么在某些页面上找不到视频？"
+    },
+    "faq9A":{
+        "message": "某些网站使用了特殊的加密、DRM 保护或混淆加载技术，导致无法捕获媒体 URL。视频也可能通过带有跨域限制的嵌入式 iframe 提供。请尝试刷新页面并先播放视频来触发检测。"
+    },
+    "needMoreHelp":{
+        "message": "需要更多帮助？"
+    },
+    "needMoreHelpDesc":{
+        "message": "如果以上内容未能解决你的问题，欢迎通过以下方式获取支持"
+    },
+    "subtitle":{
+        "message": "智能嗅探，一键下载"
+    },
+    "tabAll":{
+        "message": "全部"
+    },
+    "tabStream":{
+        "message": "流媒体"
+    },
+    "selectAll":{
+        "message": "全选"
+    },
+    "deselectAll":{
+        "message": "取消全选"
+    },
+    "downloadSelected":{
+        "message": "下载所选"
+    },
+    "clearList":{
+        "message": "清理当前页面媒体列表"
+    },
+    "refreshPage":{
+        "message": "刷新当前页面"
+    },
+    "filter":{
+        "message": "过滤"
+    },
+    "filterType":{
+        "message": "类型"
+    },
+    "any":{
+        "message": "任意"
+    },
+    "filterSize":{
+        "message": "大小"
+    },
+    "min":{
+        "message": "最小"
+    },
+    "max":{
+        "message": "最大"
+    },
+    "filterDimension":{
+        "message": "尺寸"
+    },
+    "width":{
+        "message": "宽"
+    },
+    "height":{
+        "message": "高"
+    },
+    "filterResolution":{
+        "message": "分辨率"
+    },
+    "reset":{
+        "message": "重置"
+    },
+    "preview":{
+        "message": "预览"
+    },
+    "batchDownloadStarted":{
+        "message": "已开始下载 $1 个文件"
+    },
+    "open":{
+        "message": "打开"
+    }
+}

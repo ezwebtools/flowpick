@@ -1,0 +1,317 @@
+{
+    "extName": {
+        "message": "FlowPick - Media Sniffer & Downloader"
+    },
+    "extDescription": {
+        "message": "Auto-detect & download M3U8/HLS streams, videos, audio & images. Built-in player. Batch download. 100% local & private."
+    },
+    "title":{
+        "message": "Flowpick"
+    },
+    "home":{
+        "message": "Home"
+    },
+    "download":{
+        "message": "Download"
+    },
+    "help":{
+        "message": "Help"
+    },
+    "about":{
+        "message": "About"
+    },
+    "copy":{
+        "message": "Copy"
+    },
+    "copyTips":{
+        "message": "Copy success!"
+    },
+    "copyUrl":{
+        "message": "Copy URL"
+    },
+    "settings":{
+        "message": "Settings"
+    },
+    "more":{
+        "message": "More"
+    },
+    "clear":{
+        "message": "Clear"
+    },
+    "unknown":{
+        "message": "Unknown"
+    },
+    "feedback":{
+        "message": "Feedback"
+    },
+    "found":{
+        "message": "Found: "
+    },
+    "item":{
+        "message": "item"
+    },
+    "play":{
+        "message": "Play"
+    },
+    "notFound":{
+        "message": "No media detected"
+    },
+    "playTips":{
+        "message": "Play a video or audio, or load an image to detect media resources."
+    },
+    "unplayable":{
+        "message": "Your browser does not support video playback."
+    },
+    "playError":{
+        "message": "Play error: "
+    },
+    "stopPlay":{
+        "message": "Stop play"
+    },
+    "audioPlayError":{
+        "message": "Audio play error"
+    },
+    "optionsTitle":{
+        "message": "Settings"
+    },
+    "saved":{
+        "message": "Saved"
+    },
+    "sniffingRules":{
+        "message": "Sniffing Rules"
+    },
+    "type":{
+        "message": "Type"
+    },
+    "sniff":{
+        "message": "Enabled"
+    },
+    "minSizeKB":{
+        "message": "Min Size (KB)"
+    },
+    "streaming":{
+        "message": "Streaming"
+    },
+    "streamingHint":{
+        "message": "HLS / DASH / M3U8"
+    },
+    "video":{
+        "message": "Video"
+    },
+    "videoHint":{
+        "message": "MP4, WebM, MKV…"
+    },
+    "audio":{
+        "message": "Audio"
+    },
+    "audioHint":{
+        "message": "MP3, AAC, FLAC…"
+    },
+    "image":{
+        "message": "Image"
+    },
+    "imageHint":{
+        "message": "PNG, JPG, WebP…"
+    },
+    "kb":{
+        "message": "KB"
+    },
+    "excludeDomains":{
+        "message": "Exclude Domains"
+    },
+    "excludeDomainsDesc":{
+        "message": "Sniffing will be disabled on these domains. One per line (e.g. twitter.com)"
+    },
+    "excludeDomainsPlaceholder":{
+        "message": "twitter.com\nfacebook.com\ninstagram.com"
+    },
+    "keyboardShortcuts":{
+        "message": "Keyboard Shortcuts"
+    },
+    "keyboardShortcutsDesc":{
+        "message": "Configure shortcuts to open the extension panel"
+    },
+    "manageShortcuts":{
+        "message": "Manage keyboard shortcuts in Chrome's extension settings"
+    },
+    "openShortcuts":{
+        "message": "Open Shortcuts"
+    },
+    "resetToDefaults":{
+        "message": "Reset to defaults"
+    },
+    "resetConfirm":{
+        "message": "Click again to confirm reset"
+    },
+    "welcomeSubtitle":{
+        "message": "Smart Media Sniffer & Downloader"
+    },
+    "tutorialTitle":{
+        "message": "Getting Started"
+    },
+    "step1Title":{
+        "message": "Install the Extension"
+    },
+    "step1Desc":{
+        "message": "After installation, the FlowPick icon will appear in your browser toolbar. Click the icon to open the extension popup."
+    },
+    "step2Title":{
+        "message": "Open a Video Page"
+    },
+    "step2Desc":{
+        "message": "Visit a webpage containing video or audio, and FlowPick will automatically detect media resources. When resources are detected, the extension icon will show the count."
+    },
+    "step3Title":{
+        "message": "Play Video to Trigger Detection"
+    },
+    "step3Desc":{
+        "message": "Some videos need to be played first before the extension can capture the streaming URL. If no count appears on the icon, try playing the video."
+    },
+    "step4Title":{
+        "message": "View Detected Resources"
+    },
+    "step4Desc":{
+        "message": "Click the extension icon to see all detected media resources in the popup. You can filter by type (streaming, video, audio, image) and use format or size filters for precise searching."
+    },
+    "step5Title":{
+        "message": "Download or Copy"
+    },
+    "step5Desc":{
+        "message": "In the resource list, click the download button to download a file, or click the copy button to copy the resource URL. You can also select multiple files for batch download."
+    },
+    "step6Title":{
+        "message": "Customize Settings"
+    },
+    "step6Desc":{
+        "message": "Click the settings icon in the popup to toggle sniffing by type, set minimum capture size, exclude specific domains, and configure keyboard shortcuts."
+    },
+    "faqTitle":{
+        "message": "FAQ"
+    },
+    "faq1Q":{
+        "message": "Why can't some videos be detected?"
+    },
+    "faq1A":{
+        "message": "Some websites use special encryption or dynamic loading techniques (such as DRM protection), which prevents the extension from capturing video streams. Additionally, certain streaming URLs are not triggered until the video starts playing. We recommend playing the video first and waiting for a number to appear on the extension icon."
+    },
+    "faq2Q":{
+        "message": "What should I do if the downloaded M3U8 file won't play?"
+    },
+    "faq2A":{
+        "message": "M3U8 is an index file, not the video itself. You need to use an HLS-compatible player (such as VLC) to play it, or use a dedicated tool to convert M3U8 to MP4 format. The extension will attempt to provide a direct download option when an M3U8 stream is detected."
+    },
+    "faq3Q":{
+        "message": "Does the extension collect my private data?"
+    },
+    "faq3A":{
+        "message": "No. This extension runs entirely locally and does not send any data to external servers. All detection and download operations are completed in your browser."
+    },
+    "faq4Q":{
+        "message": "Why doesn't the icon show the detection count?"
+    },
+    "faq4A":{
+        "message": "The extension only shows a count on the icon when media resources are detected on the current tab. Please make sure: 1) You have opened a webpage with video; 2) The video has started playing; 3) The website is not in the excluded domains list."
+    },
+    "faq5Q":{
+        "message": "How do I exclude unwanted domains?"
+    },
+    "faq5A":{
+        "message": "Click the settings icon in the extension popup, enter the domains you want to exclude in the \"Exclude Domains\" section (one per line), e.g. twitter.com. After saving, media sniffing will be disabled on those domains."
+    },
+    "faq6Q":{
+        "message": "Why is the download speed slow?"
+    },
+    "faq6A":{
+        "message": "Download speed depends on the video source server's bandwidth and your network environment. The extension uses the browser's native download function, so the speed is the same as downloading files directly in the browser. If the speed is consistently slow, the source server may be throttling downloads."
+    },
+    "faq7Q":{
+        "message": "How do I set up keyboard shortcuts?"
+    },
+    "faq7A":{
+        "message": "In the extension popup's settings page, find the \"Keyboard Shortcuts\" section and click the \"Open Shortcuts\" button to jump to the browser's shortcut management page for configuration."
+    },
+    "faq8Q":{
+        "message": "Why does Firefox show a different layout than Chrome?"
+    },
+    "faq8A":{
+        "message": "Firefox and Chrome have some differences in CSS flexbox and grid layout rendering. FlowPick has been optimized to maintain consistent UI across both browsers. If you notice any display issues, please report them on GitHub."
+    },
+    "faq9Q":{
+        "message": "Why can't I find videos on certain pages?"
+    },
+    "faq9A":{
+        "message": "Some websites use special encryption, DRM protection, or obfuscated loading techniques that prevent media URL capture. Videos may also be served from embedded iframes with cross-origin restrictions. Try refreshing the page and playing the video first to trigger detection."
+    },
+    "needMoreHelp":{
+        "message": "Need more help?"
+    },
+    "needMoreHelpDesc":{
+        "message": "If the above content didn't solve your problem, feel free to get support through the following"
+    },
+    "subtitle":{
+        "message": "Smart Sniff, One-Click Download"
+    },
+    "tabAll":{
+        "message": "All"
+    },
+    "tabStream":{
+        "message": "Stream"
+    },
+    "selectAll":{
+        "message": "Select All"
+    },
+    "deselectAll":{
+        "message": "Deselect All"
+    },
+    "downloadSelected":{
+        "message": "Download Selected"
+    },
+    "clearList":{
+        "message": "Clear current page media list"
+    },
+    "refreshPage":{
+        "message": "Refresh current page"
+    },
+    "filter":{
+        "message": "Filter"
+    },
+    "filterType":{
+        "message": "Type"
+    },
+    "any":{
+        "message": "Any"
+    },
+    "filterSize":{
+        "message": "Size"
+    },
+    "min":{
+        "message": "Min"
+    },
+    "max":{
+        "message": "Max"
+    },
+    "filterDimension":{
+        "message": "Dimensions"
+    },
+    "width":{
+        "message": "Width"
+    },
+    "height":{
+        "message": "Height"
+    },
+    "filterResolution":{
+        "message": "Resolution"
+    },
+    "reset":{
+        "message": "Reset"
+    },
+    "preview":{
+        "message": "Preview"
+    },
+    "batchDownloadStarted":{
+        "message": "Started downloading $1 file(s)"
+    },
+    "open":{
+        "message": "Open"
+    }
+}

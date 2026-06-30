@@ -1,0 +1,317 @@
+{
+    "extName": {
+        "message": "FlowPick - 萬能網頁影片/音訊/圖片下載器"
+    },
+    "extDescription": {
+        "message": "自動嗅探網頁中的 M3U8/HLS 串流媒體、影片、音訊與圖片，內建播放預覽，支援批次下載，全程本機運行，隱私安全。"
+    },
+    "title":{
+        "message": "m3u8影片下載器"
+    },
+    "home":{
+        "message": "首頁"
+    },
+    "download":{
+        "message": "下載"
+    },
+    "help":{
+        "message": "說明"
+    },
+    "about":{
+        "message": "關於"
+    },
+    "copy":{
+        "message": "複製"
+    },
+    "copyTips":{
+        "message": "複製成功！"
+    },
+    "copyUrl":{
+        "message": "複製網址"
+    },
+    "settings":{
+        "message": "設定"
+    },
+    "more":{
+        "message": "更多"
+    },
+    "clear":{
+        "message": "清空"
+    },
+    "unknown":{
+        "message": "未知"
+    },
+    "feedback":{
+        "message": "意見回饋"
+    },
+    "found":{
+        "message": "已發現："
+    },
+    "item":{
+        "message": "個"
+    },
+    "play":{
+        "message": "播放"
+    },
+    "notFound":{
+        "message": "未偵測到任何媒體資源"
+    },
+    "playTips":{
+        "message": "播放影片或音訊，或載入圖片即可偵測媒體資源。"
+    },
+    "unplayable":{
+        "message": "您的瀏覽器不支援影片播放。"
+    },
+    "playError":{
+        "message": "播放錯誤："
+    },
+    "stopPlay":{
+        "message": "停止播放"
+    },
+    "audioPlayError":{
+        "message": "音訊播放失敗"
+    },
+    "optionsTitle":{
+        "message": "設定"
+    },
+    "saved":{
+        "message": "已儲存"
+    },
+    "sniffingRules":{
+        "message": "嗅探規則"
+    },
+    "type":{
+        "message": "類型"
+    },
+    "sniff":{
+        "message": "啟用"
+    },
+    "minSizeKB":{
+        "message": "最小大小 (KB)"
+    },
+    "streaming":{
+        "message": "串流媒體"
+    },
+    "streamingHint":{
+        "message": "HLS / DASH / M3U8"
+    },
+    "video":{
+        "message": "影片"
+    },
+    "videoHint":{
+        "message": "MP4, WebM, MKV…"
+    },
+    "audio":{
+        "message": "音訊"
+    },
+    "audioHint":{
+        "message": "MP3, AAC, FLAC…"
+    },
+    "image":{
+        "message": "圖片"
+    },
+    "imageHint":{
+        "message": "PNG, JPG, WebP…"
+    },
+    "kb":{
+        "message": "KB"
+    },
+    "excludeDomains":{
+        "message": "排除網域"
+    },
+    "excludeDomainsDesc":{
+        "message": "在這些網域上將停用嗅探。每行一個網域（例如：twitter.com）"
+    },
+    "excludeDomainsPlaceholder":{
+        "message": "twitter.com\nfacebook.com\ninstagram.com"
+    },
+    "keyboardShortcuts":{
+        "message": "鍵盤快速鍵"
+    },
+    "keyboardShortcutsDesc":{
+        "message": "設定開啟擴充功能面板的快速鍵"
+    },
+    "manageShortcuts":{
+        "message": "在 Chrome 擴充功能設定中管理鍵盤快速鍵"
+    },
+    "openShortcuts":{
+        "message": "開啟快速鍵設定"
+    },
+    "resetToDefaults":{
+        "message": "恢復預設設定"
+    },
+    "resetConfirm":{
+        "message": "再次點擊確認重置"
+    },
+    "welcomeSubtitle":{
+        "message": "智慧媒體嗅探與下載工具"
+    },
+    "tutorialTitle":{
+        "message": "使用教學"
+    },
+    "step1Title":{
+        "message": "安裝擴充功能"
+    },
+    "step1Desc":{
+        "message": "安裝完成後，瀏覽器工具列會出現 FlowPick 圖示。點擊圖示即可開啟擴充功能彈窗。"
+    },
+    "step2Title":{
+        "message": "開啟影片頁面"
+    },
+    "step2Desc":{
+        "message": "造訪包含影片或音訊的網頁，FlowPick 會自動偵測頁面中的媒體資源。當偵測到資源時，擴充功能圖示上會顯示偵測到的數量。"
+    },
+    "step3Title":{
+        "message": "播放影片以觸發偵測"
+    },
+    "step3Desc":{
+        "message": "部分影片需要先點擊播放，擴充功能才能擷取串流媒體位址。如果圖示上沒有顯示數量，請嘗試播放影片。"
+    },
+    "step4Title":{
+        "message": "查看偵測到的資源"
+    },
+    "step4Desc":{
+        "message": "點擊擴充功能圖示，彈窗中會列出目前頁面偵測到的所有媒體資源。你可以按類型（串流媒體、影片、音訊、圖片）進行篩選，也可以使用格式和大小篩選器精確查找。"
+    },
+    "step5Title":{
+        "message": "下載或複製"
+    },
+    "step5Desc":{
+        "message": "在資源列表中，點擊下載按鈕即可下載檔案，點擊複製按鈕可複製資源位址。你也可以勾選多個檔案進行批次下載。"
+    },
+    "step6Title":{
+        "message": "自訂設定"
+    },
+    "step6Desc":{
+        "message": "點擊彈窗中的設定圖示，可以按類型開關嗅探功能、設定最小擷取大小、排除特定網域，以及設定鍵盤快速鍵。"
+    },
+    "faqTitle":{
+        "message": "常見問題"
+    },
+    "faq1Q":{
+        "message": "為什麼有些影片偵測不到？"
+    },
+    "faq1A":{
+        "message": "部分網站使用了特殊的加密或動態載入技術（如 DRM 保護），導致擴充功能無法擷取影片串流。此外，如果影片尚未開始播放，某些串流媒體位址也不會被觸發。建議先播放影片，等待擴充功能圖示上出現數字提示後再查看。"
+    },
+    "faq2Q":{
+        "message": "下載的 M3U8 檔案無法播放怎麼辦？"
+    },
+    "faq2A":{
+        "message": "M3U8 是一個索引檔案，不是影片本身。你需要使用支援 HLS 的播放器（如 VLC）來播放它，或者使用專門的下載工具將 M3U8 轉換為 MP4 格式。擴充功能會在偵測到 M3U8 串流時嘗試提供直接下載選項。"
+    },
+    "faq3Q":{
+        "message": "擴充功能會收集我的隱私資料嗎？"
+    },
+    "faq3A":{
+        "message": "不會。本擴充功能完全在本機執行，不會將任何資料傳送到外部伺服器。所有偵測和下載作業都在你的瀏覽器中完成。"
+    },
+    "faq4Q":{
+        "message": "為什麼圖示上沒有顯示偵測數量？"
+    },
+    "faq4A":{
+        "message": "擴充功能僅在目前分頁偵測到媒體資源時才會在圖示上顯示數量。請確保：1) 你已開啟包含影片的網頁；2) 影片已經開始播放；3) 該網站未被加入排除網域清單中。"
+    },
+    "faq5Q":{
+        "message": "如何排除不需要的網域？"
+    },
+    "faq5A":{
+        "message": "點擊擴充功能彈窗中的設定圖示，在「排除網域」區域輸入你想要排除的網域（每行一個），例如：twitter.com。儲存後，這些網域上的媒體嗅探將被停用。"
+    },
+    "faq6Q":{
+        "message": "為什麼下載速度很慢？"
+    },
+    "faq6A":{
+        "message": "下載速度取決於影片來源伺服器的頻寬和你的網路環境。擴充功能使用瀏覽器原生下載功能，速度與你在瀏覽器中直接下載檔案一致。如果速度持續很慢，可能是來源伺服器限制了下載速度。"
+    },
+    "faq7Q":{
+        "message": "如何設定快速鍵？"
+    },
+    "faq7A":{
+        "message": "在擴充功能彈窗的設定頁面中，找到「鍵盤快速鍵」部分，點擊「開啟快速鍵設定」按鈕即可跳轉到瀏覽器的快速鍵管理頁面進行設定。"
+    },
+    "faq8Q":{
+        "message": "為什麼 Firefox 顯示的佈局與 Chrome 不一樣？"
+    },
+    "faq8A":{
+        "message": "Firefox 和 Chrome 在 CSS flexbox 和 grid 佈局渲染上存在一些差異。FlowPick 已針對兩個瀏覽器進行優化以保持一致的 UI。如果你發現任何顯示問題，請在 GitHub 上回報。"
+    },
+    "faq9Q":{
+        "message": "為什麼在某些頁面上找不到影片？"
+    },
+    "faq9A":{
+        "message": "某些網站使用了特殊的加密、DRM 保護或混淆載入技術，導致無法擷取媒體 URL。影片也可能透過帶有跨域限制的嵌入式 iframe 提供。請嘗試重新整理頁面並先播放影片來觸發偵測。"
+    },
+    "needMoreHelp":{
+        "message": "需要更多幫助？"
+    },
+    "needMoreHelpDesc":{
+        "message": "如果以上內容未能解決你的問題，歡迎透過以下方式取得支援"
+    },
+    "subtitle":{
+        "message": "智慧嗅探，一鍵下載"
+    },
+    "tabAll":{
+        "message": "全部"
+    },
+    "tabStream":{
+        "message": "串流媒體"
+    },
+    "selectAll":{
+        "message": "全選"
+    },
+    "deselectAll":{
+        "message": "取消全選"
+    },
+    "downloadSelected":{
+        "message": "下載所選"
+    },
+    "clearList":{
+        "message": "清理當前頁面媒體列表"
+    },
+    "refreshPage":{
+        "message": "重新整理當前頁面"
+    },
+    "filter":{
+        "message": "篩選"
+    },
+    "filterType":{
+        "message": "類型"
+    },
+    "any":{
+        "message": "任意"
+    },
+    "filterSize":{
+        "message": "大小"
+    },
+    "min":{
+        "message": "最小"
+    },
+    "max":{
+        "message": "最大"
+    },
+    "filterDimension":{
+        "message": "尺寸"
+    },
+    "width":{
+        "message": "寬"
+    },
+    "height":{
+        "message": "高"
+    },
+    "filterResolution":{
+        "message": "解析度"
+    },
+    "reset":{
+        "message": "重置"
+    },
+    "preview":{
+        "message": "預覽"
+    },
+    "batchDownloadStarted":{
+        "message": "已開始下載 $1 個檔案"
+    },
+    "open":{
+        "message": "開啟"
+    }
+}

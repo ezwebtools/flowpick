@@ -1,0 +1,17 @@
+node_modules
+.output
+.wxt
+*.log
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+stats.html
+stats-*.json
+web-ext.config.ts
