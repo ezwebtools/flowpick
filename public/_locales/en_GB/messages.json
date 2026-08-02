@@ -119,6 +119,12 @@
     "excludeDomains":{
         "message": "Exclude Domains"
     },
+    "maxItems":{
+        "message": "Max Items Per Tab"
+    },
+    "maxItemsDesc":{
+        "message": "Max media items captured per tab (10–5000). Oldest items are replaced when the limit is reached."
+    },
     "excludeDomainsDesc":{
         "message": "Sniffing will be disabled on these domains. One per line (e.g. twitter.com)"
     },
@@ -304,6 +310,15 @@
     },
     "reset":{
         "message": "Reset"
+    },
+    "sortByTime":{
+        "message": "Sort by time (click to enable)"
+    },
+    "sortDesc":{
+        "message": "Newest first (click for oldest first)"
+    },
+    "sortAsc":{
+        "message": "Oldest first (click to disable)"
     },
     "preview":{
         "message": "Preview"

@@ -119,6 +119,12 @@
     "excludeDomains":{
         "message": "除外ドメイン"
     },
+    "maxItems":{
+        "message": "タブあたりの最大件数"
+    },
+    "maxItemsDesc":{
+        "message": "タブごとにキャプチャするメディアの最大件数（10〜5000）。上限を超えると最も古い項目が置き換えられます。"
+    },
     "excludeDomainsDesc":{
         "message": "これらのドメインではスニッフィングが無効になります。1行に1つ（例：twitter.com）"
     },
@@ -304,6 +310,15 @@
     },
     "reset":{
         "message": "リセット"
+    },
+    "sortByTime":{
+        "message": "検出時刻順に並べ替え（クリックで有効化）"
+    },
+    "sortDesc":{
+        "message": "新しい順（クリックで古い順に変更）"
+    },
+    "sortAsc":{
+        "message": "古い順（クリックで並べ替え解除）"
     },
     "preview":{
         "message": "プレビュー"

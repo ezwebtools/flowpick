@@ -1,8 +1,33 @@
+import type { MediaCategory } from './detect'
+
 const PREFIX = 'tab_'
 
 export interface MediaEntry {
   format: string
   size?: number
+  detectedAt?: number
+  category?: MediaCategory
+  requestHeaders?: Record<string, string>
+  captureId?: string
+  trackCount?: number
+  mseComplete?: boolean
+  contentType?: string
+  groupId?: string
+  groupRole?: 'master' | 'variant' | 'audio' | 'segment'
+  groupLabel?: string
+  groupMasterId?: string
+  variantBandwidth?: number
+  audioUrl?: string
+  audioOptions?: Array<{ url: string; label: string }>
+  width?: number
+  height?: number
+  duration?: number
+  /** Page/API supplied poster, used when a stream itself has no thumbnail. */
+  coverUrl?: string
+  /** 嗅探到该资源时的网页标题（用于在列表中显示，避免页面跳转后旧资源标题错乱） */
+  tabTitle?: string
+  /** 直播流标记（HTTP-FLV/MPEG-TS 无 Content-Length/Duration 时为 true） */
+  isLiveStream?: boolean
 }
 
 function tabKey(tabId: number) {
@@ -63,7 +88,8 @@ export async function loadAllTabData(): Promise<Map<number, Map<string, MediaEnt
               mediaMap.set(url, { format: entry })
             } else if (entry && typeof entry === 'object') {
               const e = entry as any
-              mediaMap.set(url, { format: e.format || 'm3u8', size: typeof e.size === 'number' ? e.size : undefined })
+              // Keep grouping/task metadata across service-worker restarts.
+              mediaMap.set(url, { ...e, format: e.format || 'm3u8', size: typeof e.size === 'number' ? e.size : undefined })
             }
           })
         }

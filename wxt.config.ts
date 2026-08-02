@@ -13,13 +13,18 @@ export default defineConfig({
     description: '__MSG_extDescription__',
     default_locale: 'en',
     permissions: [
-      'storage', 'tabs', 'webRequest', 'downloads',
+      'storage', 'tabs', 'webRequest', 'downloads', 'declarativeNetRequest', 'notifications',
       ...(browser !== 'firefox' ? ['sidePanel'] : ['webRequestBlocking']),
     ],
     host_permissions: ['<all_urls>'],
+    content_security_policy: {
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval';"
+    },
     web_accessible_resources: [
       {
-        resources: ['/injected.js', '/MediaInfoModule.wasm'],
+        // injected.js is loaded into the page's main world by content.ts.
+        // MediaInfo WASM is loaded only by the extension background.
+        resources: ['/injected.js'],
         matches: ['<all_urls>'],
       },
     ],

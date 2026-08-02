@@ -1,4 +1,4 @@
-export type SniffingGroup = 'streaming' | 'video' | 'audio' | 'image'
+export type SniffingGroup = 'streaming' | 'video' | 'audio' | 'image' | 'document' | 'subtitle'
 
 export interface SniffingRule {
   enabled: boolean
@@ -10,13 +10,25 @@ export type SniffingRules = Record<SniffingGroup, SniffingRule>
 export interface Settings {
   sniffingRules: SniffingRules
   excludeDomains: string[]
+  maxItems: number
+  enableMseCapture: boolean
+  /** 隐藏 HLS/DASH 的分片（如 .ts/.m4s），只显示父级播放列表（m3u8/mpd） */
+  hideStreamSegments: boolean
+  /** 捕获 data: URL 内嵌图片（只扫 <img src="data:image/...">），默认关闭 */
+  captureDataImages: boolean
+  /** data: 图片最小字节阈值（KB），过滤 1x1 像素跟踪图等小图标 */
+  dataImageMinSizeKB: number
 }
 
+export const DEFAULT_MAX_ITEMS = 1000
+
 export const DEFAULT_SNIFFING_RULES: SniffingRules = {
-  streaming: { enabled: true,  minSizeKB: 0 },
-  video:     { enabled: true,  minSizeKB: 0 },
-  audio:     { enabled: true,  minSizeKB: 0 },
-  image:     { enabled: true, minSizeKB: 0 },
+  streaming: { enabled: true, minSizeKB: 0 },
+  video:     { enabled: true, minSizeKB: 100 },
+  audio:     { enabled: true, minSizeKB: 150 },
+  image:     { enabled: true, minSizeKB: 100 },
+  document:  { enabled: true, minSizeKB: 0 },
+  subtitle:  { enabled: true, minSizeKB: 0 },
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,8 +37,15 @@ export const DEFAULT_SETTINGS: Settings = {
     video:     { ...DEFAULT_SNIFFING_RULES.video },
     audio:     { ...DEFAULT_SNIFFING_RULES.audio },
     image:     { ...DEFAULT_SNIFFING_RULES.image },
+    document:  { ...DEFAULT_SNIFFING_RULES.document },
+    subtitle:  { ...DEFAULT_SNIFFING_RULES.subtitle },
   },
   excludeDomains: [],
+  maxItems: DEFAULT_MAX_ITEMS,
+  enableMseCapture: false,
+  hideStreamSegments: true,
+  captureDataImages: false,
+  dataImageMinSizeKB: 50,
 }
 
 const SETTINGS_KEY = 'ext_settings'
@@ -38,7 +57,7 @@ function toStringArray(val: any): string[] {
 }
 
 function parseSniffingRules(stored: any): SniffingRules {
-  const groups: SniffingGroup[] = ['streaming', 'video', 'audio', 'image']
+  const groups: SniffingGroup[] = ['streaming', 'video', 'audio', 'image', 'document', 'subtitle']
   const result = {} as SniffingRules
   for (const g of groups) {
     const def = DEFAULT_SNIFFING_RULES[g]
@@ -63,12 +82,24 @@ export async function loadSettings(): Promise<Settings> {
   if (!stored || typeof stored !== 'object') {
     return {
       sniffingRules: { ...DEFAULT_SETTINGS.sniffingRules },
-      excludeDomains: [],
+      excludeDomains: [...DEFAULT_SETTINGS.excludeDomains],
+      maxItems: DEFAULT_SETTINGS.maxItems,
+      enableMseCapture: DEFAULT_SETTINGS.enableMseCapture,
+      hideStreamSegments: DEFAULT_SETTINGS.hideStreamSegments,
+      captureDataImages: DEFAULT_SETTINGS.captureDataImages,
+      dataImageMinSizeKB: DEFAULT_SETTINGS.dataImageMinSizeKB,
     }
   }
+  const rawMax = stored.maxItems
+  const maxItems = typeof rawMax === 'number' && rawMax > 0 ? Math.floor(rawMax) : DEFAULT_MAX_ITEMS
   return {
     sniffingRules: parseSniffingRules(stored.sniffingRules ?? stored.sniffingGroups),
     excludeDomains: toStringArray(stored.excludeDomains),
+    maxItems,
+    enableMseCapture: typeof stored.enableMseCapture === 'boolean' ? stored.enableMseCapture : false,
+    hideStreamSegments: typeof stored.hideStreamSegments === 'boolean' ? stored.hideStreamSegments : true,
+    captureDataImages: typeof stored.captureDataImages === 'boolean' ? stored.captureDataImages : false,
+    dataImageMinSizeKB: typeof stored.dataImageMinSizeKB === 'number' ? stored.dataImageMinSizeKB : 50,
   }
 }
 
@@ -77,6 +108,11 @@ export async function saveSettings(settings: Settings): Promise<void> {
     [SETTINGS_KEY]: {
       sniffingRules: settings.sniffingRules,
       excludeDomains: Array.from(settings.excludeDomains),
+      maxItems: settings.maxItems,
+      enableMseCapture: settings.enableMseCapture,
+      hideStreamSegments: settings.hideStreamSegments,
+      captureDataImages: settings.captureDataImages,
+      dataImageMinSizeKB: settings.dataImageMinSizeKB,
     }
   })
 }
@@ -84,7 +120,9 @@ export async function saveSettings(settings: Settings): Promise<void> {
 export const STREAMING_FORMATS = ['m3u8', 'mpd']
 export const VIDEO_FORMATS = ['mp4', 'webm', 'ogv', 'flv', 'mkv', 'mov', 'avi', '3gp', '3g2', 'ts', 'mpeg']
 export const AUDIO_FORMATS = ['mp3', 'm4a', 'oga', 'weba', 'wav', 'flac', 'aac']
-export const IMAGE_FORMATS = ['gif', 'jpg', 'png', 'webp', 'svg']
+export const IMAGE_FORMATS = ['gif', 'jpg', 'png', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic', 'heif']
+export const DOCUMENT_FORMATS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+export const SUBTITLE_FORMATS = ['srt', 'vtt', 'ass', 'ssa']
 
 export function getFormatGroup(format: string): SniffingGroup | null {
   const f = format.toLowerCase()
@@ -92,6 +130,8 @@ export function getFormatGroup(format: string): SniffingGroup | null {
   if (VIDEO_FORMATS.includes(f)) return 'video'
   if (AUDIO_FORMATS.includes(f)) return 'audio'
   if (IMAGE_FORMATS.includes(f)) return 'image'
+  if (DOCUMENT_FORMATS.includes(f)) return 'document'
+  if (SUBTITLE_FORMATS.includes(f)) return 'subtitle'
   return null
 }
 

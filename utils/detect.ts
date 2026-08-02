@@ -18,13 +18,13 @@ const MEDIA_FORMATS = {
   'video/x-msvideo': 'avi',
   'video/3gpp': '3gp',
   'video/3gpp2': '3g2',
-  // 'video/mp2t': 'ts',
+  'video/mp2t': 'ts',
   'video/mpeg': 'mpeg',
-  
+
   // 音频格式
   'audio/mpeg': 'mp3',
-  // 'audio/mp4': 'm4a',
-  // 'audio/x-m4a': 'm4a',
+  'audio/mp4': 'mp4',
+  'audio/x-m4a': 'mp4',
   'audio/ogg': 'oga',
   'audio/webm': 'weba',
   'audio/x-wav': 'wav',
@@ -33,14 +33,14 @@ const MEDIA_FORMATS = {
   'audio/flac': 'flac',
   'audio/aac': 'aac',
   'audio/x-aac': 'aac',
-  
+
   // 流媒体格式
   'application/x-mpegurl': 'm3u8',
   'application/vnd.apple.mpegurl': 'm3u8',
   'application/dash+xml': 'mpd',
   'application/x-mpegURL': 'm3u8',
-  
-  // 其他媒体格式
+
+  // 图片
   'image/gif': 'gif',
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -98,6 +98,29 @@ export const SUPPORTED_MEDIA_TYPES = [
 // 排除的媒体类型（DASH/HLS片段格式，不单独显示）
 const EXCLUDED_EXTENSIONS = ['.m4s', '.m4v', '.m4a', '.m4f', '.m4i', '.cmfv', '.cmfa', '.cmft', '.ts']
 
+// application/octet-stream 视为媒体的最小文件大小（1MB），低于此阈值视为非媒体
+export const MIN_OCTET_STREAM_SIZE = 1 * 1024 * 1024
+
+// 已知媒体 CDN 域名特征（无扩展名 URL + octet-stream 时按域名兜底识别）
+// 抖音/字节系：douyinvod, bytecdn, byteimg, bytego, bytedns, amemv, iesdouyin, snssdk
+// 其他常见媒体 CDN：polyv, qiniu(my-qiniu), ks-cdn(快手), taobao/alicdn
+const MEDIA_CDN_PATTERNS: RegExp[] = [
+  /\.(douyinvod|douyinpic|douyincdn|amemv|iesdouyin|snssdk|bytecdn|byteimg|bytego|bytedns|byteoss|bytedance)\.(?:com|cn|net|org)\b/i,
+  /\.(pstatp|toutiaovod|ixigua|xituovod|西瓜视频)\.(?:com|cn)\b/i,
+  /\.(ks-yxcdn|kwaixiaodian|yx-fes|kscdn|qiniucdn|qcloudcdn)\.(?:com|cn)\b/i,
+  /\.(polyv|videocc|myqcloud|alicdn|taobao|mmcdn)\.(?:com|cn)\b/i,
+]
+
+function isKnownMediaCdn(url: string): boolean {
+  if (!url) return false
+  try {
+    const hostname = new URL(url).hostname
+    return MEDIA_CDN_PATTERNS.some(re => re.test(hostname))
+  } catch {
+    return MEDIA_CDN_PATTERNS.some(re => re.test(url))
+  }
+}
+
 function isExcludedExtension(pathname: string): boolean {
   const lower = pathname.toLowerCase()
   return EXCLUDED_EXTENSIONS.some(ext => lower.endsWith(ext))
@@ -105,11 +128,57 @@ function isExcludedExtension(pathname: string): boolean {
 
 // 根据content-type检测媒体格式
 export function detectMediaFromContentType(contentType: string): string | null {
-  console.log(browser.i18n.getUILanguage(),"detectMediaFromContentType")
   if (!contentType) return null
   
   const normalizedType = contentType.toLowerCase().split(';')[0].trim()
   return (MEDIA_FORMATS as Record<string, string>)[normalizedType] || null
+}
+
+// data: URL 内嵌图片检测
+// 解析 data:image/png;base64,... 形式，返回图片格式（png/jpg/gif/webp/svg）
+// 非 data: URL 或非图片类型返回 null
+const DATA_IMAGE_PREFIX = /^data:image\/([a-z0-9.+-]+)\s*(?:;([^,]*))?\s*,/i
+export function detectDataImageUrl(url: string): string | null {
+  if (!url || !url.startsWith('data:')) return null
+  const match = url.match(DATA_IMAGE_PREFIX)
+  if (!match) return null
+  const subtype = match[1]!.toLowerCase()
+  const map: Record<string, string> = {
+    png: 'png',
+    jpeg: 'jpg',
+    jpg: 'jpg',
+    gif: 'gif',
+    webp: 'webp',
+    'svg+xml': 'svg',
+    bmp: 'bmp',
+    'x-icon': 'ico',
+    'vnd.microsoft.icon': 'ico',
+    avif: 'avif',
+    heic: 'heic',
+    heif: 'heif',
+  }
+  return map[subtype] || null
+}
+
+// 估算 data: URL 的字节大小（解码 base64 后的真实字节数）
+export function estimateDataUrlBytes(url: string): number {
+  if (!url || !url.startsWith('data:')) return 0
+  const commaIdx = url.indexOf(',')
+  if (commaIdx < 0) return 0
+  const meta = url.slice(0, commaIdx)
+  const payload = url.slice(commaIdx + 1)
+  // base64 编码：每 4 字符 ≈ 3 字节，忽略 padding 与换行
+  if (meta.includes('base64')) {
+    const cleaned = payload.replace(/\s/g, '')
+    const padding = cleaned.endsWith('==') ? 2 : cleaned.endsWith('=') ? 1 : 0
+    return Math.floor((cleaned.length * 3) / 4) - padding
+  }
+  // URL 编码：解码后近似等于字符数
+  try {
+    return decodeURIComponent(payload).length
+  } catch {
+    return payload.length
+  }
 }
 
 // 根据URL检测媒体格式（更严格的检测，避免误判）
@@ -236,15 +305,165 @@ export function isM3U8(value: unknown): boolean {
 }
 
 // 综合检测函数：优先使用content-type，备选使用URL检测
-export function detectMedia(url: string, contentType?: string | null): string | null {
-  // 1. 优先使用content-type检测（最准确）
-  if (contentType) {
-    const contentTypeFormat = detectMediaFromContentType(contentType)
-    if (contentTypeFormat) {
-      return contentTypeFormat
+// contentLength: 文件大小（字节），用于 application/octet-stream 的大小过滤
+export function detectMedia(url: string, contentType?: string | null, contentLength?: number): string | null {
+  // 0. 优先排除 DASH/HLS 分片
+  if (url) {
+    try {
+      const pathname = new URL(url).pathname.toLowerCase()
+      if (isExcludedExtension(pathname)) return null
+    } catch {
+      if (isExcludedExtension(url.toLowerCase())) return null
     }
   }
-  
-  // 2. 备选：使用URL检测（更严格的检测）
+
+  // 1. 优先使用 Content-Type 检测（最准确）
+  if (contentType) {
+    const normalized = contentType.toLowerCase().split(';')[0].trim()
+
+    // application/octet-stream：通用二进制流，靠文件大小 + URL 扩展名二次判断
+    if (normalized === 'application/octet-stream') {
+      const sizeOk = contentLength === undefined || contentLength >= MIN_OCTET_STREAM_SIZE
+      if (sizeOk) {
+        const urlFmt = detectMediaFromUrl(url)
+        if (urlFmt) return urlFmt
+        // URL 无扩展名但来自已知媒体 CDN（抖音/字节/快手等）：兜底按 mp4 识别
+        // 这些 CDN 的视频 URL 常无扩展名，且 content-type 多为 octet-stream
+        if (isKnownMediaCdn(url)) return 'mp4'
+      }
+      return null
+    }
+
+    const contentTypeFormat = detectMediaFromContentType(contentType)
+    if (contentTypeFormat) return contentTypeFormat
+  }
+
+  // 2. 备选：使用 URL 检测
   return detectMediaFromUrl(url)
+}
+
+// ============ 文档 / 字幕格式检测 ============
+export type MediaCategory = 'media' | 'stream' | 'document' | 'subtitle'
+
+// 文档（Office / PDF）的 Content-Type → 简码 映射
+const DOC_FORMATS: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+  'application/epub+zip': 'epub',
+  'text/csv': 'csv',
+  'application/rtf': 'rtf',
+  'text/rtf': 'rtf',
+}
+
+// 字幕的 Content-Type → 简码 映射
+const SUBTITLE_FORMATS: Record<string, string> = {
+  'application/x-subrip': 'srt',
+  'text/vtt': 'vtt',
+  'text/x-ssa': 'ssa',
+  'text/x-ass': 'ass',
+  'application/ttml+xml': 'ttml',
+}
+
+// 文档 / 字幕 文件扩展名 → 简码 映射
+const DOC_EXTENSION_MAP: Record<string, string> = {
+  '.pdf': 'pdf',
+  '.doc': 'doc', '.docx': 'docx',
+  '.xls': 'xls', '.xlsx': 'xlsx',
+  '.ppt': 'ppt', '.pptx': 'pptx',
+  '.epub': 'epub',
+  '.csv': 'csv',
+  '.rtf': 'rtf',
+  '.srt': 'srt', '.vtt': 'vtt', '.ass': 'ass', '.ssa': 'ssa', '.ttml': 'ttml',
+}
+
+const SUBTITLE_CODES = ['srt', 'vtt', 'ass', 'ssa', 'ttml']
+
+// 根据 content-type 检测文档/字幕格式
+export function detectDocFromContentType(contentType: string): string | null {
+  if (!contentType) return null
+  const normalized = contentType.toLowerCase().split(';')[0].trim()
+  return DOC_FORMATS[normalized] || SUBTITLE_FORMATS[normalized] || null
+}
+
+// 根据 URL 检测文档/字幕格式（严格扩展名匹配）
+export function detectDocFromUrl(url: string): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    const pathname = parsed.pathname.toLowerCase()
+    for (const [ext, format] of Object.entries(DOC_EXTENSION_MAP)) {
+      if (pathname.endsWith(ext)) return format
+    }
+    const lastSegment = pathname.split('/').pop()?.split('?')[0] || ''
+    for (const [ext, format] of Object.entries(DOC_EXTENSION_MAP)) {
+      if (lastSegment.endsWith(ext)) return format
+    }
+    return null
+  } catch {
+    const lower = url.toLowerCase()
+    for (const [ext, format] of Object.entries(DOC_EXTENSION_MAP)) {
+      if (new RegExp(`\\${ext}(?:[?#]|$)`, 'i').test(lower)) return format
+    }
+    return null
+  }
+}
+
+// 从 Content-Disposition 头解析文件名，提取扩展名并映射格式
+// 支持 filename="foo.pdf"、filename*=UTF-8''foo.pdf 两种写法
+export function detectDocFromContentDisposition(contentDisposition: string): string | null {
+  if (!contentDisposition) return null
+  const lower = contentDisposition.toLowerCase()
+  if (!lower.includes('attachment') && !lower.includes('inline')) return null
+
+  // 优先匹配 filename*=UTF-8''xxx 或 filename*=xxx
+  let filename: string | null = null
+  const rfc5987 = contentDisposition.match(/filename\*\s*=\s*(?:[^']*'[^']*')?([^;"\s]+)/i)
+  if (rfc5987?.[1]) {
+    try { filename = decodeURIComponent(rfc5987[1]) } catch { filename = rfc5987[1] }
+  }
+
+  // 回退到 filename="xxx" 或 filename=xxx
+  if (!filename) {
+    const plain = contentDisposition.match(/filename\s*=\s*"([^"]+)"/i) ??
+                  contentDisposition.match(/filename\s*=\s*([^;"\s]+)/i)
+    if (plain?.[1]) {
+      try { filename = decodeURIComponent(plain[1]) } catch { filename = plain[1] }
+    }
+  }
+
+  if (!filename) return null
+
+  // 提取扩展名，查文档/字幕映射
+  const ext = ('.' + filename.split('.').pop()!.toLowerCase()) as string
+  return DOC_EXTENSION_MAP[ext] ?? null
+}
+
+// 综合检测文档/字幕：优先 content-type，次选 Content-Disposition，备选 URL 扩展名
+export function detectDoc(
+  url: string,
+  contentType?: string | null,
+  contentDisposition?: string | null,
+): { format: string; category: MediaCategory } | null {
+  // 排除 DASH/HLS 分片，避免 .m4s 等被误判为文档
+  if (url) {
+    try {
+      if (isExcludedExtension(new URL(url).pathname.toLowerCase())) return null
+    } catch {
+      if (isExcludedExtension(url.toLowerCase())) return null
+    }
+  }
+
+  let format: string | null = null
+  if (contentType) format = detectDocFromContentType(contentType)
+  if (!format && contentDisposition) format = detectDocFromContentDisposition(contentDisposition)
+  if (!format) format = detectDocFromUrl(url)
+  if (!format) return null
+
+  const category: MediaCategory = SUBTITLE_CODES.includes(format) ? 'subtitle' : 'document'
+  return { format, category }
 }

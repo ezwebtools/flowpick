@@ -119,6 +119,12 @@
     "excludeDomains":{
         "message": "排除域名"
     },
+    "maxItems":{
+        "message": "每标签页最大条目数"
+    },
+    "maxItemsDesc":{
+        "message": "每个标签页最多抓取的媒体条目数（10–5000），超出后自动淘汰最旧的条目。"
+    },
     "excludeDomainsDesc":{
         "message": "在这些域名上将禁用嗅探。每行一个域名（例如：twitter.com）"
     },
@@ -304,6 +310,15 @@
     },
     "reset":{
         "message": "重置"
+    },
+    "sortByTime":{
+        "message": "按检测时间排序（点击启用）"
+    },
+    "sortDesc":{
+        "message": "最新优先（点击改为最早优先）"
+    },
+    "sortAsc":{
+        "message": "最早优先（点击关闭排序）"
     },
     "preview":{
         "message": "预览"

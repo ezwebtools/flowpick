@@ -119,6 +119,12 @@
     "excludeDomains":{
         "message": "제외할 도메인"
     },
+    "maxItems":{
+        "message": "탭당 최대 항목 수"
+    },
+    "maxItemsDesc":{
+        "message": "탭당 최대 캡처 미디어 항목 수 (10–5000). 한도 초과 시 가장 오래된 항목부터 교체됩니다."
+    },
     "excludeDomainsDesc":{
         "message": "해당 도메인에서 미디어 탐지가 비활성화됩니다. 한 줄에 하나씩 입력하세요 (예: twitter.com)"
     },
@@ -304,6 +310,15 @@
     },
     "reset":{
         "message": "초기화"
+    },
+    "sortByTime":{
+        "message": "감지 시간 순 정렬 (클릭하여 활성화)"
+    },
+    "sortDesc":{
+        "message": "최신 순 (클릭하여 오래된 순)"
+    },
+    "sortAsc":{
+        "message": "오래된 순 (클릭하여 비활성화)"
     },
     "preview":{
         "message": "미리보기"

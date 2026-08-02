@@ -26,3 +26,6 @@ web-ext.config.ts
 *.sw?
 
 .codebuddy
+.wrangler
+.workbuddy
+test-plugin

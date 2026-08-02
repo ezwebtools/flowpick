@@ -119,6 +119,12 @@
     "excludeDomains":{
         "message": "排除網域"
     },
+    "maxItems":{
+        "message": "每分頁最大條目數"
+    },
+    "maxItemsDesc":{
+        "message": "每個分頁最多擷取的媒體條目數（10–5000），超出後自動淘汰最舊的條目。"
+    },
     "excludeDomainsDesc":{
         "message": "在這些網域上將停用嗅探。每行一個網域（例如：twitter.com）"
     },
@@ -304,6 +310,15 @@
     },
     "reset":{
         "message": "重置"
+    },
+    "sortByTime":{
+        "message": "依偵測時間排序（點擊啟用）"
+    },
+    "sortDesc":{
+        "message": "最新優先（點擊改為最早優先）"
+    },
+    "sortAsc":{
+        "message": "最早優先（點擊關閉排序）"
     },
     "preview":{
         "message": "預覽"

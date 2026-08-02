@@ -119,6 +119,12 @@
     "excludeDomains":{
         "message": "Ausgeschlossene Domains"
     },
+    "maxItems":{
+        "message": "Max. Einträge pro Tab"
+    },
+    "maxItemsDesc":{
+        "message": "Maximale Anzahl erfasster Medieneinträge pro Tab (10–5000). Älteste Einträge werden ersetzt, wenn das Limit erreicht ist."
+    },
     "excludeDomainsDesc":{
         "message": "Die Erkennung wird auf diesen Domains deaktiviert. Eine pro Zeile (z.B. twitter.com)"
     },
@@ -304,6 +310,15 @@
     },
     "reset":{
         "message": "Zurücksetzen"
+    },
+    "sortByTime":{
+        "message": "Nach Erkennungszeit sortieren (klicken zum Aktivieren)"
+    },
+    "sortDesc":{
+        "message": "Neueste zuerst (klicken für älteste zuerst)"
+    },
+    "sortAsc":{
+        "message": "Älteste zuerst (klicken zum Deaktivieren)"
     },
     "preview":{
         "message": "Vorschau"

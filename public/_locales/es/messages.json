@@ -119,6 +119,12 @@
     "excludeDomains":{
         "message": "Dominios Excluidos"
     },
+    "maxItems":{
+        "message": "Máx. elementos por pestaña"
+    },
+    "maxItemsDesc":{
+        "message": "Máximo de elementos multimedia capturados por pestaña (10–5000). Los más antiguos se reemplazan al alcanzar el límite."
+    },
     "excludeDomainsDesc":{
         "message": "La detección estará deshabilitada en estos dominios. Uno por línea (ej. twitter.com)"
     },
@@ -304,6 +310,15 @@
     },
     "reset":{
         "message": "Restablecer"
+    },
+    "sortByTime":{
+        "message": "Ordenar por tiempo de detección (clic para activar)"
+    },
+    "sortDesc":{
+        "message": "Más reciente primero (clic para más antiguo)"
+    },
+    "sortAsc":{
+        "message": "Más antiguo primero (clic para desactivar)"
     },
     "preview":{
         "message": "Vista Previa"
