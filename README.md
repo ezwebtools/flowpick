@@ -2,7 +2,7 @@
 
 > **Smart Media Sniffer · Preview & Download** — Automatically capture video streams, audio, and images from web pages with built-in playback and instant download.
 
-[🇨🇳 中文文档](README_zh.md) | [🇬🇧 English](README.md)
+[🇨🇳 中文文档](README_ZH.md) | [🇬🇧 English](README.md)
 
 [![License](https://img.shields.io/github/license/ezwebtools/flowpick)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ezwebtools/flowpick)](stargazers)
