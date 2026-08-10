@@ -247,14 +247,18 @@ export default defineBackground(() => {
   const chromeGlobal = (globalThis as any).chrome
   const nativeBrowser = (globalThis as any).browser
   const isFirefox = !!(nativeBrowser?.sidebarAction)
+  const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(
+    (globalThis as any).navigator?.userAgent ?? ''
+  )
   // 必须同时具备 sidePanel、setOptions 与 open（且 open 为函数），否则视为不支持，
   // 保留 popup 作为兜底，避免 360 等浏览器"清空 popup 后 sidePanel 又打不开"的假死。
   const supportsChromeSidepanel =
     !isFirefox &&
+    !isMobileBrowser &&
     !!chromeGlobal?.sidePanel &&
     typeof chromeGlobal.sidePanel.setOptions === 'function' &&
     typeof chromeGlobal.sidePanel.open === 'function'
-  const supportsFirefoxSidebar = isFirefox
+  const supportsFirefoxSidebar = isFirefox && !isMobileBrowser
 
   // Track open sidepanel ports per tab: tabId → Port（外层声明，供 isUiListening 等共用）
   const sidePanelPorts = new Map<number, any>()
@@ -378,6 +382,9 @@ export default defineBackground(() => {
   } else {
     if (chromeGlobal?.action?.setPopup) {
       chromeGlobal.action.setPopup({ popup: 'popup.html' })
+    }
+    if (isFirefox && nativeBrowser?.browserAction?.setPopup) {
+      nativeBrowser.browserAction.setPopup({ popup: 'popup.html' }).catch?.(() => {})
     }
   }
 

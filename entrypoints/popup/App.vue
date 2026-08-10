@@ -13,6 +13,10 @@
   const SettingsView = defineAsyncComponent(() => import('./components/SettingsView.vue'))
 
   const props = withDefaults(defineProps<{ mode?: 'popup' | 'sidepanel' }>(), { mode: 'popup' })
+  const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  const mobileCapabilityTip = /zh/i.test(navigator.language)
+    ? '移动端提示：普通下载可用；直播录制和 MSE 下载可能受后台运行及内存限制。'
+    : 'Mobile note: regular downloads are supported; live recording and MSE downloads may be limited by background execution and memory.'
 
   const rootContainerClass = computed(() => {
     const base = 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col relative overflow-hidden'
@@ -2052,6 +2056,9 @@
               <span class="text-sm font-bold text-gray-800 dark:text-gray-100">FlowPick</span>
               <span class="text-[10px] text-gray-400 dark:text-gray-500"> | {{ t('subtitle') }}</span>
             </div>
+          </div>
+          <div v-if="isMobileBrowser" class="px-3 py-1.5 text-[11px] leading-4 text-amber-800 bg-amber-50 border-b border-amber-100 dark:text-amber-200 dark:bg-amber-950/40 dark:border-amber-900/50">
+            {{ mobileCapabilityTip }}
           </div>
           <div class="flex items-center w-full">
             <nav class="flex -mb-px flex-1 w-full min-w-0">

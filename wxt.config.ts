@@ -44,6 +44,7 @@ export default defineConfig({
         sidebar_action: {
           default_panel: 'sidepanel.html',
           default_title: 'FlowPick',
+          default_popup: 'popup.html',
           default_icon: {
             '16': 'icon/16.png',
             '32': 'icon/32.png',
@@ -55,6 +56,7 @@ export default defineConfig({
         },
         browser_action: {
           default_title: 'FlowPick',
+          default_popup: 'popup.html',
           default_icon: {
             '16': 'icon/16.png',
             '32': 'icon/32.png',
