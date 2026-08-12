@@ -800,10 +800,18 @@ export default defineBackground(() => {
   ])
 
   // 代理请求：注入 Referer 并移除 Origin，绕过 CDN 的 CORS/来源校验
+  const proxyHeaderExtraInfoSpec = isFirefox
+    ? ['blocking', 'requestHeaders']
+    : ['requestHeaders']
   browser.webRequest.onBeforeSendHeaders.addListener(
     (details) => {
       const proxyHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'x-flowpick-proxy')
-      if (!proxyHeader) return {}
+      let playbackRule: { referer: string; authHeaders?: Record<string, string> } | undefined
+      if (isFirefox && !proxyHeader) {
+        try { playbackRule = playbackHeaderHosts.get(new URL(details.url).host) }
+        catch { playbackRule = undefined }
+      }
+      if (!proxyHeader && !playbackRule) return {}
 
       const refererHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'x-flowpick-referer')
       const newHeaders = (details.requestHeaders || [])
@@ -819,14 +827,20 @@ export default defineBackground(() => {
         })
 
       // 注入 Referer
-      if (refererHeader?.value) {
-        newHeaders.push({ name: 'Referer', value: refererHeader.value })
+      const referer = refererHeader?.value || playbackRule?.referer
+      if (referer) {
+        newHeaders.push({ name: 'Referer', value: referer })
+      }
+      if (playbackRule?.authHeaders) {
+        for (const [name, value] of Object.entries(playbackRule.authHeaders)) {
+          newHeaders.push({ name, value })
+        }
       }
 
       return { requestHeaders: newHeaders }
     },
     { urls: ['<all_urls>'] },
-    ['requestHeaders'],
+    proxyHeaderExtraInfoSpec,
   )
 
   // 代理请求的 DNR session 规则缓存（按 host 去重）
@@ -842,10 +856,16 @@ export default defineBackground(() => {
     authHeaders?: Record<string, string>,
   ): Promise<void> {
     const dnr = (browser as any).declarativeNetRequest
-    if (!dnr) return
-    if (navigator.userAgent.toLowerCase().includes('firefox')) return
     let host: string
     try { host = new URL(targetUrl).host } catch { return }
+
+    // Firefox cannot use Chromium's session DNR header rules here. Keep the
+    // same per-host state for the blocking webRequest listener instead, so
+    // direct <video>/<audio>/<img> requests also receive the captured headers.
+    if (isFirefox || !dnr) {
+      playbackHeaderHosts.set(host, { referer, authHeaders })
+      return
+    }
 
     const headersKey = JSON.stringify({ referer, ...authHeaders })
     const cached = dnlRefererRules.get(host)
@@ -1122,6 +1142,9 @@ export default defineBackground(() => {
       const targetUrl = langSuffix
         ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
         : `https://flowpick.net/${downloaderPage}`
+      // const targetUrl = langSuffix
+      //   ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
+      //   : `http://localhost:3001/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl, requestHeaders: resolvedHeaders, audioUrl: msg.audioUrl as string | undefined })

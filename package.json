@@ -2,7 +2,7 @@
   "name": "flowpick",
   "description": "Detect and extract M3U8 streams from webpages",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "scripts": {
     "dev": "wxt",
