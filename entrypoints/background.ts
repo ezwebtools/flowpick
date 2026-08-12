@@ -250,6 +250,11 @@ export default defineBackground(() => {
   const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(
     (globalThis as any).navigator?.userAgent ?? ''
   )
+  // Firefox only accepts requestHeaders for onSendHeaders; Chromium also
+  // supports extraHeaders.
+  const sendHeadersExtraInfo = isFirefox
+    ? ['requestHeaders']
+    : ['requestHeaders', 'extraHeaders']
   // 必须同时具备 sidePanel、setOptions 与 open（且 open 为函数），否则视为不支持，
   // 保留 popup 作为兜底，避免 360 等浏览器"清空 popup 后 sidePanel 又打不开"的假死。
   const supportsChromeSidepanel =
@@ -646,8 +651,8 @@ export default defineBackground(() => {
     // 排除 stylesheet/script/font/image(cross-origin 无头)/ping/beacon 等高频类型，
     // 在浏览器层减少回调触发量（替代 <all_urls> 全量监听）
     { urls: ['<all_urls>'], types: ['main_frame', 'media', 'xmlhttprequest', 'sub_frame', 'image', 'other'] },
-    // EXTRA_HEADERS 必须加上，否则 Chrome 不暴露 Cookie 头
-    (['requestHeaders', 'extraHeaders'] as any[]).filter(Boolean),
+    // Chromium needs extraHeaders to expose Cookie headers; Firefox does not support this option here.
+    sendHeadersExtraInfo as any[],
   )
 
   browser.webRequest.onErrorOccurred.addListener(
