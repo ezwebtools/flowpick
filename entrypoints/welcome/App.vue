@@ -38,6 +38,33 @@
       </div>
 
       <section class="mb-14">
+        <div class="bg-white dark:bg-gray-800/60 rounded-2xl border border-blue-200 dark:border-blue-900/60 p-6">
+          <div class="flex items-center justify-between gap-3 mb-5">
+            <h2 class="text-xl font-semibold flex items-center gap-2">
+              <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2m6-2a10 10 0 11-20 0 10 10 0 0120 0z" />
+                </svg>
+              </span>
+              {{ t('changelogTitle') }}
+            </h2>
+            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400">{{ t('changelogVersion') }}</span>
+          </div>
+
+          <div class="space-y-5 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+            <div>
+              <h3 class="font-medium text-gray-900 dark:text-gray-100 mb-2">{{ t('changelogFeaturesTitle') }}</h3>
+              <p class="whitespace-pre-line">{{ t('changelogFeatures') }}</p>
+            </div>
+            <div>
+              <h3 class="font-medium text-gray-900 dark:text-gray-100 mb-2">{{ t('changelogFixesTitle') }}</h3>
+              <p class="whitespace-pre-line">{{ t('changelogFixes') }}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="mb-14">
         <h2 class="text-xl font-semibold mb-6 flex items-center gap-2">
           <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

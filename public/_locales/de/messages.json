@@ -328,5 +328,23 @@
     },
     "open":{
         "message": "Öffnen"
+    },
+    "changelogTitle":{
+        "message": "Neu in dieser Version"
+    },
+    "changelogVersion":{
+        "message": "v1.1.1"
+    },
+    "changelogFeaturesTitle":{
+        "message": "Neue Funktionen"
+    },
+    "changelogFeatures":{
+        "message": "• Proxy-Vorschau für gegen Hotlinking geschützte Bilder mit Referer- und Authentifizierungs-Headern.\n• Proxy-Downloads für geschützte Bilder, Audiodateien, Dokumente und Untertitel.\n• Schnellere Cover-Anzeige: Bei erforderlichem Referer wird der Proxy direkt verwendet.\n• Verbesserte Firefox-Unterstützung mit webRequestBlocking, Header-Injektion und automatischer Entfernung von Origin.\n• Versionsnummer auf 1.1.1 aktualisiert."
+    },
+    "changelogFixesTitle":{
+        "message": "Fehlerbehebungen"
+    },
+    "changelogFixes":{
+        "message": "• Anzeige von Bildern nach Hotlinking-Blockierung repariert.\n• Fehler behoben, durch den Bilddownloads als HTML-Seiten gespeichert wurden.\n• Fehlende Header bei geschützten Audio- und Dokumentdownloads ergänzt.\n• Fehler beim Laden von Cross-Origin-Medien in Firefox behoben.\n• Fehlerhafte oder unvollständige Proxy-Antworten durch weitergeleitete Cache-Header behoben."
     }
 }
