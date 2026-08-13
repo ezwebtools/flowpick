@@ -238,6 +238,28 @@
     },
     getFormatLabel: format => getFormatLabel(format),
   })
+
+  type VisibleTabKey = 'all' | 'stream' | 'video' | 'audio' | 'image' | 'doc'
+  const visibleTabs = computed<Array<{ key: VisibleTabKey, label: string, count: number, activeClass: string }>>(() => {
+    const tabs: Array<{ key: VisibleTabKey, label: string, activeClass: string }> = [
+      { key: 'all', label: t('tabAll'), activeClass: 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15' },
+      { key: 'stream', label: t('tabStream'), activeClass: 'border-purple-500 text-purple-600 dark:text-purple-300 dark:border-purple-400 dark:bg-purple-500/15' },
+      { key: 'video', label: t('video'), activeClass: 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15' },
+      { key: 'audio', label: t('audio'), activeClass: 'border-green-500 text-green-600 dark:text-green-300 dark:border-green-400 dark:bg-green-500/15' },
+      { key: 'image', label: t('image'), activeClass: 'border-orange-500 text-orange-600 dark:text-orange-300 dark:border-orange-400 dark:bg-orange-500/15' },
+      { key: 'doc', label: t('tabDoc'), activeClass: 'border-indigo-500 text-indigo-600 dark:text-indigo-300 dark:border-indigo-400 dark:bg-indigo-500/15' },
+    ]
+    return tabs
+      .filter(tab => tabCounts.value[tab.key] > 0)
+      .map(tab => ({ ...tab, count: tabCounts.value[tab.key] }))
+  })
+
+  watch([visibleTabs, activeTab], () => {
+    if (visibleTabs.value.length === 0) return
+    if (!visibleTabs.value.some(tab => tab.key === activeTab.value)) {
+      activeTab.value = visibleTabs.value[0].key
+    }
+  }, { immediate: true })
   const previewCurrentItem = computed(() => mediaByUrl.value.get(previewImageUrl.value))
   // ── 虚拟列表（普通列表）────────────────────────────────────────────
   // “全部”标签的普通卡片与流媒体分组卡片使用相同的外框尺寸。
@@ -1942,9 +1964,7 @@
     return sanitized
   }
 
-  // ── 直播流录制（HTTP-FLV/MPEG-TS）──────────────────────────────
-  // 直播流无 Content-Length/Duration，不能跳 test-web 下载页。
-  // 用 fetch 持续读流到内存 chunks，用户点"停止"后合并 Blob 下载。
+
   const startLiveRecording = (url: string, format: string, requestHeaders?: Record<string, string>) => {
     const key = getMediaKey({ url, format })
     // 已在录制中：切换为停止
@@ -2215,24 +2235,19 @@
             {{ mobileCapabilityTip }}
           </div>
           <div class="flex items-center w-full">
-            <nav class="flex -mb-px flex-1 w-full min-w-0">
-              <button @click="activeTab = 'all'" :class="[activeTab === 'all' ? 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all min-w-0']">
-                {{ t('tabAll') }}({{ tabCounts.all }})
-              </button>
-              <button @click="activeTab = 'stream'" :class="[activeTab === 'stream' ? 'border-purple-500 text-purple-600 dark:text-purple-300 dark:border-purple-400 dark:bg-purple-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('tabStream') }}({{ tabCounts.stream }})
-              </button>
-              <button @click="activeTab = 'video'" :class="[activeTab === 'video' ? 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('video') }}({{ tabCounts.video }})
-              </button>
-              <button @click="activeTab = 'audio'" :class="[activeTab === 'audio' ? 'border-green-500 text-green-600 dark:text-green-300 dark:border-green-400 dark:bg-green-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('audio') }}({{ tabCounts.audio }})
-              </button>
-              <button @click="activeTab = 'image'" :class="[activeTab === 'image' ? 'border-orange-500 text-orange-600 dark:text-orange-300 dark:border-orange-400 dark:bg-orange-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('image') }}({{ tabCounts.image }})
-              </button>
-              <button @click="activeTab = 'doc'" :class="[activeTab === 'doc' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300 dark:border-indigo-400 dark:bg-indigo-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('tabDoc') }}({{ tabCounts.doc }})
+            <nav v-if="visibleTabs.length" class="flex -mb-px flex-1 w-full min-w-0">
+              <button
+                v-for="tab in visibleTabs"
+                :key="tab.key"
+                @click="activeTab = tab.key"
+                :class="[
+                  activeTab === tab.key
+                    ? `${tab.activeClass} font-semibold`
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal',
+                  'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all min-w-0'
+                ]"
+              >
+                {{ tab.label }}({{ tab.count }})
               </button>
             </nav>
             

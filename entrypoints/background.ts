@@ -1694,7 +1694,23 @@ export default defineBackground(() => {
 
   function updateBadge(tabId: number) {
     const mediaMap = tabMap.get(tabId)
-    const count = mediaMap?.size ?? 0
+    const countedGroups = new Set<string>()
+    let count = 0
+    mediaMap?.forEach((entry, url) => {
+      // A grouped stream may contain one master plus multiple quality
+      // variants, audio tracks, and segments. The badge represents usable
+      // resources, so count that entire group only once.
+      const groupKey = entry.groupId || entry.groupMasterId
+      if (groupKey) {
+        if (countedGroups.has(groupKey)) return
+        countedGroups.add(groupKey)
+      } else if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') {
+        // Keep malformed/legacy grouped entries visible instead of silently
+        // dropping them when the background data lacks a group identifier.
+        countedGroups.add(`legacy:${url}`)
+      }
+      count++
+    })
     const action = (browser as any).action || (browser as any).browserAction
     if (!action) return
     action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })
