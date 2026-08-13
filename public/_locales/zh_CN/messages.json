@@ -328,5 +328,23 @@
     },
     "open":{
         "message": "打开"
+    },
+    "changelogTitle":{
+        "message": "版本更新"
+    },
+    "changelogVersion":{
+        "message": "v1.1.1"
+    },
+    "changelogFeaturesTitle":{
+        "message": "新增功能"
+    },
+    "changelogFeatures":{
+        "message": "• 新增图片防盗链代理预览，自动携带 Referer、Cookie 等认证请求头。\n• 新增受保护资源代理下载，统一支持图片、音频、文档和字幕。\n• 优化视频封面加载，带有 Referer 时直接预加载代理资源。\n• 增强 Firefox 支持，通过 webRequestBlocking 注入 Referer 和认证请求头，并自动移除 Origin。\n• 版本号更新至 1.1.1。"
+    },
+    "changelogFixesTitle":{
+        "message": "问题修复"
+    },
+    "changelogFixes":{
+        "message": "• 修复图片被防盗链拦截后无法显示的问题。\n• 修复点击下载图片时保存为 HTML 页面的问题。\n• 修复音频、文档下载缺少请求头导致失败的问题。\n• 修复跨域媒体资源在 Firefox 中无法加载的问题。\n• 修复代理请求携带缓存头导致返回错误或内容不完整的问题。"
     }
 }

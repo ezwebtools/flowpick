@@ -328,5 +328,23 @@
     },
     "open":{
         "message": "開啟"
+    },
+    "changelogTitle":{
+        "message": "版本更新"
+    },
+    "changelogVersion":{
+        "message": "v1.1.1"
+    },
+    "changelogFeaturesTitle":{
+        "message": "新增功能"
+    },
+    "changelogFeatures":{
+        "message": "• 新增圖片防盜鏈代理預覽，自動攜帶 Referer、Cookie 等驗證請求標頭。\n• 新增受保護資源代理下載，統一支援圖片、音訊、文件與字幕。\n• 優化影片封面載入，帶有 Referer 時直接預載入代理資源。\n• 增強 Firefox 支援，透過 webRequestBlocking 注入 Referer 與驗證請求標頭，並自動移除 Origin。\n• 版本號更新至 1.1.1。"
+    },
+    "changelogFixesTitle":{
+        "message": "問題修復"
+    },
+    "changelogFixes":{
+        "message": "• 修復圖片遭防盜鏈攔截後無法顯示的問題。\n• 修復點擊下載圖片時儲存成 HTML 頁面的問題。\n• 修復音訊、文件下載缺少請求標頭導致失敗的問題。\n• 修復跨域媒體資源在 Firefox 中無法載入的問題。\n• 修復代理請求攜帶快取標頭導致回傳錯誤或內容不完整的問題。"
     }
 }

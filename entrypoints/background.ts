@@ -250,6 +250,11 @@ export default defineBackground(() => {
   const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(
     (globalThis as any).navigator?.userAgent ?? ''
   )
+  // Firefox only accepts requestHeaders for onSendHeaders; Chromium also
+  // supports extraHeaders.
+  const sendHeadersExtraInfo = isFirefox
+    ? ['requestHeaders']
+    : ['requestHeaders', 'extraHeaders']
   // 必须同时具备 sidePanel、setOptions 与 open（且 open 为函数），否则视为不支持，
   // 保留 popup 作为兜底，避免 360 等浏览器"清空 popup 后 sidePanel 又打不开"的假死。
   const supportsChromeSidepanel =
@@ -646,8 +651,8 @@ export default defineBackground(() => {
     // 排除 stylesheet/script/font/image(cross-origin 无头)/ping/beacon 等高频类型，
     // 在浏览器层减少回调触发量（替代 <all_urls> 全量监听）
     { urls: ['<all_urls>'], types: ['main_frame', 'media', 'xmlhttprequest', 'sub_frame', 'image', 'other'] },
-    // EXTRA_HEADERS 必须加上，否则 Chrome 不暴露 Cookie 头
-    (['requestHeaders', 'extraHeaders'] as any[]).filter(Boolean),
+    // Chromium needs extraHeaders to expose Cookie headers; Firefox does not support this option here.
+    sendHeadersExtraInfo as any[],
   )
 
   browser.webRequest.onErrorOccurred.addListener(
@@ -795,10 +800,18 @@ export default defineBackground(() => {
   ])
 
   // 代理请求：注入 Referer 并移除 Origin，绕过 CDN 的 CORS/来源校验
+  const proxyHeaderExtraInfoSpec = isFirefox
+    ? ['blocking', 'requestHeaders']
+    : ['requestHeaders']
   browser.webRequest.onBeforeSendHeaders.addListener(
     (details) => {
       const proxyHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'x-flowpick-proxy')
-      if (!proxyHeader) return {}
+      let playbackRule: { referer: string; authHeaders?: Record<string, string> } | undefined
+      if (isFirefox && !proxyHeader) {
+        try { playbackRule = playbackHeaderHosts.get(new URL(details.url).host) }
+        catch { playbackRule = undefined }
+      }
+      if (!proxyHeader && !playbackRule) return {}
 
       const refererHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'x-flowpick-referer')
       const newHeaders = (details.requestHeaders || [])
@@ -814,14 +827,20 @@ export default defineBackground(() => {
         })
 
       // 注入 Referer
-      if (refererHeader?.value) {
-        newHeaders.push({ name: 'Referer', value: refererHeader.value })
+      const referer = refererHeader?.value || playbackRule?.referer
+      if (referer) {
+        newHeaders.push({ name: 'Referer', value: referer })
+      }
+      if (playbackRule?.authHeaders) {
+        for (const [name, value] of Object.entries(playbackRule.authHeaders)) {
+          newHeaders.push({ name, value })
+        }
       }
 
       return { requestHeaders: newHeaders }
     },
     { urls: ['<all_urls>'] },
-    ['requestHeaders'],
+    proxyHeaderExtraInfoSpec,
   )
 
   // 代理请求的 DNR session 规则缓存（按 host 去重）
@@ -837,10 +856,16 @@ export default defineBackground(() => {
     authHeaders?: Record<string, string>,
   ): Promise<void> {
     const dnr = (browser as any).declarativeNetRequest
-    if (!dnr) return
-    if (navigator.userAgent.toLowerCase().includes('firefox')) return
     let host: string
     try { host = new URL(targetUrl).host } catch { return }
+
+    // Firefox cannot use Chromium's session DNR header rules here. Keep the
+    // same per-host state for the blocking webRequest listener instead, so
+    // direct <video>/<audio>/<img> requests also receive the captured headers.
+    if (isFirefox || !dnr) {
+      playbackHeaderHosts.set(host, { referer, authHeaders })
+      return
+    }
 
     const headersKey = JSON.stringify({ referer, ...authHeaders })
     const cached = dnlRefererRules.get(host)
@@ -1117,6 +1142,9 @@ export default defineBackground(() => {
       const targetUrl = langSuffix
         ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
         : `https://flowpick.net/${downloaderPage}`
+      // const targetUrl = langSuffix
+      //   ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
+      //   : `http://localhost:3001/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl, requestHeaders: resolvedHeaders, audioUrl: msg.audioUrl as string | undefined })
@@ -1666,7 +1694,23 @@ export default defineBackground(() => {
 
   function updateBadge(tabId: number) {
     const mediaMap = tabMap.get(tabId)
-    const count = mediaMap?.size ?? 0
+    const countedGroups = new Set<string>()
+    let count = 0
+    mediaMap?.forEach((entry, url) => {
+      // A grouped stream may contain one master plus multiple quality
+      // variants, audio tracks, and segments. The badge represents usable
+      // resources, so count that entire group only once.
+      const groupKey = entry.groupId || entry.groupMasterId
+      if (groupKey) {
+        if (countedGroups.has(groupKey)) return
+        countedGroups.add(groupKey)
+      } else if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') {
+        // Keep malformed/legacy grouped entries visible instead of silently
+        // dropping them when the background data lacks a group identifier.
+        countedGroups.add(`legacy:${url}`)
+      }
+      count++
+    })
     const action = (browser as any).action || (browser as any).browserAction
     if (!action) return
     action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })

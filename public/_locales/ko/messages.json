@@ -328,5 +328,23 @@
     },
     "open":{
         "message": "열기"
+    },
+    "changelogTitle":{
+        "message": "새로운 기능"
+    },
+    "changelogVersion":{
+        "message": "v1.1.1"
+    },
+    "changelogFeaturesTitle":{
+        "message": "새 기능"
+    },
+    "changelogFeatures":{
+        "message": "• Referer 및 인증 헤더를 자동으로 포함하는 핫링크 보호 이미지 프록시 미리보기를 추가했습니다.\n• 보호된 이미지, 오디오, 문서, 자막의 프록시 다운로드를 지원합니다.\n• Referer가 필요한 동영상 썸네일은 프록시 리소스를 바로 미리 로드하도록 개선했습니다.\n• webRequestBlocking 헤더 주입과 Origin 자동 제거로 Firefox 지원을 강화했습니다.\n• 확장 프로그램 버전을 1.1.1로 업데이트했습니다."
+    },
+    "changelogFixesTitle":{
+        "message": "문제 해결"
+    },
+    "changelogFixes":{
+        "message": "• 핫링크 보호로 차단된 이미지를 표시할 수 없던 문제를 해결했습니다.\n• 이미지 다운로드가 이미지 대신 HTML 페이지로 저장되던 문제를 해결했습니다.\n• 보호된 오디오 및 문서 다운로드에 필요한 헤더가 누락되던 문제를 해결했습니다.\n• Firefox에서 교차 출처 미디어를 불러오지 못하던 문제를 해결했습니다.\n• 전달된 캐시 헤더로 인해 프록시가 잘못되거나 불완전한 콘텐츠를 반환하던 문제를 해결했습니다."
     }
 }

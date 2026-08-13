@@ -238,6 +238,28 @@
     },
     getFormatLabel: format => getFormatLabel(format),
   })
+
+  type VisibleTabKey = 'all' | 'stream' | 'video' | 'audio' | 'image' | 'doc'
+  const visibleTabs = computed<Array<{ key: VisibleTabKey, label: string, count: number, activeClass: string }>>(() => {
+    const tabs: Array<{ key: VisibleTabKey, label: string, activeClass: string }> = [
+      { key: 'all', label: t('tabAll'), activeClass: 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15' },
+      { key: 'stream', label: t('tabStream'), activeClass: 'border-purple-500 text-purple-600 dark:text-purple-300 dark:border-purple-400 dark:bg-purple-500/15' },
+      { key: 'video', label: t('video'), activeClass: 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15' },
+      { key: 'audio', label: t('audio'), activeClass: 'border-green-500 text-green-600 dark:text-green-300 dark:border-green-400 dark:bg-green-500/15' },
+      { key: 'image', label: t('image'), activeClass: 'border-orange-500 text-orange-600 dark:text-orange-300 dark:border-orange-400 dark:bg-orange-500/15' },
+      { key: 'doc', label: t('tabDoc'), activeClass: 'border-indigo-500 text-indigo-600 dark:text-indigo-300 dark:border-indigo-400 dark:bg-indigo-500/15' },
+    ]
+    return tabs
+      .filter(tab => tabCounts.value[tab.key] > 0)
+      .map(tab => ({ ...tab, count: tabCounts.value[tab.key] }))
+  })
+
+  watch([visibleTabs, activeTab], () => {
+    if (visibleTabs.value.length === 0) return
+    if (!visibleTabs.value.some(tab => tab.key === activeTab.value)) {
+      activeTab.value = visibleTabs.value[0].key
+    }
+  }, { immediate: true })
   const previewCurrentItem = computed(() => mediaByUrl.value.get(previewImageUrl.value))
   // ── 虚拟列表（普通列表）────────────────────────────────────────────
   // “全部”标签的普通卡片与流媒体分组卡片使用相同的外框尺寸。
@@ -1746,6 +1768,145 @@
     imageLoadStatus.value.set(url, true)
   }
 
+  // Image elements cannot attach the captured Referer/Cookie headers.  Keep
+  // the fast direct path, then retry through the background proxy when a CDN
+  // rejects the extension popup request with hotlink protection.
+  const proxiedImageUrls = ref<Map<string, string>>(new Map())
+  const proxyingImageUrls = new Set<string>()
+  const failedProxyImageUrls = new Set<string>()
+  const PROXY_IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
+
+  function decodeProxyImage(data: string): ArrayBuffer {
+    const binary = atob(data)
+    const bytes = new Uint8Array(binary.length)
+    for (let offset = 0; offset < binary.length; offset += 32768) {
+      const end = Math.min(offset + 32768, binary.length)
+      for (let i = offset; i < end; i++) bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes.buffer
+  }
+
+  const shouldProxyImage = (requestHeaders?: Record<string, string>) => {
+    if (!requestHeaders || typeof requestHeaders !== 'object') return false
+    return Boolean(requestHeaders.Referer || requestHeaders.referer)
+  }
+
+  const fetchProxiedImage = async (url: string, requestHeaders?: Record<string, string>): Promise<string | undefined> => {
+    const cached = proxiedImageUrls.value.get(url)
+    if (cached) return cached
+    if (!url || url.startsWith('data:') || url.startsWith('blob:') || failedProxyImageUrls.has(url)) return undefined
+    if (proxyingImageUrls.has(url)) return undefined
+    proxyingImageUrls.add(url)
+    try {
+      const tabUrl = currentTabId === undefined
+        ? ''
+        : ((await browser.tabs.get(currentTabId).catch(() => undefined))?.url || '')
+      const headers = requestHeaders && typeof requestHeaders === 'object' ? requestHeaders : undefined
+      const referrer = headers?.Referer || headers?.referer || tabUrl
+      const response = await browser.runtime.sendMessage({
+        type: 'PROXY_FETCH',
+        url,
+        options: { authHeaders: headers, referrer, proxyHeader: true },
+      }) as { ok?: boolean; data?: string; headers?: Record<string, string> } | undefined
+      if (!response?.ok || !response.data) throw new Error('proxy image request failed')
+      const contentType = response.headers?.['content-type'] || response.headers?.['Content-Type'] || 'image/*'
+      if (!contentType.toLowerCase().startsWith('image/')) throw new Error('not an image response')
+      const blobUrl = URL.createObjectURL(new Blob([decodeProxyImage(response.data)], { type: contentType }))
+      const next = new Map(proxiedImageUrls.value)
+      next.set(url, blobUrl)
+      proxiedImageUrls.value = next
+      return blobUrl
+    } catch {
+      failedProxyImageUrls.add(url)
+      return undefined
+    } finally {
+      proxyingImageUrls.delete(url)
+    }
+  }
+
+  const imageSrc = (url: string, requestHeaders?: Record<string, string>) => {
+    const cached = proxiedImageUrls.value.get(url)
+    if (cached) return cached
+    if (shouldProxyImage(requestHeaders) && !failedProxyImageUrls.has(url)) {
+      void fetchProxiedImage(url, requestHeaders)
+      // Do not start a slow direct request while the authenticated proxy load
+      // is in flight; the reactive map swaps this for the Blob URL on success.
+      return PROXY_IMAGE_PLACEHOLDER
+    }
+    return url
+  }
+
+  const proxyImage = async (event: Event, url: string, requestHeaders?: Record<string, string>) => {
+    const img = event.target as HTMLImageElement
+    if (!img || !url || url.startsWith('data:') || url.startsWith('blob:')) {
+      imageLoadStatus.value.set(url, false)
+      return
+    }
+    const cached = proxiedImageUrls.value.get(url)
+    if (cached) {
+      img.src = cached
+      return
+    }
+    try {
+      const blobUrl = await fetchProxiedImage(url, requestHeaders)
+      if (!blobUrl) throw new Error('proxy image request failed')
+      img.src = blobUrl
+      imageLoadStatus.value.set(url, true)
+    } catch {
+      imageLoadStatus.value.set(url, false)
+    }
+  }
+
+  const onPreviewImageError = (event: Event) => {
+    const item = previewCurrentItem.value
+    void proxyImage(event, previewImageUrl.value, item?.requestHeaders)
+  }
+
+  const downloadProtectedResource = async (
+    url: string,
+    format: string,
+    requestHeaders?: Record<string, string>,
+    filename?: string,
+    resourceKind: 'image' | 'audio' | 'document' = 'document',
+  ) => {
+    try {
+      const tabUrl = currentTabId === undefined
+        ? ''
+        : ((await browser.tabs.get(currentTabId).catch(() => undefined))?.url || '')
+      const headers = requestHeaders && typeof requestHeaders === 'object' ? requestHeaders : undefined
+      const referrer = headers?.Referer || headers?.referer || tabUrl
+      const response = await browser.runtime.sendMessage({
+        type: 'PROXY_FETCH',
+        url,
+        options: { authHeaders: headers, referrer, proxyHeader: true },
+      }) as { ok?: boolean; status?: number; data?: string; headers?: Record<string, string> } | undefined
+      if (!response?.ok || !response.data) throw new Error(`HTTP ${response?.status || 0}`)
+      const contentType = response.headers?.['content-type'] || response.headers?.['Content-Type'] || ''
+      // A hotlink-protection page may return HTTP 200. Never save that HTML
+      // response under an image extension.
+      const normalizedType = contentType.toLowerCase()
+      const typeMatches = resourceKind === 'image'
+        ? normalizedType.startsWith('image/')
+        : resourceKind === 'audio'
+          ? normalizedType.startsWith('audio/') || normalizedType === 'application/ogg'
+          : true
+      if (normalizedType === 'text/html' || !typeMatches) {
+        throw new Error('unexpected protected resource response')
+      }
+      const blob = new Blob([decodeProxyImage(response.data)], {
+        type: contentType || (resourceKind === 'image'
+          ? `image/${format.toLowerCase() === 'jpg' ? 'jpeg' : format.toLowerCase()}`
+          : resourceKind === 'audio' ? `audio/${format.toLowerCase()}` : 'application/octet-stream'),
+      })
+      const blobUrl = URL.createObjectURL(blob)
+      await browser.downloads.download({ url: blobUrl, filename: filename || getDownloadFilename(url, format) })
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+      showToastMsg(t('docDownloadStarted'))
+    } catch {
+      showToastMsg(t('docDownloadFailed'))
+    }
+  }
+
   // 视频缩略图：loadeddata 后 seek 到 0.1s 显示首帧，同时读取 duration
   // 不设 crossorigin 属性，跨域视频也能正常加载和显示
   const onVideoThumbLoaded = (event: Event, item: MediaItem) => {
@@ -1803,9 +1964,7 @@
     return sanitized
   }
 
-  // ── 直播流录制（HTTP-FLV/MPEG-TS）──────────────────────────────
-  // 直播流无 Content-Length/Duration，不能跳 test-web 下载页。
-  // 用 fetch 持续读流到内存 chunks，用户点"停止"后合并 Blob 下载。
+
   const startLiveRecording = (url: string, format: string, requestHeaders?: Record<string, string>) => {
     const key = getMediaKey({ url, format })
     // 已在录制中：切换为停止
@@ -1884,6 +2043,12 @@
     const filename = getDownloadName(url)
     if (isStreamFormat(format) || isVideoDownloadFormat(format)) {
       browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders })
+    } else if (isImageFormat(format)) {
+      void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'image')
+    } else if (isAudioFormat(format)) {
+      void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'audio')
+    } else if (DOC_AND_SUB_FORMATS.includes(format.toLowerCase())) {
+      void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'document')
     } else {
       browser.downloads.download({ url, filename: getDownloadFilename(url, format) }).then(
         () => showToastMsg(t('docDownloadStarted')),
@@ -1924,6 +2089,15 @@
       } else if (isStreamFormat(item.format) || isVideoDownloadFormat(item.format)) {
         const filename = `${baseName}${suffix}`
         browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url: item.url, format: item.format, filename, requestHeaders: item.requestHeaders })
+      } else if (isImageFormat(item.format)) {
+        const filename = getBatchDownloadFilename(item.url, item.format, subDir)
+        void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'image')
+      } else if (isAudioFormat(item.format)) {
+        const filename = getBatchDownloadFilename(item.url, item.format, subDir)
+        void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'audio')
+      } else if (DOC_AND_SUB_FORMATS.includes(item.format.toLowerCase())) {
+        const filename = getBatchDownloadFilename(item.url, item.format, subDir)
+        void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'document')
       } else {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
         browser.downloads.download({ url: item.url, filename })
@@ -2061,24 +2235,19 @@
             {{ mobileCapabilityTip }}
           </div>
           <div class="flex items-center w-full">
-            <nav class="flex -mb-px flex-1 w-full min-w-0">
-              <button @click="activeTab = 'all'" :class="[activeTab === 'all' ? 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all min-w-0']">
-                {{ t('tabAll') }}({{ tabCounts.all }})
-              </button>
-              <button @click="activeTab = 'stream'" :class="[activeTab === 'stream' ? 'border-purple-500 text-purple-600 dark:text-purple-300 dark:border-purple-400 dark:bg-purple-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('tabStream') }}({{ tabCounts.stream }})
-              </button>
-              <button @click="activeTab = 'video'" :class="[activeTab === 'video' ? 'border-blue-500 text-blue-600 dark:text-blue-300 dark:border-blue-400 dark:bg-blue-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('video') }}({{ tabCounts.video }})
-              </button>
-              <button @click="activeTab = 'audio'" :class="[activeTab === 'audio' ? 'border-green-500 text-green-600 dark:text-green-300 dark:border-green-400 dark:bg-green-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('audio') }}({{ tabCounts.audio }})
-              </button>
-              <button @click="activeTab = 'image'" :class="[activeTab === 'image' ? 'border-orange-500 text-orange-600 dark:text-orange-300 dark:border-orange-400 dark:bg-orange-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('image') }}({{ tabCounts.image }})
-              </button>
-              <button @click="activeTab = 'doc'" :class="[activeTab === 'doc' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300 dark:border-indigo-400 dark:bg-indigo-500/15 font-semibold' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal', 'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all']">
-                {{ t('tabDoc') }}({{ tabCounts.doc }})
+            <nav v-if="visibleTabs.length" class="flex -mb-px flex-1 w-full min-w-0">
+              <button
+                v-for="tab in visibleTabs"
+                :key="tab.key"
+                @click="activeTab = tab.key"
+                :class="[
+                  activeTab === tab.key
+                    ? `${tab.activeClass} font-semibold`
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-800/50 font-normal',
+                  'flex-1 py-2.5 px-1 text-center border-b-2 text-sm transition-all min-w-0'
+                ]"
+              >
+                {{ tab.label }}({{ tab.count }})
               </button>
             </nav>
             
@@ -2260,10 +2429,10 @@
                     'group relative rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shadow-sm hover:shadow-md transition-all duration-200 cursor-zoom-in w-full h-full',
                     selectedKeys.has(mediaView(mItem.item).key) ? 'ring-2 ring-blue-500 ring-offset-1' : ''
                   ]">
-                  <img :src="mItem.item.url" :alt="mediaView(mItem.item).fileName"
+                  <img :src="imageSrc(mItem.item.url, mItem.item.requestHeaders)" :alt="mediaView(mItem.item).fileName"
                     class="w-full h-full object-cover"
                     loading="lazy"
-                    @error="(imageLoadStatus as any).set(mItem.item.url, false)"
+                    @error="proxyImage($event, mItem.item.url, mItem.item.requestHeaders)"
                     @load="onMasonryImageLoad($event, mItem)" />
                   <div
                     @click.stop="toggleSelect(mediaView(mItem.item).key)"
@@ -2330,8 +2499,8 @@
                     @mouseenter="onCardHover(groupIndex, getStreamThumbItem(group), $event, group.masterItem.coverUrl)"
                     @mouseleave="onCardLeave">
                     <img v-if="group.masterItem.coverUrl && imageLoadStatus.get(group.masterItem.coverUrl) !== false"
-                      :src="group.masterItem.coverUrl"
-                      @error="(imageLoadStatus as any).set(group.masterItem.coverUrl, false)"
+                      :src="imageSrc(group.masterItem.coverUrl, group.masterItem.requestHeaders)"
+                      @error="proxyImage($event, group.masterItem.coverUrl, group.masterItem.requestHeaders)"
                       class="w-full h-full object-cover" alt="" />
                     <img v-else-if="streamThumbCache.has(getStreamThumbItem(group).url)"
                       :src="streamThumbCache.get(getStreamThumbItem(group).url)"
@@ -2534,7 +2703,7 @@
                     <div :class="currentDensity === 'compact' ? 'w-12 h-12' : 'w-14 h-14'" class="relative flex-shrink-0 rounded-md overflow-hidden bg-gray-100 dark:bg-gray-700 cursor-zoom-in"
                       @mouseenter="onCardHover(0, getStreamThumbItem(group), $event, group.masterItem.coverUrl)"
                       @mouseleave="onCardLeave">
-                      <img v-if="group.masterItem.coverUrl && imageLoadStatus.get(group.masterItem.coverUrl) !== false" :src="group.masterItem.coverUrl" @error="(imageLoadStatus as any).set(group.masterItem.coverUrl, false)" class="w-full h-full object-cover" alt="" />
+                      <img v-if="group.masterItem.coverUrl && imageLoadStatus.get(group.masterItem.coverUrl) !== false" :src="imageSrc(group.masterItem.coverUrl, group.masterItem.requestHeaders)" @error="proxyImage($event, group.masterItem.coverUrl, group.masterItem.requestHeaders)" class="w-full h-full object-cover" alt="" />
                       <img v-else-if="streamThumbCache.has(getStreamThumbItem(group).url)" :src="streamThumbCache.get(getStreamThumbItem(group).url)" @load="touchStreamThumb(getStreamThumbItem(group).url)" class="w-full h-full object-cover" alt="" />
                       <video v-else-if="isVideoFormat(getStreamThumbItem(group).format) && !videoThumbFailed.has(getStreamThumbItem(group).url)" :src="getStreamThumbItem(group).url" class="w-full h-full object-cover" preload="metadata" muted playsinline @loadeddata="onVideoThumbLoaded($event, getStreamThumbItem(group))" @error="onVideoThumbError(getStreamThumbItem(group).url)" />
                       <video v-if="(!group.masterItem.coverUrl || imageLoadStatus.get(group.masterItem.coverUrl) === false) && streamThumbCache.has(getStreamThumbItem(group).url) && !getStreamThumbItem(group).duration && (getStreamThumbItem(group).format === 'm3u8' || getStreamThumbItem(group).format === 'mpd' || getStreamThumbItem(group).format === 'flv') && !streamThumbFailed.has(getStreamThumbItem(group).url)" :ref="el => observeStreamThumb(el, getStreamThumbItem(group))" class="absolute inset-0 w-px h-px opacity-0 pointer-events-none" preload="metadata" muted playsinline></video>
@@ -2589,13 +2758,13 @@
                       @mouseenter.stop="onCardHover(index, item, $event)"
                       @mouseleave.stop="onCardLeave">
                       <img v-if="item.coverUrl && imageLoadStatus.get(item.coverUrl) !== false"
-                        :src="item.coverUrl"
+                        :src="imageSrc(item.coverUrl, item.requestHeaders)"
                         :alt="mediaView(item).fileName"
                         class="w-full h-full object-cover"
                         loading="lazy"
-                        @error="(imageLoadStatus as any).set(item.coverUrl, false)" />
+                        @error="proxyImage($event, item.coverUrl, item.requestHeaders)" />
                       <video v-else-if="mediaView(item).isVideo && !videoThumbFailed.has(item.url)"
-                        :src="item.url"
+                        :src="imageSrc(item.url, item.requestHeaders)"
                         class="w-full h-full object-cover"
                         preload="metadata"
                         muted
@@ -2607,7 +2776,7 @@
                         :alt="mediaView(item).fileName"
                         class="w-full h-full object-cover"
                         loading="lazy"
-                        @error="(imageLoadStatus as any).set(item.url, false)" />
+                        @error="proxyImage($event, item.url, item.requestHeaders)" />
                       <img v-else-if="(item.format === 'm3u8' || item.format === 'mpd') && streamThumbCache.has(item.url)"
                         :src="streamThumbCache.get(item.url)"
                         :alt="mediaView(item).fileName"
@@ -2836,9 +3005,10 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-              <img :src="previewImageUrl" 
-                class="max-w-[90vw] max-h-[88vh] object-contain rounded-lg shadow-2xl"
-                @click.stop />
+              <img :src="imageSrc(previewImageUrl, previewCurrentItem?.requestHeaders)" 
+                 class="max-w-[90vw] max-h-[88vh] object-contain rounded-lg shadow-2xl"
+                 @error="onPreviewImageError"
+                 @click.stop />
               <button
                 v-if="previewImageIndex >= 0 && previewImageIndex < filteredImageList.length - 1"
                 @click.stop="previewNext()"
@@ -2974,9 +3144,9 @@
         <div class="w-52 rounded-xl overflow-hidden shadow-xl shadow-gray-900/15 dark:shadow-black/50 border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 ring-1 ring-black/5 dark:ring-black/20">
           <div class="aspect-video relative bg-gray-100 dark:bg-gray-900">
             <img v-if="hoverPreview.coverUrl && imageLoadStatus.get(hoverPreview.coverUrl) !== false"
-              :src="hoverPreview.coverUrl"
+              :src="imageSrc(hoverPreview.coverUrl, hoverPreview.item.requestHeaders)"
               class="w-full h-full object-cover"
-              @error="imageLoadStatus.set(hoverPreview!.coverUrl!, false)" />
+              @error="proxyImage($event, hoverPreview!.coverUrl!, hoverPreview!.item.requestHeaders)" />
             <img v-else-if="hoverPreview.thumbDataUrl"
               :src="hoverPreview.thumbDataUrl"
               class="w-full h-full object-cover" />

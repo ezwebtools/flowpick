@@ -328,5 +328,23 @@
     },
     "open":{
         "message": "Abrir"
+    },
+    "changelogTitle":{
+        "message": "Novedades"
+    },
+    "changelogVersion":{
+        "message": "v1.1.1"
+    },
+    "changelogFeaturesTitle":{
+        "message": "Nuevas funciones"
+    },
+    "changelogFeatures":{
+        "message": "• Añadida la vista previa mediante proxy de imágenes protegidas contra hotlinking, con Referer y cabeceras de autenticación.\n• Añadidas descargas mediante proxy para imágenes, audio, documentos y subtítulos protegidos.\n• Mejorada la carga de portadas: cuando se requiere Referer, el recurso proxy se precarga directamente.\n• Mejorado el soporte de Firefox con inyección de cabeceras mediante webRequestBlocking y eliminación automática de Origin.\n• Actualizada la versión de la extensión a 1.1.1."
+    },
+    "changelogFixesTitle":{
+        "message": "Correcciones"
+    },
+    "changelogFixes":{
+        "message": "• Corregido el problema que impedía mostrar imágenes bloqueadas por hotlinking.\n• Corregidas las descargas de imágenes que guardaban una página HTML en lugar del archivo.\n• Corregidas las descargas protegidas de audio y documentos sin cabeceras necesarias.\n• Corregida la carga de recursos multimedia cross-origin en Firefox.\n• Corregidas las respuestas incorrectas o incompletas del proxy causadas por cabeceras de caché reenviadas."
     }
 }
