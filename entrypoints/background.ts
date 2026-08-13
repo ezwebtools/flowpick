@@ -1131,10 +1131,7 @@ export default defineBackground(() => {
         'zh-TW': 'zh-Hant',
         'zh-HK': 'zh-Hant',
         'ja': 'ja',
-        'ko': 'ko',
-        'de': 'de',
-        'es': 'es',
-        'ru': 'ru',
+        'ko': 'ko'
       }
 
       const browserLang = browser.i18n.getUILanguage()
