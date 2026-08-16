@@ -1,6 +1,6 @@
 import { detectMediaFromUrl, detectMedia, detectDoc, type MediaCategory } from '../utils/detect'
 import { loadAllTabData, saveTabList, deleteTabList, type MediaEntry } from '../utils/storage'
-import { loadSettings, saveSettings, isFormatAllowed, isSizeAllowed, isDomainExcluded, getFormatGroup, type Settings, DEFAULT_SETTINGS } from '../utils/settings'
+import { loadSettings, saveSettings, isFormatAllowed, isSizeAllowed, isDomainExcluded, getFormatGroup, type Settings, createDefaultSettings } from '../utils/settings'
 import { parseM3U8Manifest, parseDashManifest } from '../utils/stream-parser'
 import MediaInfoFactory from 'mediainfo.js'
 import type { MetadataBatchItem, MetadataBatchRequest, MetadataBatchResult } from './popup/types'
@@ -417,6 +417,9 @@ export default defineBackground(() => {
   // Keep their short-lived playback-token relation in the background too.
   const douyinNativeTracks = new Map<number, Map<string, Array<{ url: string; role: 'video' | 'audio'; at: number }>>>()
   const tabPageUrls = new Map<number, string>()
+  // Each top-level navigation gets a new session. Results from an older page
+  // must never be allowed to repopulate the current page's media list.
+  const pageSessionIds = new Map<number, number>()
   // 跟踪每个 tab 当前的网页标题（用于资源嗅探时记录"当时"的标题）
   const tabPageTitles = new Map<number, string>()
 
@@ -501,15 +504,8 @@ export default defineBackground(() => {
   const pendingProxyFetches = new Map<string, { controller: AbortController, tabId?: number }>()
 
 
-  let currentSettings: Settings = {
-    sniffingRules: { ...DEFAULT_SETTINGS.sniffingRules },
-    excludeDomains: [...DEFAULT_SETTINGS.excludeDomains],
-    maxItems: DEFAULT_SETTINGS.maxItems,
-    enableMseCapture: DEFAULT_SETTINGS.enableMseCapture,
-    hideStreamSegments: DEFAULT_SETTINGS.hideStreamSegments,
-    captureDataImages: DEFAULT_SETTINGS.captureDataImages,
-    dataImageMinSizeKB: DEFAULT_SETTINGS.dataImageMinSizeKB,
-  }
+  let currentSettings: Settings = createDefaultSettings()
+  let settingsSaveQueue: Promise<void> = Promise.resolve()
   loadSettings().then(s => { currentSettings = s })
 
   browser.storage.local.onChanged.addListener((changes) => {
@@ -533,10 +529,8 @@ export default defineBackground(() => {
   })
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.url) {
-      tabPageUrls.set(tabId, changeInfo.url)
-    } else if (tab.url) {
-      tabPageUrls.set(tabId, tab.url)
+    if (changeInfo.url || (changeInfo.status === 'loading' && !changeInfo.url)) {
+      clearTabPageState(tabId, changeInfo.url || tab.url || undefined)
     }
     if (changeInfo.title) {
       tabPageTitles.set(tabId, changeInfo.title)
@@ -544,6 +538,40 @@ export default defineBackground(() => {
       tabPageTitles.set(tabId, tab.title)
     }
   })
+
+  function clearTabPageState(tabId: number, pageUrl?: string): void {
+    tabMap.delete(tabId)
+    bilibiliManagedUrls.delete(tabId)
+    platformManagedUrls.delete(tabId)
+    platformTaskPriorities.delete(tabId)
+    douyinMediaMetadata.delete(tabId)
+    douyinNativeTracks.delete(tabId)
+    masterPrefixIndex.delete(tabId)
+    tabMediaVersion.delete(tabId)
+    pageSessionIds.set(tabId, (pageSessionIds.get(tabId) ?? 0) + 1)
+    if (pageUrl) tabPageUrls.set(tabId, pageUrl)
+
+    for (const key of processedRequests) {
+      if (key.startsWith(`${tabId}:`)) processedRequests.delete(key)
+    }
+    for (const [requestId, request] of pendingRequestSessions) {
+      if (request.tabId === tabId) {
+        pendingRequestSessions.delete(requestId)
+        pendingRequestHeaders.delete(requestId)
+      }
+    }
+    for (const [requestId, request] of pendingProxyFetches) {
+      if (request.tabId === tabId) {
+        request.controller.abort()
+        pendingProxyFetches.delete(requestId)
+      }
+    }
+    deleteTabList(tabId).catch(() => {})
+    // tabMap has already been removed, so broadcastDebounced would return
+    // without notifying the popup. Send the empty snapshot immediately so
+    // the old page's resources disappear before the new page emits media.
+    broadcast(tabId, [])
+  }
 
   loadAllTabData().then(data => {
     data.forEach((mediaMap, tabId) => {
@@ -583,9 +611,9 @@ export default defineBackground(() => {
       // 可能积累数十条变更，全量构建 list + IPC 序列化是纯浪费。popup/sidepanel
       // 打开时会通过 GET_LIST 拉取一次全量，后续广播恢复生效。
       if (!isUiListening(tabId)) return
-      const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean}> = []
+      const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean}> = []
       mediaMap.forEach((entry, url) => {
-        list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream })
+        list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, frameId: entry.frameId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream })
       })
       broadcast(tabId, list)
     }, 150))
@@ -598,6 +626,7 @@ export default defineBackground(() => {
   // 以 requestId 为 key，在 onHeadersReceived 时合并到媒体条目，
   // 下载时通过 DNR/webRequest 重放，实现携带 token/cookie 绕过鉴权
   const pendingRequestHeaders = new Map<string, Record<string, string>>()
+  const pendingRequestSessions = new Map<string, { tabId: number; sessionId: number }>()
 
   // 需要缓存并重放的请求头名单（认证相关）
   const AUTH_HEADER_NAMES = new Set([
@@ -636,6 +665,10 @@ export default defineBackground(() => {
     (details) => {
       if (details.tabId <= 0 || !details.requestHeaders?.length) return
       if (details.type === 'other' && !isPotentialMediaRequest(details.url)) return
+      pendingRequestSessions.set(details.requestId, {
+        tabId: details.tabId,
+        sessionId: pageSessionIds.get(details.tabId) ?? 0,
+      })
       const authHeaders: Record<string, string> = {}
       for (const h of details.requestHeaders) {
         const name = h.name.toLowerCase()
@@ -656,7 +689,10 @@ export default defineBackground(() => {
   )
 
   browser.webRequest.onErrorOccurred.addListener(
-    (details) => { pendingRequestHeaders.delete(details.requestId) },
+    (details) => {
+      pendingRequestHeaders.delete(details.requestId)
+      pendingRequestSessions.delete(details.requestId)
+    },
     { urls: ['<all_urls>'], types: ['main_frame', 'media', 'xmlhttprequest', 'sub_frame', 'image', 'other'] },
   )
 
@@ -671,15 +707,28 @@ export default defineBackground(() => {
   // 在接收到响应头时检测媒体格式（优先使用 Content-Type）
   browser.webRequest.onHeadersReceived.addListener(
     (details) => {
+      if (details.url.startsWith('blob:') || details.url.startsWith('data:')) {
+        pendingRequestHeaders.delete(details.requestId)
+        pendingRequestSessions.delete(details.requestId)
+        return undefined
+      }
       // 没有明确所属标签页的请求不能归到当前激活标签，否则会串入其他 Tab 的列表.
       const effectiveTabId = details.tabId
       if (effectiveTabId <= 0) return undefined
+      const requestSession = pendingRequestSessions.get(details.requestId)
+      if (requestSession && requestSession.sessionId !== (pageSessionIds.get(effectiveTabId) ?? 0)) {
+        pendingRequestHeaders.delete(details.requestId)
+        pendingRequestSessions.delete(details.requestId)
+        return undefined
+      }
       if (isMediaSegmentRequest(details.url)) {
         pendingRequestHeaders.delete(details.requestId)
+        pendingRequestSessions.delete(details.requestId)
         return undefined
       }
       if (isBilibiliTab(effectiveTabId) && isBilibiliSubtitleCatalogApi(details.url)) {
         pendingRequestHeaders.delete(details.requestId)
+        pendingRequestSessions.delete(details.requestId)
         return undefined
       }
 
@@ -954,6 +1003,7 @@ export default defineBackground(() => {
     }
     pendingDownloads.delete(tabId)
     tabMap.delete(tabId)
+    pageSessionIds.delete(tabId)
     bilibiliManagedUrls.delete(tabId)
     platformManagedUrls.delete(tabId)
     platformTaskPriorities.delete(tabId)
@@ -1001,7 +1051,7 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
+    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
     if (asyncTypes.includes(msg.type)) {
       handleMessage(msg, sender, sendResponse)
       return true
@@ -1023,6 +1073,15 @@ export default defineBackground(() => {
       if (tabId !== undefined) {
         const rh = (msg.requestHeaders && typeof msg.requestHeaders === 'object') ? msg.requestHeaders : undefined
         addMedia(msg.url, tabId, format, undefined, 'media', rh, undefined, undefined, sender.tab?.title)
+      }
+      sendResponse({ ok: tabId !== undefined })
+      return
+    }
+
+    if (msg.type === 'PAGE_NAVIGATED') {
+      const tabId = sender.tab?.id
+      if (tabId !== undefined && typeof msg.url === 'string' && tabPageUrls.get(tabId) !== msg.url) {
+        clearTabPageState(tabId, msg.url)
       }
       sendResponse({ ok: tabId !== undefined })
       return
@@ -1055,7 +1114,7 @@ export default defineBackground(() => {
         msg.totalBytes,
         'media',
         undefined,
-        { captureId, trackCount: msg.trackCount, mseComplete: msg.complete },
+        { captureId, frameId: sender.frameId ?? 0, trackCount: msg.trackCount, mseComplete: msg.complete },
         undefined,
         sender.tab?.title,
       )
@@ -1084,15 +1143,23 @@ export default defineBackground(() => {
       return
     }
 
-    if (msg.type === 'MSE_DOWNLOAD') {
+    if (msg.type === 'MSE_PLAY' || msg.type === 'MSE_DOWNLOAD') {
       const tabId = msg.tabId || sender.tab?.id
-      if (!tabId) { sendResponse({ ok: false }); return }
-      browser.tabs.sendMessage(tabId, {
-        type: 'MSE_DOWNLOAD_TRIGGER',
-        captureId: msg.captureId,
-        title: msg.title,
-      }).catch(() => {})
-      sendResponse({ ok: true })
+      if (!tabId || !msg.captureId) {
+        sendResponse({ ok: false, errorCode: 'mseCaptureInvalid' })
+        return
+      }
+      try {
+        const result = await browser.tabs.sendMessage(tabId, {
+          type: msg.type === 'MSE_PLAY' ? 'MSE_PLAY_TRIGGER' : 'MSE_DOWNLOAD_TRIGGER',
+          captureId: msg.captureId,
+          title: msg.title,
+          uiText: msg.uiText,
+        }, typeof msg.frameId === 'number' ? { frameId: msg.frameId } : undefined)
+        sendResponse(result || { ok: false, errorCode: 'mseNoResult' })
+      } catch (error) {
+        sendResponse({ ok: false, errorCode: 'msePageConnectionFailed', errorDetail: String(error) })
+      }
       return
     }
 
@@ -1153,6 +1220,7 @@ export default defineBackground(() => {
       return true
     }
 
+
     if (msg.type === 'FLOWPICK_DOWNLOAD_READY') {
       const tabId = sender.tab?.id
       if (tabId && pendingDownloads.has(tabId)) {
@@ -1189,10 +1257,10 @@ export default defineBackground(() => {
       const tabId = msg.tabId as number
       uiListeningTabs.set(tabId, Date.now())
       const mediaMap = tabMap.get(tabId)
-      const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean}> = []
+    const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean}> = []
       if (mediaMap) {
         mediaMap.forEach((entry, url) => {
-          list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream })
+      list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, frameId: entry.frameId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream })
         })
       }
       sendResponse(list)
@@ -1403,7 +1471,15 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'SAVE_SETTINGS') {
-      saveSettings(msg.settings).then(() => sendResponse({ ok: true }))
+      settingsSaveQueue = settingsSaveQueue
+        .catch(() => {})
+        .then(() => saveSettings(msg.settings))
+      try {
+        await settingsSaveQueue
+        sendResponse({ ok: true })
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error) })
+      }
       return true
     }
 
@@ -1576,7 +1652,8 @@ export default defineBackground(() => {
     return false
   }
 
-  function addMedia(url: string, tabId: number, format: string, size?: number, category: MediaCategory = 'media', requestHeaders?: Record<string, string>, extra?: { captureId?: string; trackCount?: number; mseComplete?: boolean }, contentType?: string, tabTitle?: string) {
+  function addMedia(url: string, tabId: number, format: string, size?: number, category: MediaCategory = 'media', requestHeaders?: Record<string, string>, extra?: { captureId?: string; frameId?: number; trackCount?: number; mseComplete?: boolean }, contentType?: string, tabTitle?: string) {
+    if (url.startsWith('blob:') || url.startsWith('data:')) return
     if (bilibiliManagedUrls.get(tabId)?.has(url) || platformManagedUrls.get(tabId)?.has(url)) return
     // 坏 URL 黑名单：跳过，避免反复嗅探→请求→失败的循环
     // 流媒体（m3u8/mpd/mse）不拦，它们失败由 manifest 解析单独处理，且多是临时网络抖动
@@ -1668,6 +1745,7 @@ export default defineBackground(() => {
       category,
       requestHeaders,
       captureId: extra?.captureId ?? existing?.captureId,
+      frameId: extra?.frameId ?? existing?.frameId,
       trackCount: extra?.trackCount ?? existing?.trackCount,
       mseComplete: extra?.mseComplete ?? existing?.mseComplete,
       contentType: contentType ?? existing?.contentType,
@@ -1720,7 +1798,7 @@ export default defineBackground(() => {
     action.setBadgeBackgroundColor({ color: '#EF4444', tabId })
   }
 
-  function broadcast(tabId: number, list: Array<{url: string, format: string, size?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string}>) {
+  function broadcast(tabId: number, list: Array<{url: string, format: string, size?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string}>) {
     browser.runtime.sendMessage({ type: 'LIST_UPDATED', tabId, list }).catch(() => {})
   }
 
@@ -1778,7 +1856,7 @@ export default defineBackground(() => {
       requestHeaders,
       tabTitle: task.title || previousMaster?.tabTitle || tabTitle,
     })
-    const audioOptions = audios.map((audio: any) => ({ url: audio.url, label: audio.label || '音频' }))
+    const audioOptions = audios.map((audio: any) => ({ url: audio.url, label: audio.label || '' }))
     const preferredAudio = audioOptions[0]?.url
     for (const video of videos) {
       mediaMap.set(video.url, {
@@ -1787,7 +1865,7 @@ export default defineBackground(() => {
         category: 'stream',
         groupId: masterUrl,
         groupRole: 'variant',
-        groupLabel: video.label || '视频',
+        groupLabel: video.label || (video.height ? `${video.height}p` : undefined),
         groupMasterId: masterUrl,
         variantBandwidth: Number(video.bandwidth || 0),
         width: Number(video.width || 0) || undefined,
@@ -1925,7 +2003,7 @@ export default defineBackground(() => {
     const duration = Number(task.duration) || Number(videoCandidates[0]?.duration || 0) || undefined
     const audioOptions = audioCandidates.map(candidate => ({
       url: candidate.url,
-      label: candidate.label || '音频',
+      label: candidate.label || '',
     }))
     const preferredAudio = audioOptions[0]?.url
     mediaMap.set(masterUrl, {
@@ -1938,7 +2016,7 @@ export default defineBackground(() => {
       mediaMap.set(candidate.url, {
         format: candidate.format || 'mp4', detectedAt: Date.now(), category: 'stream',
         groupId: masterUrl, groupRole: 'variant', groupMasterId: masterUrl,
-        groupLabel: candidate.label || (candidate.height ? `${candidate.height}p` : '视频'),
+        groupLabel: candidate.label || (candidate.height ? `${candidate.height}p` : undefined),
         variantBandwidth: Number(candidate.bandwidth || 0) || undefined,
         width: Number(candidate.width || 0) || undefined, height: Number(candidate.height || 0) || undefined,
         duration, coverUrl: task.coverUrl, requestHeaders, tabTitle: task.title || tabTitle,
@@ -1992,8 +2070,8 @@ export default defineBackground(() => {
         coverUrl: metadata?.coverUrl,
         duration: metadata?.duration,
         candidates: [
-          { url: video, format: 'mp4', role: 'video', label: '视频' },
-          { url: audio, format: 'mp4', role: 'audio', label: '音频' },
+          { url: video, format: 'mp4', role: 'video', label: '' },
+          { url: audio, format: 'mp4', role: 'audio', label: '' },
         ],
       }, tabPageTitles.get(tabId))
     } catch {}
@@ -2217,7 +2295,7 @@ export default defineBackground(() => {
 
       // 生成 groupId：用 video URL 的核心 key
       const groupId = `vid_grp_${extractVideoGroupKey(videoUrl).substring(0, 60)}`
-      const label = newLabel || extractQualityLabel(videoUrl, videoEntry.contentType ?? '') || '未知清晰度'
+      const label = newLabel || extractQualityLabel(videoUrl, videoEntry.contentType ?? '') || undefined
 
       // 更新 video 条目：作为 variant，持有 audioUrl
       mediaMap.set(videoUrl, {

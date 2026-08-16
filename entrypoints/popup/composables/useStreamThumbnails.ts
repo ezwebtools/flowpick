@@ -191,7 +191,7 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
         // HTTP-FLV / MPEG-TS 直播流：用 mpegts.js demux → MSE 喂给 <video>
         const mts = await loadMpegts()
         if (!current()) return
-        if (!mpegts.isSupported()) { markFailure(url); return }
+        if (!mts.isSupported()) { markFailure(url); return }
         const player = mts.createPlayer({
           type: item.format === 'ts' ? 'mpegts' : 'flv',
           url: url,
@@ -202,8 +202,8 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
           autoCleanupSourceBuffer: true,
         })
         mpegtsInstances.set(url, player)
-        player.on(mpegts.Events.ERROR, () => markFailure(url))
-        player.on(mpegts.Events.LOADING_COMPLETE, () => {
+        player.on(mts.Events.ERROR, () => markFailure(url))
+        player.on(mts.Events.LOADING_COMPLETE, () => {
           // VOD 流加载完成
           if (!durationResolved && Number.isFinite(video.duration)) persistDuration(video.duration)
         })

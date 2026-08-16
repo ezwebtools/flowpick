@@ -10,6 +10,7 @@ export interface RawMediaEntry {
   category?: string
   requestHeaders?: Record<string, string>
   captureId?: string
+  frameId?: number
   trackCount?: number
   mseComplete?: boolean
   groupId?: string

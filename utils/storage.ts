@@ -9,6 +9,8 @@ export interface MediaEntry {
   category?: MediaCategory
   requestHeaders?: Record<string, string>
   captureId?: string
+  /** Frame that owns the in-page MSE capture. */
+  frameId?: number
   trackCount?: number
   mseComplete?: boolean
   contentType?: string
@@ -80,10 +82,12 @@ export async function loadAllTabData(): Promise<Map<number, Map<string, MediaEnt
         
         if (Array.isArray(value)) {
           value.forEach((url: string) => {
+            if (url.startsWith('blob:') || url.startsWith('data:')) return
             mediaMap.set(url, { format: 'm3u8' })
           })
         } else if (typeof value === 'object' && value !== null) {
           Object.entries(value).forEach(([url, entry]) => {
+            if (url.startsWith('blob:') || url.startsWith('data:')) return
             if (typeof entry === 'string') {
               mediaMap.set(url, { format: entry })
             } else if (entry && typeof entry === 'object') {
@@ -104,6 +108,7 @@ export async function loadAllTabData(): Promise<Map<number, Map<string, MediaEnt
 export async function saveTabList(tabId: number, mediaMap: Map<string, MediaEntry>) {
   const obj: Record<string, MediaEntry> = {}
   mediaMap.forEach((entry, url) => {
+    if (url.startsWith('blob:') || url.startsWith('data:')) return
     obj[url] = entry
   })
   await setSessionData({ [tabKey(tabId)]: obj })

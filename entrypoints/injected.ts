@@ -350,6 +350,11 @@ export default defineUnlistedScript(() => {
 
   const mseCaptures = new Map<string, MseCapture>()
   const mseCaptureIds = new WeakMap<MediaSource, string>()
+  const msePlaybackSources = new WeakSet<MediaSource>()
+  // A page may temporarily contain listeners from two extension injections
+  // (for example after reloading the unpacked extension). Encode ownership in
+  // the id so only the instance that captured the stream answers requests.
+  const mseInstanceId = Math.random().toString(36).slice(2, 10)
   let mseCaptureSeq = 0
   const MSE_SEGMENT_SIZE = 1024 * 1024 * 1024
   let mseProxyInstalled = false
@@ -380,10 +385,11 @@ export default defineUnlistedScript(() => {
     MediaSource.prototype.addSourceBuffer = new Proxy(_addSourceBuffer, {
       apply(target, ms: MediaSource, args: [string]) {
         const sourceBuffer = Reflect.apply(target, ms, args)
+        if (msePlaybackSources.has(ms)) return sourceBuffer
         try {
           let captureId = mseCaptureIds.get(ms)
           if (!captureId) {
-            captureId = `mse-${++mseCaptureSeq}-${Date.now()}`
+            captureId = `mse-${mseInstanceId}-${++mseCaptureSeq}-${Date.now()}`
             mseCaptureIds.set(ms, captureId)
             const capture: MseCapture = {
               captureId,
@@ -398,7 +404,9 @@ export default defineUnlistedScript(() => {
           }
 
           const capture = mseCaptures.get(captureId)!
-          const mimeType = (args[0] || '').split(';')[0].trim()
+          // Keep codecs: previewing captured fragmented MP4 requires the
+          // complete SourceBuffer MIME string.
+          const mimeType = (args[0] || '').trim()
           const track: MseTrack = { mimeType, buffers: [], byteLength: 0 }
           capture.tracks.push(track)
 
@@ -459,28 +467,144 @@ export default defineUnlistedScript(() => {
       installMseProxy()
     }
     if (event.data.type === 'FLOWPICK_DATA_IMAGES_ENABLE') {
-      dataImagesEnabled = true
+      dataImagesEnabled = event.data.enabled === true
       dataImageMinBytes = Math.max(0, (event.data.minSizeKB ?? 50) * 1024)
-      scanExistingDataImages()
+      if (dataImagesEnabled) scanExistingDataImages()
     }
   })
 
-  // 页面内通过 postMessage 处理下载请求
-  // content.ts 收到用户点击「下载 MSE 流」后，向 injected 发 MSE_DOWNLOAD_REQUEST，
-  // injected 把内存中的 ArrayBuffer 通过 transferable MessageChannel 传回。
+  window.postMessage({ type: 'FLOWPICK_INJECTED_READY' }, '*')
+
+  function appendCapturedBuffers(sourceBuffer: SourceBuffer, buffers: ArrayBuffer[]): Promise<void> {
+    return buffers.reduce<Promise<void>>((chain, buffer) => chain.then(() => new Promise((resolve, reject) => {
+      const onUpdateEnd = () => {
+        sourceBuffer.removeEventListener('error', onError)
+        resolve()
+      }
+      const onError = () => {
+        sourceBuffer.removeEventListener('updateend', onUpdateEnd)
+        reject(new Error('SourceBuffer append failed'))
+      }
+      sourceBuffer.addEventListener('updateend', onUpdateEnd, { once: true })
+      sourceBuffer.addEventListener('error', onError, { once: true })
+      try {
+        sourceBuffer.appendBuffer(buffer.slice(0))
+      } catch (error) {
+        sourceBuffer.removeEventListener('updateend', onUpdateEnd)
+        sourceBuffer.removeEventListener('error', onError)
+        reject(error)
+      }
+    })), Promise.resolve())
+  }
+
+  async function showMseCapturePlayer(capture: MseCapture, uiText?: Record<string, string>): Promise<void> {
+    const labels = {
+      loading: uiText?.loading || 'Loading captured MSE data…',
+      close: uiText?.close || 'Close',
+      clickToPlay: uiText?.clickToPlay || 'Click the play button to start playback',
+      playbackDataFailed: uiText?.playbackDataFailed || 'Failed to load MSE playback data: $1',
+    }
+    const playableTracks = capture.tracks.filter(track => track.buffers.length > 0 && MediaSource.isTypeSupported(track.mimeType))
+    if (!playableTracks.length) {
+      const error = new Error('Empty capture or unsupported codec')
+      ;(error as any).code = 'mseUnsupportedCapture'
+      throw error
+    }
+
+    document.getElementById('__flowpick_mse_player__')?.remove()
+    const overlay = document.createElement('div')
+    overlay.id = '__flowpick_mse_player__'
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box'
+    const panel = document.createElement('div')
+    panel.style.cssText = 'position:relative;width:min(960px,96vw);max-height:94vh;background:#090909;border:1px solid #444;border-radius:12px;box-shadow:0 20px 70px rgba(0,0,0,.65);overflow:hidden'
+    const video = document.createElement('video')
+    video.controls = true
+    video.autoplay = true
+    video.playsInline = true
+    video.style.cssText = 'display:block;width:100%;max-height:86vh;background:#000'
+    const status = document.createElement('div')
+    status.textContent = labels.loading
+    status.style.cssText = 'position:absolute;left:12px;bottom:12px;color:#fff;background:rgba(0,0,0,.7);padding:6px 10px;border-radius:6px;font:13px/1.4 sans-serif;pointer-events:none'
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.textContent = '×'
+    close.title = labels.close
+    close.style.cssText = 'position:absolute;right:10px;top:10px;z-index:2;width:34px;height:34px;border:0;border-radius:50%;background:rgba(0,0,0,.7);color:#fff;font:26px/30px sans-serif;cursor:pointer'
+    panel.append(video, status, close)
+    overlay.appendChild(panel)
+    ;(document.body || document.documentElement).appendChild(overlay)
+
+    const mediaSource = new MediaSource()
+    msePlaybackSources.add(mediaSource)
+    const objectUrl = URL.createObjectURL(mediaSource)
+    video.src = objectUrl
+    const cleanup = () => {
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
+      URL.revokeObjectURL(objectUrl)
+      overlay.remove()
+    }
+    close.addEventListener('click', cleanup, { once: true })
+    overlay.addEventListener('click', event => { if (event.target === overlay) cleanup() })
+
+    await new Promise<void>((resolve, reject) => {
+      mediaSource.addEventListener('sourceopen', () => {
+        try {
+          const jobs = playableTracks.map(track => appendCapturedBuffers(mediaSource.addSourceBuffer(track.mimeType), track.buffers))
+          resolve()
+          Promise.all(jobs).then(() => {
+            if (mediaSource.readyState === 'open') mediaSource.endOfStream()
+            status.remove()
+            video.play().catch(() => { status.textContent = labels.clickToPlay })
+          }).catch(error => { status.textContent = labels.playbackDataFailed.replace('$1', String(error)) })
+        } catch (error) {
+          reject(error)
+        }
+      }, { once: true })
+      mediaSource.addEventListener('sourceclose', () => reject(new Error('MediaSource closed before loading')), { once: true })
+    })
+  }
+
+  // 页面内通过 postMessage 处理播放和下载请求。
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) return
-    if (event.data.type !== 'MSE_DOWNLOAD_REQUEST') return
-    const { captureId } = event.data as { captureId: string }
+    if (event.data.type !== 'MSE_PLAY_REQUEST' && event.data.type !== 'MSE_DOWNLOAD_REQUEST') return
+    const { captureId, uiText } = event.data as { captureId: string; uiText?: Record<string, string> }
     const port = event.ports?.[0]
     const capture = mseCaptures.get(captureId)
-    if (!capture || !port) return
+    if (!port) return
+    if (!capture) {
+      // Another injected instance owns this capture. It will answer through
+      // the same MessagePort; replying here would race its successful result.
+      if (!captureId.startsWith(`mse-${mseInstanceId}-`)) return
+      port.postMessage({ type: 'MSE_CAPTURE_ERROR', captureId, errorCode: 'mseCaptureInvalid' })
+      return
+    }
+    if (event.data.type === 'MSE_PLAY_REQUEST') {
+      showMseCapturePlayer(capture, uiText).then(() => {
+        port.postMessage({ type: 'MSE_PLAY_RESULT', captureId, ok: true })
+      }).catch(error => {
+        port.postMessage({
+          type: 'MSE_PLAY_RESULT',
+          captureId,
+          ok: false,
+          errorCode: (error as any)?.code || 'msePlayFailedDetail',
+          errorDetail: String(error),
+        })
+      })
+      return
+    }
     try {
-      // 序列化：把每条轨道的 buffers 数组及 mimeType 发给 content script
+      // 传输副本，避免 transferable 把页面内保存的原始缓冲区 detach，导致第二次播放/下载失效。
       const tracks = capture.tracks.map(t => ({
         mimeType: t.mimeType,
-        buffers: t.buffers,
+        buffers: t.buffers.map(buffer => buffer.slice(0)),
       }))
+      if (!tracks.some(track => track.buffers.length > 0)) {
+        port.postMessage({ type: 'MSE_DOWNLOAD_ERROR', captureId, errorCode: 'mseNoDownloadData' })
+        return
+      }
       // 收集所有 transferable buffers（零拷贝传输）
       const transferList: ArrayBuffer[] = []
       for (const t of tracks) {
@@ -488,7 +612,7 @@ export default defineUnlistedScript(() => {
       }
       port.postMessage({ type: 'MSE_DOWNLOAD_DATA', captureId, title: capture.title, tracks }, transferList)
     } catch (e) {
-      port.postMessage({ type: 'MSE_DOWNLOAD_ERROR', captureId, error: String(e) })
+      port.postMessage({ type: 'MSE_DOWNLOAD_ERROR', captureId, errorCode: 'mseFileBuildFailed', errorDetail: String(e) })
     }
   })
 
@@ -1009,15 +1133,19 @@ export default defineUnlistedScript(() => {
   history.pushState = function (...args: Parameters<History['pushState']>) {
     const result = originalPushState.apply(this, args)
     refreshBilibiliPrimaryAfterNavigation()
+    window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*')
     return result
   }
   const originalReplaceState = history.replaceState
   history.replaceState = function (...args: Parameters<History['replaceState']>) {
     const result = originalReplaceState.apply(this, args)
     refreshBilibiliPrimaryAfterNavigation()
+    window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*')
     return result
   }
   window.addEventListener('popstate', refreshBilibiliPrimaryAfterNavigation)
+  window.addEventListener('popstate', () => window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*'))
+  window.addEventListener('hashchange', () => window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*'))
   // Autoplay does not always go through the page's wrapped History methods.
   // This lightweight Bilibili-only guard still resets the primary on such
   // route transitions; it does not inspect or intercept media requests.
