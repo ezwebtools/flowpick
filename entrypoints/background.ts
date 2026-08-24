@@ -622,17 +622,46 @@ export default defineBackground(() => {
   const processedRequests = new Set<string>()
   const PROCESSED_REQUESTS_MAX = 10000
 
-  // 缓存每个请求发出时的关键头（cookie、authorization 等），
+  // 缓存每个请求发出时的关键头（Referer、cookie、authorization 等），
   // 以 requestId 为 key，在 onHeadersReceived 时合并到媒体条目，
   // 下载时通过 DNR/webRequest 重放，实现携带 token/cookie 绕过鉴权
   const pendingRequestHeaders = new Map<string, Record<string, string>>()
   const pendingRequestSessions = new Map<string, { tabId: number; sessionId: number }>()
 
-  // 需要缓存并重放的请求头名单（认证相关）
-  const AUTH_HEADER_NAMES = new Set([
+  // 需要缓存并重放的请求头名单。Referer 必须取媒体原始请求上的值，
+  // 不能只依赖当前标签页 URL：部分 CDN 会校验完整播放页路径或嵌入页来源。
+  const CAPTURED_REQUEST_HEADER_NAMES = new Set([
+    'referer',
     'cookie', 'authorization', 'x-auth-token', 'x-access-token',
     'token', 'api-key', 'x-api-key', 'x-csrf-token', 'wbi-key',
   ])
+
+  function mergeCapturedRequestHeaders(
+    existing?: Record<string, string>,
+    incoming?: Record<string, string>,
+  ): Record<string, string> | undefined {
+    if (!incoming || Object.keys(incoming).length === 0) return existing
+    if (!existing || Object.keys(existing).length === 0) return { ...incoming }
+
+    const merged = { ...existing }
+    const keysByLowerName = new Map(Object.keys(merged).map(key => [key.toLowerCase(), key]))
+    let changed = false
+    for (const [name, value] of Object.entries(incoming)) {
+      const normalized = name.toLowerCase()
+      const existingName = keysByLowerName.get(normalized)
+      if (existingName) {
+        if (merged[existingName] !== value) {
+          merged[existingName] = value
+          changed = true
+        }
+      } else {
+        merged[name] = value
+        keysByLowerName.set(normalized, name)
+        changed = true
+      }
+    }
+    return changed ? merged : existing
+  }
 
   // URL 快速判断仅用于无法依赖响应头的 `other` 请求；覆盖 detect.ts 支持的全部独立文件格式。
   // 媒体分片（如 .ts/.m4s）仍不作为独立资源收集，避免产生大量不可直接使用的条目。
@@ -669,15 +698,15 @@ export default defineBackground(() => {
         tabId: details.tabId,
         sessionId: pageSessionIds.get(details.tabId) ?? 0,
       })
-      const authHeaders: Record<string, string> = {}
+      const capturedHeaders: Record<string, string> = {}
       for (const h of details.requestHeaders) {
         const name = h.name.toLowerCase()
-        if (AUTH_HEADER_NAMES.has(name) && h.value) {
-          authHeaders[name] = h.value
+        if (CAPTURED_REQUEST_HEADER_NAMES.has(name) && h.value) {
+          capturedHeaders[name] = h.value
         }
       }
-      if (Object.keys(authHeaders).length > 0) {
-        pendingRequestHeaders.set(details.requestId, authHeaders)
+      if (Object.keys(capturedHeaders).length > 0) {
+        pendingRequestHeaders.set(details.requestId, capturedHeaders)
       }
     },
     // 限定请求类型：媒体、xhr、sub_frame、image、other 才可能携带媒体鉴权头，
@@ -856,7 +885,7 @@ export default defineBackground(() => {
     (details) => {
       const proxyHeader = details.requestHeaders?.find(h => h.name.toLowerCase() === 'x-flowpick-proxy')
       let playbackRule: { referer: string; authHeaders?: Record<string, string> } | undefined
-      if (isFirefox && !proxyHeader) {
+      if (isFirefox) {
         try { playbackRule = playbackHeaderHosts.get(new URL(details.url).host) }
         catch { playbackRule = undefined }
       }
@@ -882,6 +911,12 @@ export default defineBackground(() => {
       }
       if (playbackRule?.authHeaders) {
         for (const [name, value] of Object.entries(playbackRule.authHeaders)) {
+          const normalized = name.toLowerCase()
+          if (normalized === 'referer' || normalized === 'origin'
+            || normalized === 'x-flowpick-proxy' || normalized === 'x-flowpick-referer'
+            || CACHE_HEADER_NAMES.has(normalized)) continue
+          const existingIndex = newHeaders.findIndex(header => header.name.toLowerCase() === normalized)
+          if (existingIndex >= 0) newHeaders.splice(existingIndex, 1)
           newHeaders.push({ name, value })
         }
       }
@@ -951,6 +986,13 @@ export default defineBackground(() => {
     // 注入认证头（Cookie 是 fetch 的禁止头，只能通过 DNR 注入）
     if (authHeaders) {
       for (const [k, v] of Object.entries(authHeaders)) {
+        const normalized = k.toLowerCase()
+        // Referer/Origin are handled by the dedicated operations above. Adding
+        // a second operation for the same header makes Chromium reject the
+        // complete DNR session rule, which silently disables hotlink bypass.
+        if (normalized === 'referer' || normalized === 'origin'
+          || normalized === 'x-flowpick-proxy' || normalized === 'x-flowpick-referer'
+          || CACHE_HEADER_NAMES.has(normalized)) continue
         requestHeaders.push({ operation: 'set', header: k, value: v })
       }
     }
@@ -1514,7 +1556,14 @@ export default defineBackground(() => {
 
           const headers: Record<string, string> = { 'X-FlowPick-Proxy': '1' }
           if (referrer) headers['X-FlowPick-Referer'] = referrer
-          if (authHeaders) Object.assign(headers, authHeaders)
+          if (authHeaders) {
+            for (const [name, value] of Object.entries(authHeaders)) {
+              const normalized = name.toLowerCase()
+              if (normalized === 'referer' || normalized === 'origin'
+                || normalized === 'cookie' || normalized === 'user-agent') continue
+              headers[name] = value
+            }
+          }
           const response = await fetch(url, { headers, cache: 'no-store' })
           if (!response.ok) {
             sendResponse({ ok: false, status: response.status, error: `HTTP ${response.status}` })
@@ -1558,6 +1607,13 @@ export default defineBackground(() => {
           // 合并 authHeaders（cookie、authorization 等），优先 options 里显式提供的值
           if (options?.authHeaders) {
             for (const [k, v] of Object.entries(options.authHeaders)) {
+              const normalized = k.toLowerCase()
+              // Forbidden/special headers are injected by DNR/webRequest.
+              // Putting them on fetch directly is unreliable and may create
+              // duplicate Referer operations in Chromium.
+              if (normalized === 'referer' || normalized === 'origin'
+                || normalized === 'cookie' || normalized === 'user-agent'
+                || normalized === 'x-flowpick-proxy' || normalized === 'x-flowpick-referer') continue
               if (!headers[k]) headers[k] = v as string
             }
           }
@@ -1705,7 +1761,7 @@ export default defineBackground(() => {
       // 页面世界的 fetch/XHR hook 会比响应头更早上报同一个 URL。不要直接
       // 丢弃响应头里的认证信息和媒体类型；这也是分离流无法被配对的根因。
       const upgradedContentType = existing.contentType ?? contentType
-      const upgradedHeaders = existing.requestHeaders ?? requestHeaders
+      const upgradedHeaders = mergeCapturedRequestHeaders(existing.requestHeaders, requestHeaders)
       const upgradedSize = existing.size ?? size
       const upgradedTitle = existing.tabTitle ?? effectiveTabTitle
       if (upgradedContentType !== existing.contentType

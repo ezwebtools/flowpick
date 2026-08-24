@@ -1362,6 +1362,16 @@
     const audioEl = document.getElementById(`audio-player-${getDomIdFromMediaKey(key)}`) as HTMLAudioElement | null
     if (!audioEl) return
     try {
+      const item = mediaByKey.value.get(key)
+      if (!item) return
+      // Register the captured Referer/authentication/CORS rule before assigning
+      // src. Otherwise mounting <audio> starts the request immediately and the
+      // first request reaches hotlink-protected CDNs without Referer.
+      await getPlaybackContext(item)
+      if (audioPlayingKey.value !== key || !audioEl.isConnected) return
+      audioEl.src = item.url
+      audioEl.load()
+
       const audioCtx = sharedAudioContext ??= new AudioContext()
       // 浏览器自动播放策略：AudioContext 默认 suspended，必须 resume。
       if (audioCtx.state === 'suspended') {
@@ -1949,7 +1959,11 @@
       const typeMatches = resourceKind === 'image'
         ? normalizedType.startsWith('image/')
         : resourceKind === 'audio'
-          ? normalizedType.startsWith('audio/') || normalizedType === 'application/ogg'
+          ? normalizedType.startsWith('audio/')
+            || normalizedType === 'video/mp4'
+            || normalizedType === 'application/ogg'
+            || normalizedType === 'application/mp4'
+            || normalizedType === 'application/octet-stream'
           : true
       if (normalizedType === 'text/html' || !typeMatches) {
         throw new Error('unexpected protected resource response')
@@ -2111,12 +2125,12 @@
       return
     }
     const filename = getDownloadName(url)
-    if (isStreamFormat(format) || isVideoDownloadFormat(format)) {
+    if (isStreamFormat(format) || isVideoDownloadFormat(format) || isAudioFormat(format)) {
+      // Keep audio on the external downloader workflow. Captured Referer and
+      // authentication headers are forwarded with the pending download session.
       browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders })
     } else if (isImageFormat(format)) {
       void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'image')
-    } else if (isAudioFormat(format)) {
-      void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'audio')
     } else if (DOC_AND_SUB_FORMATS.includes(format.toLowerCase())) {
       void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'document')
     } else {
@@ -2156,15 +2170,12 @@
         if (item.captureId) browser.runtime.sendMessage({ type: 'MSE_DOWNLOAD', captureId: item.captureId, tabId: currentTabId, frameId: item.frameId })
       } else if (item.isLiveStream && (item.format === 'flv' || item.format === 'ts')) {
         startLiveRecording(item.url, item.format, item.requestHeaders)
-      } else if (isStreamFormat(item.format) || isVideoDownloadFormat(item.format)) {
+      } else if (isStreamFormat(item.format) || isVideoDownloadFormat(item.format) || isAudioFormat(item.format)) {
         const filename = `${baseName}${suffix}`
         browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url: item.url, format: item.format, filename, requestHeaders: item.requestHeaders })
       } else if (isImageFormat(item.format)) {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
         void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'image')
-      } else if (isAudioFormat(item.format)) {
-        const filename = getBatchDownloadFilename(item.url, item.format, subDir)
-        void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'audio')
       } else if (DOC_AND_SUB_FORMATS.includes(item.format.toLowerCase())) {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
         void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'document')
@@ -3025,7 +3036,7 @@
                   <div v-if="mediaView(item).isAudio && audioPlayingKey === mediaView(item).key" class="px-3 pb-3">
                     <div class="bg-gray-900 dark:bg-gray-950 rounded-lg overflow-hidden p-2 flex flex-col gap-2">
                       <canvas :id="'spectrum-' + getMediaDomId(item)" width="300" height="60" class="w-full h-[60px] rounded bg-gray-950 block" />
-                      <audio :id="'audio-player-' + getMediaDomId(item)" :src="item.url" class="w-full h-8" controls />
+                      <audio :id="'audio-player-' + getMediaDomId(item)" class="w-full h-8" controls />
                     </div>
                   </div>
                 </div>
