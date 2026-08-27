@@ -1230,6 +1230,9 @@ export default defineBackground(() => {
         downloaderPage = 'dash-downloader'
       } else if (format === 'm3u8') {
         downloaderPage = 'm3u8-downloader'
+      } else if (getFormatGroup(typeof format === 'string' ? format : '') === 'audio') {
+        // 音频（mp3/m4a/oga/weba/wav/flac/aac）转发到第三方音频下载页
+        downloaderPage = 'audio-downloader'
       } else {
         downloaderPage = 'video-downloader'
       }
@@ -1248,12 +1251,12 @@ export default defineBackground(() => {
 
       const browserLang = browser.i18n.getUILanguage()
       const langSuffix = languageMapping[browserLang]
-      const targetUrl = langSuffix
-        ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
-        : `https://flowpick.net/${downloaderPage}`
       // const targetUrl = langSuffix
-      //   ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
-      //   : `http://localhost:3001/${downloaderPage}`
+      //   ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
+      //   : `https://flowpick.net/${downloaderPage}`
+      const targetUrl = langSuffix
+        ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
+        : `http://localhost:3001/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl, requestHeaders: resolvedHeaders, audioUrl: msg.audioUrl as string | undefined })
