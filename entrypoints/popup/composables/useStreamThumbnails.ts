@@ -40,7 +40,9 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
 
   const CACHE_LIMIT = 50
   const CACHE_MEMORY_LIMIT = 12 * 1024 * 1024
-  const CONCURRENCY = 2
+  // Keep thumbnail loading bounded, but allow the first viewport to fill
+  // without making the queue feel serial on media-heavy pages.
+  const CONCURRENCY = 3
   const TIMEOUT_MS = 12_000
   const MAX_RETRIES = 3
   const RETRY_BASE_MS = 15_000
@@ -272,7 +274,7 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
           if (active.has(url)) cleanup(url)
         }
       }
-    }, { root: options.listContainerRef.value, rootMargin: '240px 0px', threshold: 0.01 })
+    }, { root: options.listContainerRef.value, rootMargin: '500px 0px', threshold: 0.01 })
   }
 
   function observe(el: unknown, item: T) {

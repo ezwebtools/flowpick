@@ -112,6 +112,8 @@
   // ── List view state ──────────────────────────────────────────────
   const view = ref<View>('list')
   const showMore = ref(false)
+  const showRulesHint = ref(true)
+  const RULES_HINT_DISMISSED_KEY = 'flowpick_rules_hint_dismissed'
   const showToast = ref(false)
   const toastMessage = ref('')
   const {
@@ -203,6 +205,7 @@
   let mediaSession = 0
   let metadataTaskSequence = 0
   let activeMetadataTaskId: string | null = null
+  let metadataRefreshPending = false
   const currentTabTitle = ref('')
   const version = browser.runtime.getManifest().version
 
@@ -613,6 +616,24 @@
     )
   })
 
+  // Stream resources are displayed as groups, so selection must follow the
+  // same hierarchy: one master per group, never its variants/audio/segments.
+  const selectableMediaList = computed((): MediaItem[] => {
+    if (activeTab.value === 'stream') {
+      return groupedStreamList.value.map(group => group.masterItem)
+    }
+    return flatMediaList.value
+  })
+
+  const selectedDownloadItems = computed((): MediaItem[] => {
+    if (activeTab.value === 'stream') {
+      return groupedStreamList.value
+        .filter(group => selectedKeys.value.has(getMediaKey(group.masterItem)))
+        .map(group => group.isVirtual ? getPreferredStreamItem(group) : group.masterItem)
+    }
+    return flatMediaList.value.filter(item => selectedKeys.value.has(getMediaKey(item)))
+  })
+
   const streamGroupHeights = shallowRef(new Map<string, number>())
   const streamGroupObservers = new Map<string, ResizeObserver>()
   const STREAM_GROUP_GAP = 6
@@ -742,6 +763,7 @@
   }
 
   onMounted(async () => {
+    await loadRulesHintState()
     // Settings are extension-global and must be initialized independently of
     // the active tab. Firefox sidebars can briefly return no current tab.
     await ensureSettingsLoaded()
@@ -1207,19 +1229,36 @@
   // 避免 LIST_UPDATED 广播反复触发 fetchAllMetadataBatch 让坏 URL 反复进请求队列
   // 切换 tab / 手动刷新页面会清空（会话变化）
   const failedMetadataKeys = new Set<string>()
-  const METADATA_BATCH_SIZE = 200
+  // Smaller chunks let the UI receive the first metadata results sooner.
+  // A large chunk waits for its slowest item before any result is committed.
+  const METADATA_BATCH_SIZE = 40
 
   const fetchAllMetadataBatch = async (tabId = currentTabId, session = mediaSession) => {
     if (tabId === undefined) return
+    // Keep one metadata batch per tab/session. New list updates are picked up
+    // immediately after the current batch finishes instead of creating
+    // competing batches for the same page.
+    if (activeMetadataTaskId) {
+      metadataRefreshPending = true
+      return
+    }
     const requests = mediaList.value.flatMap(item => {
       const key = getMediaKey(item)
       const requestKey = `${session}:${key}`
+      // Hidden stream segments (TS/M4S) are not useful metadata candidates and
+      // can otherwise trigger a large number of range requests.
+      if (isStreamSegment(item)) return []
       // 会话内已失败的资源跳过，不再发起元数据请求
       if (failedMetadataKeys.has(key)) return []
+      // Visible video/audio cards already load the native media element for
+      // the cover and duration. Avoid competing with that request by running
+      // the expensive MediaInfo/WASM parser for those formats here.
+      // Stream manifests keep the background fallback because their duration
+      // is not reliably exposed by a plain media element.
       const needMediaInfo = (
-        (isVideoFormat(item.format) && (!item.width || !item.height || !item.duration))
-        || (isAudioFormat(item.format) && !item.duration)
-        || ((item.format === 'm3u8' || item.format === 'mpd' || item.format === 'flv') && !item.duration)
+        !isVideoFormat(item.format)
+        && !isAudioFormat(item.format)
+        && ((item.format === 'm3u8' || item.format === 'mpd' || item.format === 'flv') && !item.duration)
       )
       const needSize = !item.size
         && !isStreamFormat(item.format)
@@ -1233,8 +1272,8 @@
     })
     if (!requests.length) return
 
-    cancelMetadataBatch()
     const taskId = `metadata:${tabId}:${session}:${++metadataTaskSequence}`
+    activeMetadataTaskId = taskId
     const removedKeys = new Set<string>()
     const metadataPatches = new Map<string, Partial<MediaItem>>()
     try {
@@ -1279,6 +1318,10 @@
     } finally {
       if (activeMetadataTaskId === taskId) activeMetadataTaskId = null
       requests.forEach(request => pendingBatchKeys.delete(request.requestKey))
+      if (metadataRefreshPending && session === mediaSession && tabId === currentTabId) {
+        metadataRefreshPending = false
+        setTimeout(() => { void fetchAllMetadataBatch(tabId, session) }, 0)
+      }
     }
   }
   const formatDuration = (seconds?: number): string => {
@@ -2152,7 +2195,7 @@
   }
 
   const toggleSelectAll = () => {
-    const visibleKeys = flatMediaList.value.map(getMediaKey)
+    const visibleKeys = selectableMediaList.value.map(getMediaKey)
     if (visibleKeys.length > 0 && visibleKeys.every(key => selectedKeys.value.has(key))) {
       selectedKeys.value = new Set()
     } else {
@@ -2161,7 +2204,7 @@
   }
 
   const batchDownload = () => {
-    const items = flatMediaList.value.filter(item => selectedKeys.value.has(getMediaKey(item)))
+    const items = selectedDownloadItems.value
     const subDir = sanitizeDirectoryName(currentTabTitle.value)
     items.forEach((item, idx) => {
       const baseName = getDownloadName(item.url)
@@ -2270,6 +2313,16 @@
     showMore.value = false
   }
 
+  function dismissRulesHint() {
+    showRulesHint.value = false
+    browser.storage.local.set({ [RULES_HINT_DISMISSED_KEY]: true }).catch(() => {})
+  }
+
+  async function loadRulesHintState() {
+    const result = await browser.storage.local.get(RULES_HINT_DISMISSED_KEY).catch(() => ({}))
+    if (result[RULES_HINT_DISMISSED_KEY] === true) showRulesHint.value = false
+  }
+
   async function backToList() {
     if (textSaveTimer) {
       clearTimeout(textSaveTimer)
@@ -2303,6 +2356,20 @@
               <span class="text-[10px] text-gray-400 dark:text-gray-500"> | {{ t('subtitle') }}</span>
             </div>
           </div>
+          <div v-if="showRulesHint" class="flex items-start gap-2 px-3 py-2 text-[11px] leading-4 text-blue-800 bg-blue-50 border-b border-blue-100 dark:text-blue-200 dark:bg-blue-950/40 dark:border-blue-900/50">
+            <svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="flex-1 min-w-0">
+              <p>{{ t('rulesHint') }}</p>
+              <button @click="openSettings" class="underline underline-offset-2 hover:text-blue-600 dark:hover:text-blue-100">{{ t('rulesHintAction') }}</button>
+            </div>
+            <button @click="dismissRulesHint" class="flex items-center justify-center w-5 h-5 -mr-1 -mt-0.5 rounded text-blue-500 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-900/60" title="关闭提示" aria-label="关闭提示">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+          </div>
           <div v-if="isMobileBrowser" class="px-3 py-1.5 text-[11px] leading-4 text-amber-800 bg-amber-50 border-b border-amber-100 dark:text-amber-200 dark:bg-amber-950/40 dark:border-amber-900/50">
             {{ mobileCapabilityTip }}
           </div>
@@ -2324,11 +2391,11 @@
             </nav>
             
           </div>
-          <div v-if="flatMediaList.length > 0" class="flex items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800">
-            <button @click="toggleSelectAll" class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all" :title="flatMediaList.length > 0 && flatMediaList.every(item => selectedKeys.has(mediaView(item).key)) ? t('deselectAll') : t('selectAll')">
+          <div v-if="selectableMediaList.length > 0" class="flex items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800">
+            <button @click="toggleSelectAll" class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all" :title="selectableMediaList.length > 0 && selectableMediaList.every(item => selectedKeys.has(getMediaKey(item))) ? t('deselectAll') : t('selectAll')">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
                 <circle cx="12" cy="12" r="9" />
-                <path v-if="flatMediaList.length > 0 && flatMediaList.every(item => selectedKeys.has(mediaView(item).key))" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
+                <path v-if="selectableMediaList.length > 0 && selectableMediaList.every(item => selectedKeys.has(getMediaKey(item)))" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
               </svg>
             </button>
             <button @click="batchDownload" :disabled="selectedKeys.size === 0"
@@ -2777,7 +2844,7 @@
                       @mouseleave="onCardLeave">
                       <img v-if="group.masterItem.coverUrl && imageLoadStatus.get(group.masterItem.coverUrl) !== false" :src="imageSrc(group.masterItem.coverUrl, group.masterItem.requestHeaders)" @error="proxyImage($event, group.masterItem.coverUrl, group.masterItem.requestHeaders)" class="w-full h-full object-cover" alt="" />
                       <img v-else-if="streamThumbCache.has(getStreamThumbItem(group).url)" :src="streamThumbCache.get(getStreamThumbItem(group).url)" @load="touchStreamThumb(getStreamThumbItem(group).url)" class="w-full h-full object-cover" alt="" />
-                      <video v-else-if="isVideoFormat(getStreamThumbItem(group).format) && !videoThumbFailed.has(getStreamThumbItem(group).url)" :src="getStreamThumbItem(group).url" class="w-full h-full object-cover" preload="metadata" muted playsinline @loadeddata="onVideoThumbLoaded($event, getStreamThumbItem(group))" @error="onVideoThumbError(getStreamThumbItem(group).url)" />
+                      <video v-else-if="isVideoFormat(getStreamThumbItem(group).format) && !videoThumbFailed.has(getStreamThumbItem(group).url)" :src="getStreamThumbItem(group).url" class="w-full h-full object-cover" preload="metadata" muted playsinline @loadedmetadata="onVideoThumbLoaded($event, getStreamThumbItem(group))" @loadeddata="onVideoThumbLoaded($event, getStreamThumbItem(group))" @error="onVideoThumbError(getStreamThumbItem(group).url)" />
                       <video v-if="(!group.masterItem.coverUrl || imageLoadStatus.get(group.masterItem.coverUrl) === false) && streamThumbCache.has(getStreamThumbItem(group).url) && !getStreamThumbItem(group).duration && (getStreamThumbItem(group).format === 'm3u8' || getStreamThumbItem(group).format === 'mpd' || getStreamThumbItem(group).format === 'flv') && !streamThumbFailed.has(getStreamThumbItem(group).url)" :ref="el => observeStreamThumb(el, getStreamThumbItem(group))" class="absolute inset-0 w-px h-px opacity-0 pointer-events-none" preload="metadata" muted playsinline></video>
                       <video v-if="(!group.masterItem.coverUrl || imageLoadStatus.get(group.masterItem.coverUrl) === false) && !streamThumbCache.has(getStreamThumbItem(group).url) && (getStreamThumbItem(group).format === 'm3u8' || getStreamThumbItem(group).format === 'mpd' || getStreamThumbItem(group).format === 'flv') && !streamThumbFailed.has(getStreamThumbItem(group).url)" :ref="el => observeStreamThumb(el, getStreamThumbItem(group))" class="w-full h-full object-cover" preload="metadata" muted playsinline></video>
                       <div v-if="(!group.masterItem.coverUrl || imageLoadStatus.get(group.masterItem.coverUrl) === false) && !streamThumbCache.has(getStreamThumbItem(group).url) && (!isVideoFormat(getStreamThumbItem(group).format) || videoThumbFailed.has(getStreamThumbItem(group).url)) && ((getStreamThumbItem(group).format !== 'm3u8' && getStreamThumbItem(group).format !== 'mpd' && getStreamThumbItem(group).format !== 'flv') || streamThumbFailed.has(getStreamThumbItem(group).url))" class="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/30 text-orange-400"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg></div>
@@ -2841,6 +2908,7 @@
                         preload="metadata"
                         muted
                         playsinline
+                        @loadedmetadata="onVideoThumbLoaded($event, item)"
                         @loadeddata="onVideoThumbLoaded($event, item)"
                         @error="onVideoThumbError(item.url)" />
                       <img v-else-if="mediaView(item).isImage"
