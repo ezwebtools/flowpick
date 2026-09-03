@@ -247,16 +247,15 @@ export default defineBackground(() => {
   const chromeGlobal = (globalThis as any).chrome
   const nativeBrowser = (globalThis as any).browser
   const isFirefox = !!(nativeBrowser?.sidebarAction)
-  const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(
-    (globalThis as any).navigator?.userAgent ?? ''
-  )
+  const userAgent = (globalThis as any).navigator?.userAgent ?? ''
+  const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(userAgent)
   // Firefox only accepts requestHeaders for onSendHeaders; Chromium also
   // supports extraHeaders.
   const sendHeadersExtraInfo = isFirefox
     ? ['requestHeaders']
     : ['requestHeaders', 'extraHeaders']
-  // 必须同时具备 sidePanel、setOptions 与 open（且 open 为函数），否则视为不支持，
-  // 保留 popup 作为兜底，避免 360 等浏览器"清空 popup 后 sidePanel 又打不开"的假死。
+  // Chromium desktop uses Side Panel; browsers without a complete API retain
+  // the popup fallback below.
   const supportsChromeSidepanel =
     !isFirefox &&
     !isMobileBrowser &&
@@ -309,24 +308,39 @@ export default defineBackground(() => {
         if (tab.id !== undefined) {
           const existingPort = sidePanelPorts.get(tab.id)
           if (existingPort) {
-            try { existingPort.postMessage({ type: 'SIDEPANEL_CLOSE_REQUEST' }) } catch {}
+            // A Chromium Side Panel is not a popup window: window.close() in
+            // the panel document does not reliably hide it. Disable it for
+            // this tab through the owning API so a second toolbar click is a
+            // genuine toggle.
+            sidebarClosedTabs.add(tab.id)
+            sidePanelPorts.delete(tab.id)
+            if (canSetOptions) {
+              try { chromeGlobal.sidePanel.setOptions({ tabId: tab.id, enabled: false }).catch(() => {}) } catch {}
+            }
             return
           }
 
           sidebarClosedTabs.delete(tab.id)
           sidePanelReady = false
           if (canSetOptions) {
+            // Do not await here: sidePanel.open must stay on the synchronous
+            // action-click user-gesture stack in Chromium.
             try { chromeGlobal.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true }).catch(() => {}) } catch {}
           }
 
           let fellBack = false
-          const fallbackToPopup = () => {
+          const fallbackToPopup = async () => {
             if (fellBack) return
             fellBack = true
-            console.warn('Falling back to popup (sidepanel unavailable)')
-            chromeGlobal.action.setPopup({ popup: 'popup.html' })
             if (typeof chromeGlobal.action.openPopup === 'function') {
-              try { chromeGlobal.action.openPopup().catch(() => {}) } catch {}
+              // Wait until the popup is configured; opening it immediately
+              // after setPopup can still target the old empty popup.
+              try {
+                await chromeGlobal.action.setPopup({ popup: 'popup.html' })
+                await chromeGlobal.action.openPopup()
+              } catch {}
+            } else {
+              try { await chromeGlobal.action.setPopup({ popup: 'popup.html' }) } catch {}
             }
           }
 
@@ -924,10 +938,11 @@ export default defineBackground(() => {
       return { requestHeaders: newHeaders }
     },
     { urls: ['<all_urls>'] },
-    proxyHeaderExtraInfoSpec,
+    proxyHeaderExtraInfoSpec as any[],
   )
 
-  // 代理请求的 DNR session 规则缓存（按 host 去重）
+  // 代理请求的 DNR session 规则缓存（按 host 去重）。流媒体 manifest
+  // 常以相对 URL 引用同主机分片，因此同一播放上下文必须覆盖整个主机。
   const DNR_RULES_MAX = 5000
   const DNR_RULES_EVICT = 100
   const dnlRefererRules = new Map<string, { id: number; referer: string; headersKey: string; lastUsed: number }>()
@@ -1113,7 +1128,9 @@ export default defineBackground(() => {
       const tabId = sender.tab?.id
       const format = msg.format || 'm3u8'
       if (tabId !== undefined) {
-        const rh = (msg.requestHeaders && typeof msg.requestHeaders === 'object') ? msg.requestHeaders : undefined
+        const rh = (msg.requestHeaders && typeof msg.requestHeaders === 'object')
+          ? msg.requestHeaders
+          : (sender.tab?.url ? { referer: sender.tab.url } : undefined)
         addMedia(msg.url, tabId, format, undefined, 'media', rh, undefined, undefined, sender.tab?.title)
       }
       sendResponse({ ok: tabId !== undefined })
@@ -1133,10 +1150,14 @@ export default defineBackground(() => {
       const tabId = sender.tab?.id
       const items: Array<{ url: string; format: string }> = Array.isArray(msg.items) ? msg.items : []
       const tabTitle = sender.tab?.title
+      // Page-world hooks only report URL/format. Preserve the containing page
+      // as a minimum Referer context until webRequest upgrades it with the
+      // original request's Cookie/Authorization headers.
+      const fallbackHeaders = sender.tab?.url ? { referer: sender.tab.url } : undefined
       if (tabId !== undefined) {
         for (const item of items) {
           if (item && typeof item.url === 'string') {
-            addMedia(item.url, tabId, item.format || 'm3u8', undefined, 'media', undefined, undefined, undefined, tabTitle)
+            addMedia(item.url, tabId, item.format || 'm3u8', undefined, 'media', fallbackHeaders, undefined, undefined, tabTitle)
           }
         }
       }
@@ -1261,7 +1282,6 @@ export default defineBackground(() => {
       sendResponse({ ok: true })
       return true
     }
-
 
     if (msg.type === 'FLOWPICK_DOWNLOAD_READY') {
       const tabId = sender.tab?.id
