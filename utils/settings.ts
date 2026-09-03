@@ -48,6 +48,46 @@ export const DEFAULT_SETTINGS: Settings = {
   dataImageMinSizeKB: 50,
 }
 
+/** Return a fully detached settings object safe for reactive mutation. */
+export function createDefaultSettings(): Settings {
+  return {
+    sniffingRules: {
+      streaming: { ...DEFAULT_SETTINGS.sniffingRules.streaming },
+      video: { ...DEFAULT_SETTINGS.sniffingRules.video },
+      audio: { ...DEFAULT_SETTINGS.sniffingRules.audio },
+      image: { ...DEFAULT_SETTINGS.sniffingRules.image },
+      document: { ...DEFAULT_SETTINGS.sniffingRules.document },
+      subtitle: { ...DEFAULT_SETTINGS.sniffingRules.subtitle },
+    },
+    excludeDomains: [...DEFAULT_SETTINGS.excludeDomains],
+    maxItems: DEFAULT_SETTINGS.maxItems,
+    enableMseCapture: DEFAULT_SETTINGS.enableMseCapture,
+    hideStreamSegments: DEFAULT_SETTINGS.hideStreamSegments,
+    captureDataImages: DEFAULT_SETTINGS.captureDataImages,
+    dataImageMinSizeKB: DEFAULT_SETTINGS.dataImageMinSizeKB,
+  }
+}
+
+/** Strip Vue proxies and other reactive wrappers before WebExtension storage/messaging. */
+export function cloneSettings(settings: Settings): Settings {
+  return {
+    sniffingRules: {
+      streaming: { ...settings.sniffingRules.streaming },
+      video: { ...settings.sniffingRules.video },
+      audio: { ...settings.sniffingRules.audio },
+      image: { ...settings.sniffingRules.image },
+      document: { ...settings.sniffingRules.document },
+      subtitle: { ...settings.sniffingRules.subtitle },
+    },
+    excludeDomains: Array.from(settings.excludeDomains),
+    maxItems: settings.maxItems,
+    enableMseCapture: settings.enableMseCapture,
+    hideStreamSegments: settings.hideStreamSegments,
+    captureDataImages: settings.captureDataImages,
+    dataImageMinSizeKB: settings.dataImageMinSizeKB,
+  }
+}
+
 const SETTINGS_KEY = 'ext_settings'
 
 function toStringArray(val: any): string[] {
@@ -80,15 +120,7 @@ export async function loadSettings(): Promise<Settings> {
   const result = await browser.storage.local.get(SETTINGS_KEY)
   const stored = result[SETTINGS_KEY] as any
   if (!stored || typeof stored !== 'object') {
-    return {
-      sniffingRules: { ...DEFAULT_SETTINGS.sniffingRules },
-      excludeDomains: [...DEFAULT_SETTINGS.excludeDomains],
-      maxItems: DEFAULT_SETTINGS.maxItems,
-      enableMseCapture: DEFAULT_SETTINGS.enableMseCapture,
-      hideStreamSegments: DEFAULT_SETTINGS.hideStreamSegments,
-      captureDataImages: DEFAULT_SETTINGS.captureDataImages,
-      dataImageMinSizeKB: DEFAULT_SETTINGS.dataImageMinSizeKB,
-    }
+    return createDefaultSettings()
   }
   const rawMax = stored.maxItems
   const maxItems = typeof rawMax === 'number' && rawMax > 0 ? Math.floor(rawMax) : DEFAULT_MAX_ITEMS
@@ -104,15 +136,16 @@ export async function loadSettings(): Promise<Settings> {
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
+  const plainSettings = cloneSettings(settings)
   await browser.storage.local.set({
     [SETTINGS_KEY]: {
-      sniffingRules: settings.sniffingRules,
-      excludeDomains: Array.from(settings.excludeDomains),
-      maxItems: settings.maxItems,
-      enableMseCapture: settings.enableMseCapture,
-      hideStreamSegments: settings.hideStreamSegments,
-      captureDataImages: settings.captureDataImages,
-      dataImageMinSizeKB: settings.dataImageMinSizeKB,
+      sniffingRules: plainSettings.sniffingRules,
+      excludeDomains: plainSettings.excludeDomains,
+      maxItems: plainSettings.maxItems,
+      enableMseCapture: plainSettings.enableMseCapture,
+      hideStreamSegments: plainSettings.hideStreamSegments,
+      captureDataImages: plainSettings.captureDataImages,
+      dataImageMinSizeKB: plainSettings.dataImageMinSizeKB,
     }
   })
 }

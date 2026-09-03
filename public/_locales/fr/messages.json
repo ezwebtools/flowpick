@@ -1,350 +1,350 @@
 {
     "extName": {
-        "message": "FlowPick - Media Sniffer & Downloader"
+        "message": "FlowPick - Détecteur et téléchargeur multimédia"
     },
     "extDescription": {
         "message": "Auto-detect & download M3U8/HLS streams, videos, audio & images. Built-in player. Batch download. 100% local & private."
     },
-    "title":{
-        "message": "Flowpick"
+    "title": {
+        "message": "FlowPick"
     },
-    "home":{
-        "message": "Home"
+    "home": {
+        "message": "Accueil"
     },
-    "download":{
-        "message": "Download"
+    "download": {
+        "message": "Télécharger"
     },
-    "help":{
-        "message": "Help"
+    "help": {
+        "message": "Aide"
     },
-    "about":{
-        "message": "About"
+    "about": {
+        "message": "À propos"
     },
-    "copy":{
-        "message": "Copy"
+    "copy": {
+        "message": "Copier"
     },
-    "copyTips":{
-        "message": "Copy success!"
+    "copyTips": {
+        "message": "Copié"
     },
-    "copyUrl":{
-        "message": "Copy URL"
+    "copyUrl": {
+        "message": "Copier l’URL"
     },
-    "settings":{
-        "message": "Settings"
+    "settings": {
+        "message": "Paramètres"
     },
-    "more":{
-        "message": "More"
+    "more": {
+        "message": "Plus"
     },
-    "clear":{
-        "message": "Clear"
+    "clear": {
+        "message": "Effacer"
     },
-    "unknown":{
-        "message": "Unknown"
+    "unknown": {
+        "message": "Inconnu"
     },
-    "feedback":{
-        "message": "Feedback"
+    "feedback": {
+        "message": "Commentaires"
     },
-    "found":{
-        "message": "Found: "
+    "found": {
+        "message": "Trouvé"
     },
-    "item":{
-        "message": "item"
+    "item": {
+        "message": "élément"
     },
-    "play":{
-        "message": "Play"
+    "play": {
+        "message": "Lire"
     },
-    "notFound":{
-        "message": "No media detected"
+    "notFound": {
+        "message": "Aucun élément trouvé"
     },
-    "playTips":{
-        "message": "Play a video or audio, or load an image to detect media resources."
+    "playTips": {
+        "message": "Cliquer pour lire"
     },
-    "unplayable":{
+    "unplayable": {
         "message": "Your browser does not support video playback."
     },
-    "playError":{
+    "playError": {
         "message": "Play error: "
     },
-    "stopPlay":{
-        "message": "Stop play"
+    "stopPlay": {
+        "message": "Arrêter la lecture"
     },
-    "audioPlayError":{
-        "message": "Audio play error"
+    "audioPlayError": {
+        "message": "Impossible de lire cet audio."
     },
-    "optionsTitle":{
-        "message": "Settings"
+    "optionsTitle": {
+        "message": "Paramètres"
     },
-    "saved":{
-        "message": "Saved"
+    "saved": {
+        "message": "Enregistré"
     },
-    "sniffingRules":{
-        "message": "Sniffing Rules"
+    "sniffingRules": {
+        "message": "Règles de détection"
     },
-    "type":{
+    "type": {
         "message": "Type"
     },
-    "sniff":{
-        "message": "Enabled"
+    "sniff": {
+        "message": "Détecter"
     },
-    "minSizeKB":{
-        "message": "Min Size (KB)"
+    "minSizeKB": {
+        "message": "Taille minimale (Ko)"
     },
-    "streaming":{
+    "streaming": {
         "message": "Streaming"
     },
-    "streamingHint":{
+    "streamingHint": {
         "message": "HLS / DASH / M3U8"
     },
-    "video":{
-        "message": "Video"
+    "video": {
+        "message": "Vidéo"
     },
-    "videoHint":{
+    "videoHint": {
         "message": "MP4, WebM, MKV…"
     },
-    "audio":{
+    "audio": {
         "message": "Audio"
     },
-    "audioHint":{
+    "audioHint": {
         "message": "MP3, AAC, FLAC…"
     },
-    "image":{
+    "image": {
         "message": "Image"
     },
-    "imageHint":{
+    "imageHint": {
         "message": "PNG, JPG, WebP…"
     },
-    "kb":{
+    "kb": {
         "message": "KB"
     },
-    "excludeDomains":{
-        "message": "Exclude Domains"
+    "excludeDomains": {
+        "message": "Domaines exclus"
     },
-    "maxItems":{
-        "message": "Max Items Per Tab"
+    "maxItems": {
+        "message": "Maximum items"
     },
-    "maxItemsDesc":{
+    "maxItemsDesc": {
         "message": "Max media items captured per tab (10–5000). Oldest items are replaced when the limit is reached."
     },
-    "excludeDomainsDesc":{
+    "excludeDomainsDesc": {
         "message": "Sniffing will be disabled on these domains. One per line (e.g. twitter.com)"
     },
-    "excludeDomainsPlaceholder":{
+    "excludeDomainsPlaceholder": {
         "message": "twitter.com\nfacebook.com\ninstagram.com"
     },
-    "keyboardShortcuts":{
-        "message": "Keyboard Shortcuts"
+    "keyboardShortcuts": {
+        "message": "Keyboard shortcuts"
     },
-    "keyboardShortcutsDesc":{
+    "keyboardShortcutsDesc": {
         "message": "Configure shortcuts to open the extension panel"
     },
-    "manageShortcuts":{
+    "manageShortcuts": {
         "message": "Manage keyboard shortcuts in Chrome's extension settings"
     },
-    "openShortcuts":{
+    "openShortcuts": {
         "message": "Open Shortcuts"
     },
-    "resetToDefaults":{
-        "message": "Reset to defaults"
+    "resetToDefaults": {
+        "message": "Réinitialiser"
     },
-    "resetConfirm":{
+    "resetConfirm": {
         "message": "Click again to confirm reset"
     },
-    "welcomeSubtitle":{
+    "welcomeSubtitle": {
         "message": "Smart Media Sniffer & Downloader"
     },
-    "tutorialTitle":{
+    "tutorialTitle": {
         "message": "Getting Started"
     },
-    "step1Title":{
+    "step1Title": {
         "message": "Install the Extension"
     },
-    "step1Desc":{
+    "step1Desc": {
         "message": "After installation, the FlowPick icon will appear in your browser toolbar. Click the icon to open the extension popup."
     },
-    "step2Title":{
+    "step2Title": {
         "message": "Open a Video Page"
     },
-    "step2Desc":{
+    "step2Desc": {
         "message": "Visit a webpage containing video or audio, and FlowPick will automatically detect media resources. When resources are detected, the extension icon will show the count."
     },
-    "step3Title":{
+    "step3Title": {
         "message": "Play Video to Trigger Detection"
     },
-    "step3Desc":{
+    "step3Desc": {
         "message": "Some videos need to be played first before the extension can capture the streaming URL. If no count appears on the icon, try playing the video."
     },
-    "step4Title":{
+    "step4Title": {
         "message": "View Detected Resources"
     },
-    "step4Desc":{
+    "step4Desc": {
         "message": "Click the extension icon to see all detected media resources in the popup. You can filter by type (streaming, video, audio, image) and use format or size filters for precise searching."
     },
-    "step5Title":{
+    "step5Title": {
         "message": "Download or Copy"
     },
-    "step5Desc":{
+    "step5Desc": {
         "message": "In the resource list, click the download button to download a file, or click the copy button to copy the resource URL. You can also select multiple files for batch download."
     },
-    "step6Title":{
+    "step6Title": {
         "message": "Customize Settings"
     },
-    "step6Desc":{
+    "step6Desc": {
         "message": "Click the settings icon in the popup to toggle sniffing by type, set minimum capture size, exclude specific domains, and configure keyboard shortcuts."
     },
-    "faqTitle":{
+    "faqTitle": {
         "message": "FAQ"
     },
-    "faq1Q":{
+    "faq1Q": {
         "message": "Why can't some videos be detected?"
     },
-    "faq1A":{
+    "faq1A": {
         "message": "Some websites use special encryption or dynamic loading techniques (such as DRM protection), which prevents the extension from capturing video streams. Additionally, certain streaming URLs are not triggered until the video starts playing. We recommend playing the video first and waiting for a number to appear on the extension icon."
     },
-    "faq2Q":{
+    "faq2Q": {
         "message": "What should I do if the downloaded M3U8 file won't play?"
     },
-    "faq2A":{
+    "faq2A": {
         "message": "M3U8 is an index file, not the video itself. You need to use an HLS-compatible player (such as VLC) to play it, or use a dedicated tool to convert M3U8 to MP4 format. The extension will attempt to provide a direct download option when an M3U8 stream is detected."
     },
-    "faq3Q":{
+    "faq3Q": {
         "message": "Does the extension collect my private data?"
     },
-    "faq3A":{
+    "faq3A": {
         "message": "No. This extension runs entirely locally and does not send any data to external servers. All detection and download operations are completed in your browser."
     },
-    "faq4Q":{
+    "faq4Q": {
         "message": "Why doesn't the icon show the detection count?"
     },
-    "faq4A":{
+    "faq4A": {
         "message": "The extension only shows a count on the icon when media resources are detected on the current tab. Please make sure: 1) You have opened a webpage with video; 2) The video has started playing; 3) The website is not in the excluded domains list."
     },
-    "faq5Q":{
+    "faq5Q": {
         "message": "How do I exclude unwanted domains?"
     },
-    "faq5A":{
+    "faq5A": {
         "message": "Click the settings icon in the extension popup, enter the domains you want to exclude in the \"Exclude Domains\" section (one per line), e.g. twitter.com. After saving, media sniffing will be disabled on those domains."
     },
-    "faq6Q":{
+    "faq6Q": {
         "message": "Why is the download speed slow?"
     },
-    "faq6A":{
+    "faq6A": {
         "message": "Download speed depends on the video source server's bandwidth and your network environment. The extension uses the browser's native download function, so the speed is the same as downloading files directly in the browser. If the speed is consistently slow, the source server may be throttling downloads."
     },
-    "faq7Q":{
+    "faq7Q": {
         "message": "How do I set up keyboard shortcuts?"
     },
-    "faq7A":{
+    "faq7A": {
         "message": "In the extension popup's settings page, find the \"Keyboard Shortcuts\" section and click the \"Open Shortcuts\" button to jump to the browser's shortcut management page for configuration."
     },
-    "faq8Q":{
+    "faq8Q": {
         "message": "Why does Firefox show a different layout than Chrome?"
     },
-    "faq8A":{
+    "faq8A": {
         "message": "Firefox and Chrome have some differences in CSS flexbox and grid layout rendering. FlowPick has been optimized to maintain consistent UI across both browsers. If you notice any display issues, please report them on GitHub."
     },
-    "faq9Q":{
+    "faq9Q": {
         "message": "Why can't I find videos on certain pages?"
     },
-    "faq9A":{
+    "faq9A": {
         "message": "Some websites use special encryption, DRM protection, or obfuscated loading techniques that prevent media URL capture. Videos may also be served from embedded iframes with cross-origin restrictions. Try refreshing the page and playing the video first to trigger detection."
     },
-    "needMoreHelp":{
+    "needMoreHelp": {
         "message": "Need more help?"
     },
-    "needMoreHelpDesc":{
+    "needMoreHelpDesc": {
         "message": "If the above content didn't solve your problem, feel free to get support through the following"
     },
-    "subtitle":{
-        "message": "Smart Sniff, One-Click Download"
+    "subtitle": {
+        "message": "Détectez et téléchargez les médias de la page actuelle."
     },
-    "tabAll":{
-        "message": "All"
+    "tabAll": {
+        "message": "Tous"
     },
-    "tabStream":{
-        "message": "Stream"
+    "tabStream": {
+        "message": "Flux"
     },
-    "selectAll":{
-        "message": "Select All"
+    "selectAll": {
+        "message": "Tout sélectionner"
     },
-    "deselectAll":{
-        "message": "Deselect All"
+    "deselectAll": {
+        "message": "Tout désélectionner"
     },
-    "downloadSelected":{
-        "message": "Download Selected"
+    "downloadSelected": {
+        "message": "Télécharger la sélection"
     },
-    "clearList":{
-        "message": "Clear current page media list"
+    "clearList": {
+        "message": "Vider la liste"
     },
-    "refreshPage":{
-        "message": "Refresh current page"
+    "refreshPage": {
+        "message": "Actualiser la page"
     },
-    "filter":{
-        "message": "Filter"
+    "filter": {
+        "message": "Filtrer"
     },
-    "filterType":{
+    "filterType": {
         "message": "Type"
     },
-    "any":{
+    "any": {
         "message": "Any"
     },
-    "filterSize":{
-        "message": "Size"
+    "filterSize": {
+        "message": "Taille"
     },
-    "min":{
-        "message": "Min"
+    "min": {
+        "message": "Min."
     },
-    "max":{
-        "message": "Max"
+    "max": {
+        "message": "Max."
     },
-    "filterDimension":{
+    "filterDimension": {
         "message": "Dimensions"
     },
-    "width":{
+    "width": {
         "message": "Width"
     },
-    "height":{
+    "height": {
         "message": "Height"
     },
-    "filterResolution":{
-        "message": "Resolution"
+    "filterResolution": {
+        "message": "Résolution"
     },
-    "reset":{
+    "reset": {
         "message": "Reset"
     },
-    "sortByTime":{
+    "sortByTime": {
         "message": "Sort by time (click to enable)"
     },
-    "sortDesc":{
+    "sortDesc": {
         "message": "Newest first (click for oldest first)"
     },
-    "sortAsc":{
+    "sortAsc": {
         "message": "Oldest first (click to disable)"
     },
-    "preview":{
-        "message": "Preview"
+    "preview": {
+        "message": "Aperçu"
     },
-    "batchDownloadStarted":{
-        "message": "Started downloading $1 file(s)"
+    "batchDownloadStarted": {
+        "message": "Téléchargement groupé démarré"
     },
-    "open":{
+    "open": {
         "message": "Open"
     },
-    "changelogTitle":{
+    "changelogTitle": {
         "message": "What’s New"
     },
-    "changelogVersion":{
+    "changelogVersion": {
         "message": "v1.1.3"
     },
-    "changelogFeaturesTitle":{
+    "changelogFeaturesTitle": {
         "message": "New Features"
     },
-    "changelogFeatures":{
-        "message": "• Improved resource detection and metadata loading for a faster first result.\n• Improved cover and duration updates for video and stream resources.\n• Added a clear hint when sniffing rules hide detected resources.\n• Batch downloads now select only the top-level HLS master instead of its child variants and segments."
+    "changelogFeatures": {
+        "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
     },
-    "changelogFixesTitle":{
+    "changelogFixesTitle": {
         "message": "Bug Fixes"
     },
-    "changelogFixes":{
-        "message": "• Fixed metadata requests competing with visible media loading.\n• Fixed batch downloads including HLS variants, audio tracks, and segments.\n• Fixed video thumbnails missing duration updates in some cases."
+    "changelogFixes": {
+        "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."
     }
 }

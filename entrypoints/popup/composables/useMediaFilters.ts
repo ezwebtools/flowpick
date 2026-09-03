@@ -23,7 +23,7 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
   formatGroups: Record<Exclude<MediaType, 'other'>, string[]>
   getFormatLabel: (format: string) => string
 }) {
-  const activeTab = ref<'all' | Exclude<MediaType, 'other'>>('all')
+  const activeTab = ref<Exclude<MediaType, 'other'>>('stream')
   const typeFilter = ref('any')
   const sizeFilter = ref({ min: 0, max: 0 })
   const dimensionFilter = ref({ minWidth: 0, minHeight: 0 })

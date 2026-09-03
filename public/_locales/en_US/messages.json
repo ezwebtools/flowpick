@@ -333,18 +333,18 @@
         "message": "What’s New"
     },
     "changelogVersion":{
-        "message": "v1.1.1"
+        "message": "v1.1.3"
     },
     "changelogFeaturesTitle":{
         "message": "New Features"
     },
     "changelogFeatures":{
-        "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
+        "message": "• Improved resource detection and metadata loading for a faster first result.\n• Improved cover and duration updates for video and stream resources.\n• Added a clear hint when sniffing rules hide detected resources.\n• Batch downloads now select only the top-level HLS master instead of its child variants and segments."
     },
     "changelogFixesTitle":{
         "message": "Bug Fixes"
     },
     "changelogFixes":{
-        "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."
+        "message": "• Fixed metadata requests competing with visible media loading.\n• Fixed batch downloads including HLS variants, audio tracks, and segments.\n• Fixed video thumbnails missing duration updates in some cases."
     }
 }

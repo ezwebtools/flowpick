@@ -1,31 +1,51 @@
 export default defineContentScript({
   matches: ['*://*/*'],
   allFrames: true,
-  runAt: 'document_end',
+  // MSE must be hooked before the page player creates MediaSource. At
+  // document_end many players have already created their SourceBuffers.
+  runAt: 'document_start',
   main() {
     if (!document.querySelector('script[data-m3u8-injected]')) {
-      const script = document.createElement('script')
-      script.src = browser.runtime.getURL('/injected.js')
-      script.dataset.m3u8Injected = '1'
-      ;(document.head || document.documentElement).appendChild(script)
+      // WXT uses an external extension URL for MV3 (Chrome/Edge), but fetches
+      // the source and injects it as page-world code for MV2 (Firefox). The
+      // hand-written <script src="moz-extension://…"> path is not reliable
+      // under Firefox's page-world/CSP isolation.
+      void injectScript('/injected.js', {
+        keepInDom: true,
+        modifyScript(script) {
+          script.dataset.m3u8Injected = '1'
+        },
+      }).catch((error) => {
+        console.warn('[FlowPick] page script injection failed:', error)
+      })
     }
 
-    browser.runtime.sendMessage({ type: 'GET_SETTINGS' }).then((s: any) => {
+    let latestSettings: any
+    const applyPageSettings = (s: any) => {
       if (s?.enableMseCapture) {
         window.postMessage({ type: 'FLOWPICK_MSE_ENABLE' }, '*')
       }
-      if (s?.captureDataImages) {
-        window.postMessage({
-          type: 'FLOWPICK_DATA_IMAGES_ENABLE',
-          minSizeKB: s.dataImageMinSizeKB ?? 50,
-        }, '*')
-      }
+      window.postMessage({
+        type: 'FLOWPICK_DATA_IMAGES_ENABLE',
+        enabled: s?.captureDataImages === true,
+        minSizeKB: s?.dataImageMinSizeKB ?? 50,
+      }, '*')
+    }
+    browser.runtime.sendMessage({ type: 'GET_SETTINGS' }).then((s: any) => {
+      latestSettings = s
+      applyPageSettings(s)
     }).catch(() => {})
 
     window.addEventListener('message', (event) => {
       if (event.source !== window) return
       if (event.data?.type === 'FLOWPICK_PING') {
         window.postMessage({ type: 'FLOWPICK_PONG', version: browser.runtime.getManifest().version }, '*')
+      }
+      if (event.data?.type === 'FLOWPICK_INJECTED_READY' && latestSettings) {
+        applyPageSettings(latestSettings)
+      }
+      if (event.data?.type === 'FLOWPICK_PAGE_NAVIGATED' && typeof event.data.url === 'string') {
+        browser.runtime.sendMessage({ type: 'PAGE_NAVIGATED', url: event.data.url }).catch(() => {})
       }
       if (event.data?.type === 'FLOWPICK_REQUEST_DOWNLOAD') {
         let retries = 0
@@ -51,6 +71,69 @@ export default defineContentScript({
       }
     })
 
+    function requestMsePageAction(action: 'play' | 'download', captureId: string, uiText?: Record<string, string>): Promise<{ ok: boolean; error?: string; errorCode?: string; errorDetail?: string; downloadCount?: number }> {
+      return new Promise((resolve) => {
+        const channel = new MessageChannel()
+        let settled = false
+        let missingCaptureTimer: ReturnType<typeof setTimeout> | undefined
+        const finish = (result: { ok: boolean; error?: string; errorCode?: string; errorDetail?: string; downloadCount?: number }) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeoutTimer)
+          if (missingCaptureTimer) clearTimeout(missingCaptureTimer)
+          channel.port1.close()
+          resolve(result)
+        }
+        const timeoutTimer = setTimeout(() => finish({
+          ok: false,
+          errorCode: 'mseCaptureTimeout',
+        }), 10000)
+        channel.port1.onmessage = (event) => {
+          const data = event.data
+          // During an unpacked-extension reload, an obsolete injected
+          // listener can answer "not found" before the real owner responds.
+          // Give the owner a short window; any success wins this race.
+          if (data?.type === 'MSE_CAPTURE_ERROR') {
+            if (!missingCaptureTimer) {
+              missingCaptureTimer = setTimeout(() => finish({
+                ok: false,
+                errorCode: data.errorCode || 'mseCaptureInvalid',
+                errorDetail: data.errorDetail,
+              }), 800)
+            }
+            return
+          }
+          if (data?.type === 'MSE_DOWNLOAD_DATA') {
+            try {
+              const downloadCount = handleMseDownload(data)
+              finish(downloadCount > 0
+                ? { ok: true, downloadCount }
+                : { ok: false, errorCode: 'mseNoDownloadData' })
+            } catch (error) {
+              finish({ ok: false, errorCode: 'mseFileBuildFailed', errorDetail: String(error) })
+            }
+            return
+          }
+          if (data?.type === 'MSE_PLAY_RESULT') {
+            finish(data.ok
+              ? { ok: true }
+              : { ok: false, errorCode: data.errorCode || 'msePlayFailedDetail', errorDetail: data.errorDetail || data.error })
+            return
+          }
+          finish({
+            ok: false,
+            errorCode: data?.errorCode || 'mseNoResult',
+            errorDetail: data?.errorDetail || data?.error,
+          })
+        }
+        window.postMessage({
+          type: action === 'play' ? 'MSE_PLAY_REQUEST' : 'MSE_DOWNLOAD_REQUEST',
+          captureId,
+          uiText,
+        }, '*', [channel.port2])
+      })
+    }
+
     // 接收 background 发来的消息，通过 postMessage 转发给页面
     browser.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'FLOWPICK_SOURCE_URL' && msg.sourceUrl) {
@@ -62,26 +145,18 @@ export default defineContentScript({
       if (msg.type === 'FLOWPICK_NOTIFY_CLICK') {
         window.postMessage({ type: 'FLOWPICK_NOTIFY_CLICK', tag: msg.tag }, '*')
       }
-      if (msg.type === 'MSE_DOWNLOAD_TRIGGER') {
-        const { captureId, title } = msg
-        const channel = new MessageChannel()
-        channel.port1.onmessage = (e) => {
-          if (e.data?.type === 'MSE_DOWNLOAD_DATA') {
-            handleMseDownload(e.data)
-          }
-        }
-        window.postMessage({ type: 'MSE_DOWNLOAD_REQUEST', captureId }, '*', [channel.port2])
+      if (msg.type === 'MSE_PLAY_TRIGGER' || msg.type === 'MSE_DOWNLOAD_TRIGGER') {
+        return requestMsePageAction(msg.type === 'MSE_PLAY_TRIGGER' ? 'play' : 'download', msg.captureId, msg.uiText)
       }
       if (msg.type === 'FLOWPICK_SETTINGS_CHANGED') {
         if (msg.enableMseCapture) {
           window.postMessage({ type: 'FLOWPICK_MSE_ENABLE' }, '*')
         }
-        if (msg.captureDataImages) {
-          window.postMessage({
-            type: 'FLOWPICK_DATA_IMAGES_ENABLE',
-            minSizeKB: msg.dataImageMinSizeKB ?? 50,
-          }, '*')
-        }
+        window.postMessage({
+          type: 'FLOWPICK_DATA_IMAGES_ENABLE',
+          enabled: msg.captureDataImages === true,
+          minSizeKB: msg.dataImageMinSizeKB ?? 50,
+        }, '*')
       }
     })
 
@@ -188,12 +263,11 @@ export default defineContentScript({
           if (s?.enableMseCapture) {
             window.postMessage({ type: 'FLOWPICK_MSE_ENABLE' }, '*')
           }
-          if (s?.captureDataImages) {
-            window.postMessage({
-              type: 'FLOWPICK_DATA_IMAGES_ENABLE',
-              minSizeKB: s.dataImageMinSizeKB ?? 50,
-            }, '*')
-          }
+          window.postMessage({
+            type: 'FLOWPICK_DATA_IMAGES_ENABLE',
+            enabled: s?.captureDataImages === true,
+            minSizeKB: s?.dataImageMinSizeKB ?? 50,
+          }, '*')
         }).catch(() => {})
       }
 
@@ -405,43 +479,44 @@ export default defineContentScript({
       captureId: string
       title: string
       tracks: Array<{ mimeType: string; buffers: ArrayBuffer[] }>
-    }) {
-      try {
-        const { title, tracks } = data
-        const safeTitle = (title || 'mse-capture').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 100)
+    }): number {
+      const { title, tracks } = data
+      const safeTitle = (title || 'mse-capture').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 100)
+      let downloadCount = 0
 
-        for (let i = 0; i < tracks.length; i++) {
-          const track = tracks[i]
-          if (!track.buffers || !track.buffers.length) continue
+      for (let i = 0; i < tracks.length; i++) {
+        const track = tracks[i]
+        if (!track.buffers || !track.buffers.length) continue
 
-          const totalSize = track.buffers.reduce((s, b) => s + b.byteLength, 0)
-          const merged = new Uint8Array(totalSize)
-          let offset = 0
-          for (const buf of track.buffers) {
-            merged.set(new Uint8Array(buf), offset)
-            offset += buf.byteLength
-          }
-
-          const isVideo = track.mimeType.startsWith('video/')
-          const isAudio = track.mimeType.startsWith('audio/')
-          const ext = isVideo ? 'mp4' : isAudio ? 'm4a' : 'bin'
-          const suffix = tracks.length > 1 ? `_track${i + 1}` : ''
-          const filename = `${safeTitle}${suffix}.${ext}`
-
-          const blob = new Blob([merged], { type: track.mimeType || 'application/octet-stream' })
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = filename
-          a.style.display = 'none'
-          document.body.appendChild(a)
-          a.click()
-          setTimeout(() => {
-            document.body.removeChild(a)
-            URL.revokeObjectURL(url)
-          }, 10000)
+        const totalSize = track.buffers.reduce((s, b) => s + b.byteLength, 0)
+        const merged = new Uint8Array(totalSize)
+        let offset = 0
+        for (const buf of track.buffers) {
+          merged.set(new Uint8Array(buf), offset)
+          offset += buf.byteLength
         }
-      } catch {}
+
+        const isVideo = track.mimeType.startsWith('video/')
+        const isAudio = track.mimeType.startsWith('audio/')
+        const ext = isVideo ? 'mp4' : isAudio ? 'm4a' : 'bin'
+        const suffix = tracks.length > 1 ? `_track${i + 1}` : ''
+        const filename = `${safeTitle}${suffix}.${ext}`
+
+        const blob = new Blob([merged], { type: track.mimeType || 'application/octet-stream' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        a.style.display = 'none'
+        document.body.appendChild(a)
+        a.click()
+        downloadCount++
+        setTimeout(() => {
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+        }, 10000)
+      }
+      return downloadCount
     }
 
     function b64ToArrayBuffer(b64: string): ArrayBuffer {

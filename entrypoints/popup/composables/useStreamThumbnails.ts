@@ -40,7 +40,9 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
 
   const CACHE_LIMIT = 50
   const CACHE_MEMORY_LIMIT = 12 * 1024 * 1024
-  const CONCURRENCY = 2
+  // Keep thumbnail loading bounded, but allow the first viewport to fill
+  // without making the queue feel serial on media-heavy pages.
+  const CONCURRENCY = 3
   const TIMEOUT_MS = 12_000
   const MAX_RETRIES = 3
   const RETRY_BASE_MS = 15_000
@@ -191,7 +193,7 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
         // HTTP-FLV / MPEG-TS 直播流：用 mpegts.js demux → MSE 喂给 <video>
         const mts = await loadMpegts()
         if (!current()) return
-        if (!mpegts.isSupported()) { markFailure(url); return }
+        if (!mts.isSupported()) { markFailure(url); return }
         const player = mts.createPlayer({
           type: item.format === 'ts' ? 'mpegts' : 'flv',
           url: url,
@@ -202,8 +204,8 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
           autoCleanupSourceBuffer: true,
         })
         mpegtsInstances.set(url, player)
-        player.on(mpegts.Events.ERROR, () => markFailure(url))
-        player.on(mpegts.Events.LOADING_COMPLETE, () => {
+        player.on(mts.Events.ERROR, () => markFailure(url))
+        player.on(mts.Events.LOADING_COMPLETE, () => {
           // VOD 流加载完成
           if (!durationResolved && Number.isFinite(video.duration)) persistDuration(video.duration)
         })
@@ -272,7 +274,7 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
           if (active.has(url)) cleanup(url)
         }
       }
-    }, { root: options.listContainerRef.value, rootMargin: '240px 0px', threshold: 0.01 })
+    }, { root: options.listContainerRef.value, rootMargin: '500px 0px', threshold: 0.01 })
   }
 
   function observe(el: unknown, item: T) {
