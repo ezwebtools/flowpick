@@ -516,16 +516,21 @@ export default defineBackground(() => {
   // 跟踪后台正在进行的 PROXY_FETCH 代理拉取，便于在标签页关闭或页面主动取消时中止，
   // 避免"页面已关但分片仍在后台继续请求"的资源泄漏
   const pendingProxyFetches = new Map<string, { controller: AbortController, tabId?: number }>()
+  const badgeUpdateTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
 
   let currentSettings: Settings = createDefaultSettings()
   let settingsSaveQueue: Promise<void> = Promise.resolve()
-  loadSettings().then(s => { currentSettings = s })
+  loadSettings().then(s => {
+    currentSettings = s
+    refreshBadgesForLiveTabs()
+  })
 
   browser.storage.local.onChanged.addListener((changes) => {
     if (changes['ext_settings']) {
       loadSettings().then(s => {
         currentSettings = s
+        refreshBadgesForLiveTabs()
         browser.tabs.query({}).then(tabs => {
           for (const tab of tabs) {
             if (tab.id) {
@@ -581,6 +586,9 @@ export default defineBackground(() => {
       }
     }
     deleteTabList(tabId).catch(() => {})
+    // Clearing the in-memory list must clear the toolbar badge immediately as
+    // well; otherwise it keeps the previous page's count until new media arrives.
+    updateBadge(tabId)
     // tabMap has already been removed, so broadcastDebounced would return
     // without notifying the popup. Send the empty snapshot immediately so
     // the old page's resources disappear before the new page emits media.
@@ -592,11 +600,7 @@ export default defineBackground(() => {
       tabMap.set(tabId, mediaMap)
     })
     isDataLoaded = true
-    browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
-      if (tabs[0]?.id) {
-        updateBadge(tabs[0].id)
-      }
-    })
+    refreshBadgesForLiveTabs()
     
     pendingMessages.forEach(({msg, sender, sendResponse}) => {
       handleMessage(msg, sender, sendResponse)
@@ -1045,34 +1049,7 @@ export default defineBackground(() => {
 
   // 清理已处理的请求记录（当标签页关闭时）
   browser.tabs.onRemoved.addListener((tabId) => {
-    for (const key of processedRequests) {
-      if (key.startsWith(`${tabId}:`)) {
-        processedRequests.delete(key)
-      }
-    }
-    // 中止该标签页发起的、仍在后台进行的代理拉取（分片下载/预览播放），
-    // 否则标签页关闭后 Service Worker 仍会继续请求分片造成泄漏
-    for (const [rid, entry] of pendingProxyFetches) {
-      if (entry.tabId === tabId) {
-        entry.controller.abort()
-        pendingProxyFetches.delete(rid)
-      }
-    }
-    pendingDownloads.delete(tabId)
-    tabMap.delete(tabId)
-    pageSessionIds.delete(tabId)
-    bilibiliManagedUrls.delete(tabId)
-    platformManagedUrls.delete(tabId)
-    platformTaskPriorities.delete(tabId)
-    douyinMediaMetadata.delete(tabId)
-    douyinNativeTracks.delete(tabId)
-    tabPageUrls.delete(tabId)
-    tabPageTitles.delete(tabId)
-    sidebarClosedTabs.delete(tabId)
-    masterPrefixIndex.delete(tabId)
-    tabMediaVersion.delete(tabId)
-    uiListeningTabs.delete(tabId)
-    deleteTabList(tabId)
+    purgeTabState(tabId)
   })
 
   const notifyPages = new Map<string, string>()
@@ -1306,6 +1283,7 @@ export default defineBackground(() => {
       masterPrefixIndex.delete(tabId)
       tabMediaVersion.delete(tabId)
       deleteTabList(tabId)
+      updateBadge(tabId)
       for (const key of processedRequests) {
         if (key.startsWith(`${tabId}:`)) {
           processedRequests.delete(key)
@@ -1846,32 +1824,143 @@ export default defineBackground(() => {
     }
   }
 
+  function isMissingTabError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error)
+    return /no tab with id|invalid tab id|tab (?:was )?not found/i.test(message)
+  }
+
+  function purgeTabState(tabId: number) {
+    const badgeTimer = badgeUpdateTimers.get(tabId)
+    if (badgeTimer) clearTimeout(badgeTimer)
+    badgeUpdateTimers.delete(tabId)
+    const broadcastTimer = broadcastDebounceTimers.get(tabId)
+    if (broadcastTimer) clearTimeout(broadcastTimer)
+    broadcastDebounceTimers.delete(tabId)
+
+    for (const key of processedRequests) {
+      if (key.startsWith(`${tabId}:`)) processedRequests.delete(key)
+    }
+    for (const [requestId, request] of pendingRequestSessions) {
+      if (request.tabId === tabId) {
+        pendingRequestSessions.delete(requestId)
+        pendingRequestHeaders.delete(requestId)
+      }
+    }
+    // 中止已关闭标签页发起的代理请求，避免 Service Worker 继续下载。
+    for (const [requestId, request] of pendingProxyFetches) {
+      if (request.tabId === tabId) {
+        request.controller.abort()
+        pendingProxyFetches.delete(requestId)
+      }
+    }
+
+    pendingDownloads.delete(tabId)
+    tabMap.delete(tabId)
+    pageSessionIds.delete(tabId)
+    bilibiliManagedUrls.delete(tabId)
+    platformManagedUrls.delete(tabId)
+    platformTaskPriorities.delete(tabId)
+    douyinMediaMetadata.delete(tabId)
+    douyinNativeTracks.delete(tabId)
+    tabPageUrls.delete(tabId)
+    tabPageTitles.delete(tabId)
+    sidebarClosedTabs.delete(tabId)
+    sidePanelPorts.delete(tabId)
+    masterPrefixIndex.delete(tabId)
+    tabMediaVersion.delete(tabId)
+    uiListeningTabs.delete(tabId)
+    deleteTabList(tabId).catch(() => {})
+  }
+
+  async function refreshBadgesForLiveTabs() {
+    try {
+      const tabs = await browser.tabs.query({})
+      const liveTabIds = new Set<number>()
+      for (const tab of tabs) {
+        if (typeof tab.id === 'number') liveTabIds.add(tab.id)
+      }
+      // Session storage may retain entries for tabs that disappeared while the
+      // background worker was asleep. Remove those before updating badges.
+      for (const tabId of [...tabMap.keys()]) {
+        if (!liveTabIds.has(tabId)) purgeTabState(tabId)
+      }
+      for (const tabId of liveTabIds) updateBadge(tabId)
+    } catch (error) {
+      console.warn('[FlowPick] failed to refresh toolbar badges:', error)
+    }
+  }
+
   function updateBadge(tabId: number) {
+    // Media requests often arrive in bursts. Coalesce them so tab validation
+    // and toolbar API calls run once for the latest state.
+    const existingTimer = badgeUpdateTimers.get(tabId)
+    if (existingTimer) clearTimeout(existingTimer)
+    badgeUpdateTimers.set(tabId, setTimeout(() => {
+      badgeUpdateTimers.delete(tabId)
+      applyBadge(tabId).catch((error) => {
+        // applyBadge handles expected browser errors; this is a final guard so
+        // no toolbar update can surface as an unhandled Promise rejection.
+        console.warn('[FlowPick] unexpected badge update failure:', error)
+      })
+    }, 30))
+  }
+
+  async function applyBadge(tabId: number) {
+    try {
+      // The tab can be removed after a request was captured but before this
+      // deferred badge update runs.
+      await browser.tabs.get(tabId)
+    } catch (error) {
+      if (isMissingTabError(error)) {
+        purgeTabState(tabId)
+        return
+      }
+      throw error
+    }
+
     const mediaMap = tabMap.get(tabId)
-    const countedGroups = new Set<string>()
     let count = 0
-    mediaMap?.forEach((entry, url) => {
-      // A grouped stream may contain one master plus multiple quality
-      // variants, audio tracks, and segments. The badge represents usable
-      // resources, so count that entire group only once.
-      const groupKey = entry.groupId || entry.groupMasterId
-      if (groupKey) {
-        if (countedGroups.has(groupKey)) return
-        countedGroups.add(groupKey)
-      } else if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') {
-        // Keep malformed/legacy grouped entries visible instead of silently
-        // dropping them when the background data lacks a group identifier.
-        countedGroups.add(`legacy:${url}`)
+    mediaMap?.forEach((entry) => {
+      // Popup counters represent user-facing cards. Variants, separated audio
+      // and segments are children of one master card and must never inflate the
+      // toolbar badge, even when legacy data is missing its group id.
+      if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') return
+
+      const format = entry.format.toLowerCase()
+      const group = getFormatGroup(format)
+      if (group && currentSettings.sniffingRules[group]?.enabled === false) return
+      if (format === 'mse' && !currentSettings.enableMseCapture) return
+
+      // Match useMediaFilters' persistent minimum-size filter. Temporary UI
+      // filters (search, resolution, manual size range) intentionally do not
+      // change the extension badge.
+      const isStream = format === 'm3u8' || format === 'mpd' || format === 'mse' || format === 'flv'
+      if (!isStream && entry.size != null && group) {
+        const minSizeKB = currentSettings.sniffingRules[group]?.minSizeKB ?? 0
+        if (minSizeKB > 0 && entry.size < minSizeKB * 1024) return
       }
       count++
     })
     const action = (browser as any).action || (browser as any).browserAction
     if (!action) return
-    action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })
-    if (action.setBadgeTextColor) {
-      action.setBadgeTextColor({ color: '#FFFFFF', tabId })
+    try {
+      const operations: Array<Promise<unknown>> = [
+        Promise.resolve(action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })),
+        Promise.resolve(action.setBadgeBackgroundColor({ color: '#EF4444', tabId })),
+      ]
+      if (action.setBadgeTextColor) {
+        operations.push(Promise.resolve(action.setBadgeTextColor({ color: '#FFFFFF', tabId })))
+      }
+      await Promise.all(operations)
+    } catch (error) {
+      // A tab may disappear in the small window between tabs.get and these
+      // three asynchronous toolbar calls.
+      if (isMissingTabError(error)) {
+        purgeTabState(tabId)
+        return
+      }
+      console.warn('[FlowPick] failed to update toolbar badge:', error)
     }
-    action.setBadgeBackgroundColor({ color: '#EF4444', tabId })
   }
 
   function broadcast(tabId: number, list: Array<{url: string, format: string, size?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string}>) {
@@ -2406,6 +2495,7 @@ export default defineBackground(() => {
       }
 
       saveTabList(tabId, mediaMap).catch(() => {})
+      updateBadge(tabId)
       broadcastDebounced(tabId)
       break
     }
@@ -2541,6 +2631,7 @@ export default defineBackground(() => {
 
       saveTabList(tabId, mediaMap).catch(() => {})
       manifestParseCache.add(masterUrl)
+      updateBadge(tabId)
       broadcastDebounced(tabId)
     } catch (e) {
       manifestFailCache.set(masterUrl, Date.now())
