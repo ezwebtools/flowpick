@@ -23,6 +23,8 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
   patchDuration: (item: T, duration: number) => T | undefined
   persistMeta: (item: T) => void
   captureFrame: (video: HTMLVideoElement) => string | undefined
+  /** Install extension-level request rules before the player fetches media. */
+  prepare?: (item: T) => Promise<void>
 }) {
   const hlsInstances = new Map<string, HlsInstance>()
   const dashInstances = new Map<string, DashPlayer>()
@@ -162,6 +164,10 @@ export function useStreamThumbnails<T extends StreamThumbnailItem>(options: {
     video.addEventListener('seeked', seeked, { once: true })
     const current = () => !disposed && active.has(url) && video.isConnected
     try {
+      // HLS/DASH libraries start requesting as soon as a source is attached.
+      // Install captured Referer/auth-header rules before that first request.
+      await options.prepare?.(item)
+      if (!current()) return
       if (item.format === 'm3u8') {
         if (video.canPlayType('application/vnd.apple.mpegurl')) { video.src = url; return }
         const Hls = await loadHls()

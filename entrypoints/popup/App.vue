@@ -726,6 +726,7 @@
     if (newTabId === undefined || newTabId === currentTabId) return
     cancelMetadataBatch()
     failedMetadataKeys.clear()
+    resetNativeMediaThumbnailState()
     const session = ++mediaSession
     currentTabId = newTabId
     currentTabTitle.value = newTabTitle
@@ -745,6 +746,7 @@
       // an empty snapshot, but this avoids waiting for that IPC round trip.
       cancelMetadataBatch()
       failedMetadataKeys.clear()
+      resetNativeMediaThumbnailState()
       mediaSession++
       clearMediaStore()
       reconcileMediaState()
@@ -805,6 +807,7 @@
   }, { flush: 'sync' })
 
   onUnmounted(() => {
+    resetNativeMediaThumbnailState()
     browser.runtime.onMessage.removeListener(onMessage)
     containerRO?.disconnect()
     allStreamGroupsRO?.disconnect()
@@ -1212,6 +1215,7 @@
     patchDuration: (item, duration) => patchMediaItem(getMediaKey(item), { duration }),
     persistMeta: updateMediaMeta,
     captureFrame: captureVideoFrame,
+    prepare: async item => { await getPlaybackContext(item) },
   })
   const isVideoFormat = (f: string) => VIDEO_FORMATS.includes(f.toLowerCase())
   const isMpegtsFormat = (f: string) => f.toLowerCase() === 'flv' || f.toLowerCase() === 'ts'
@@ -1223,6 +1227,73 @@
   const videoThumbFailed = ref<Set<string>>(new Set())
   // 音频用 <audio> 读取 duration（不显示画面，只取时长）
   const audioMetaFailed = ref<Set<string>>(new Set())
+  const preparedNativeMediaUrls = shallowRef(new Map<string, string>())
+  const preparingNativeMediaUrls = new Set<string>()
+  const nativeMediaRetryAttempts = new Map<string, number>()
+  const nativeMediaRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const NATIVE_MEDIA_MAX_RETRIES = 2
+
+  // Native media requests start as soon as `src` is set. Wait until the
+  // captured Referer/Cookie rule is installed, or the first metadata request
+  // can be rejected by hotlink protection.
+  const nativeMediaSrc = (item: MediaItem): string => {
+    const cached = preparedNativeMediaUrls.value.get(item.url)
+    if (cached) return cached
+    if (!preparingNativeMediaUrls.has(item.url)) {
+      preparingNativeMediaUrls.add(item.url)
+      void getPlaybackContext(item)
+        .catch(() => {})
+        .finally(() => {
+          preparingNativeMediaUrls.delete(item.url)
+          const next = new Map(preparedNativeMediaUrls.value)
+          next.set(item.url, item.url)
+          preparedNativeMediaUrls.value = next
+        })
+    }
+    return ''
+  }
+
+  const clearNativeMediaRetry = (url: string) => {
+    const timer = nativeMediaRetryTimers.get(url)
+    if (timer) clearTimeout(timer)
+    nativeMediaRetryTimers.delete(url)
+    nativeMediaRetryAttempts.delete(url)
+    if (videoThumbFailed.value.has(url)) {
+      const next = new Set(videoThumbFailed.value)
+      next.delete(url)
+      videoThumbFailed.value = next
+    }
+    if (audioMetaFailed.value.has(url)) {
+      const next = new Set(audioMetaFailed.value)
+      next.delete(url)
+      audioMetaFailed.value = next
+    }
+  }
+
+  const resetNativeMediaThumbnailState = () => {
+    nativeMediaRetryTimers.forEach(timer => clearTimeout(timer))
+    nativeMediaRetryTimers.clear()
+    nativeMediaRetryAttempts.clear()
+    preparingNativeMediaUrls.clear()
+    preparedNativeMediaUrls.value = new Map()
+    videoThumbFailed.value = new Set()
+    audioMetaFailed.value = new Set()
+  }
+
+  const retryNativeMediaMeta = (url: string, kind: 'video' | 'audio') => {
+    const failed = kind === 'video' ? videoThumbFailed : audioMetaFailed
+    if (failed.value.has(url)) return
+    const attempts = (nativeMediaRetryAttempts.get(url) ?? 0) + 1
+    nativeMediaRetryAttempts.set(url, attempts)
+    failed.value = new Set(failed.value).add(url)
+    if (attempts > NATIVE_MEDIA_MAX_RETRIES) return
+    nativeMediaRetryTimers.set(url, setTimeout(() => {
+      nativeMediaRetryTimers.delete(url)
+      const next = new Set(failed.value)
+      next.delete(url)
+      failed.value = next
+    }, 1500 * attempts))
+  }
 
   const pendingBatchKeys = new Set<string>()
   // 会话级失败记忆：元数据请求返回 error 的资源加入此集合，同一会话不再重试
@@ -2030,6 +2101,7 @@
   const onVideoThumbLoaded = (event: Event, item: MediaItem) => {
     const video = event.target as HTMLVideoElement
     try {
+      clearNativeMediaRetry(item.url)
       const patch: Partial<MediaItem> = {}
       if (isFinite(video.duration) && video.duration > 0 && !item.duration) {
         patch.duration = video.duration
@@ -2048,16 +2120,13 @@
     } catch {}
   }
 
-  const onVideoThumbError = (url: string) => {
-    const next = new Set(videoThumbFailed.value)
-    next.add(url)
-    videoThumbFailed.value = next
-  }
+  const onVideoThumbError = (url: string) => retryNativeMediaMeta(url, 'video')
 
   // 音频 duration 读取：<audio preload="metadata"> 加载元数据后 duration 可用
   const onAudioMetaLoaded = (event: Event, item: MediaItem) => {
     const audio = event.target as HTMLAudioElement
     try {
+      clearNativeMediaRetry(item.url)
       if (isFinite(audio.duration) && audio.duration > 0 && !item.duration) {
         const updated = patchMediaItem(getMediaKey(item), { duration: audio.duration })
         if (updated) updateMediaMeta(updated)
@@ -2065,11 +2134,7 @@
     } catch {}
   }
 
-  const onAudioMetaError = (url: string) => {
-    const next = new Set(audioMetaFailed.value)
-    next.add(url)
-    audioMetaFailed.value = next
-  }
+  const onAudioMetaError = (url: string) => retryNativeMediaMeta(url, 'audio')
 
   const sanitizeFilename = (name: string): string => {
     const invalidChars = /[<>:"/\\|?*\x00-\x1f]/g
@@ -2903,7 +2968,7 @@
                         loading="lazy"
                         @error="proxyImage($event, item.coverUrl, item.requestHeaders)" />
                       <video v-else-if="mediaView(item).isVideo && !isMpegtsFormat(item.format) && !videoThumbFailed.has(item.url)"
-                        :src="imageSrc(item.url)"
+                        :src="nativeMediaSrc(item)"
                         class="w-full h-full object-cover"
                         preload="metadata"
                         muted
@@ -2936,7 +3001,7 @@
                           'bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/30 dark:to-indigo-800/30': !mediaView(item).isVideo && !mediaView(item).isAudio && !mediaView(item).isStream
                         }">
                         <audio v-if="mediaView(item).isAudio && !item.duration && !audioMetaFailed.has(item.url)"
-                          :src="item.url"
+                          :src="nativeMediaSrc(item)"
                           preload="metadata"
                           class="hidden"
                           @loadedmetadata="onAudioMetaLoaded($event, item)"

@@ -36,9 +36,11 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
     const counts = { all: 0, stream: 0, video: 0, audio: 0, image: 0, doc: 0 }
     for (const item of options.mediaList.value) {
       if (options.settings.value.hideStreamSegments && options.isSegment(item)) continue
+      const ruleGroup = getFormatGroup(item.format)
+      if (ruleGroup && options.settings.value.sniffingRules[ruleGroup]?.enabled === false) continue
+      if (item.format.toLowerCase() === 'mse' && !options.settings.value.enableMseCapture) continue
       if (!options.isStream(item.format) && item.format !== 'mse' && item.size != null) {
-        const group = getFormatGroup(item.format)
-        const minKB = group ? options.settings.value.sniffingRules[group]?.minSizeKB ?? 0 : 0
+        const minKB = ruleGroup ? options.settings.value.sniffingRules[ruleGroup]?.minSizeKB ?? 0 : 0
         if (minKB > 0 && item.size < minKB * 1024) continue
       }
       const type = options.getType(item.format, item.category)

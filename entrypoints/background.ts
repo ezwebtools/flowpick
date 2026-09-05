@@ -247,16 +247,15 @@ export default defineBackground(() => {
   const chromeGlobal = (globalThis as any).chrome
   const nativeBrowser = (globalThis as any).browser
   const isFirefox = !!(nativeBrowser?.sidebarAction)
-  const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(
-    (globalThis as any).navigator?.userAgent ?? ''
-  )
+  const userAgent = (globalThis as any).navigator?.userAgent ?? ''
+  const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(userAgent)
   // Firefox only accepts requestHeaders for onSendHeaders; Chromium also
   // supports extraHeaders.
   const sendHeadersExtraInfo = isFirefox
     ? ['requestHeaders']
     : ['requestHeaders', 'extraHeaders']
-  // 必须同时具备 sidePanel、setOptions 与 open（且 open 为函数），否则视为不支持，
-  // 保留 popup 作为兜底，避免 360 等浏览器"清空 popup 后 sidePanel 又打不开"的假死。
+  // Chromium desktop uses Side Panel; browsers without a complete API retain
+  // the popup fallback below.
   const supportsChromeSidepanel =
     !isFirefox &&
     !isMobileBrowser &&
@@ -309,24 +308,39 @@ export default defineBackground(() => {
         if (tab.id !== undefined) {
           const existingPort = sidePanelPorts.get(tab.id)
           if (existingPort) {
-            try { existingPort.postMessage({ type: 'SIDEPANEL_CLOSE_REQUEST' }) } catch {}
+            // A Chromium Side Panel is not a popup window: window.close() in
+            // the panel document does not reliably hide it. Disable it for
+            // this tab through the owning API so a second toolbar click is a
+            // genuine toggle.
+            sidebarClosedTabs.add(tab.id)
+            sidePanelPorts.delete(tab.id)
+            if (canSetOptions) {
+              try { chromeGlobal.sidePanel.setOptions({ tabId: tab.id, enabled: false }).catch(() => {}) } catch {}
+            }
             return
           }
 
           sidebarClosedTabs.delete(tab.id)
           sidePanelReady = false
           if (canSetOptions) {
+            // Do not await here: sidePanel.open must stay on the synchronous
+            // action-click user-gesture stack in Chromium.
             try { chromeGlobal.sidePanel.setOptions({ tabId: tab.id, path: 'sidepanel.html', enabled: true }).catch(() => {}) } catch {}
           }
 
           let fellBack = false
-          const fallbackToPopup = () => {
+          const fallbackToPopup = async () => {
             if (fellBack) return
             fellBack = true
-            console.warn('Falling back to popup (sidepanel unavailable)')
-            chromeGlobal.action.setPopup({ popup: 'popup.html' })
             if (typeof chromeGlobal.action.openPopup === 'function') {
-              try { chromeGlobal.action.openPopup().catch(() => {}) } catch {}
+              // Wait until the popup is configured; opening it immediately
+              // after setPopup can still target the old empty popup.
+              try {
+                await chromeGlobal.action.setPopup({ popup: 'popup.html' })
+                await chromeGlobal.action.openPopup()
+              } catch {}
+            } else {
+              try { await chromeGlobal.action.setPopup({ popup: 'popup.html' }) } catch {}
             }
           }
 
@@ -502,16 +516,21 @@ export default defineBackground(() => {
   // 跟踪后台正在进行的 PROXY_FETCH 代理拉取，便于在标签页关闭或页面主动取消时中止，
   // 避免"页面已关但分片仍在后台继续请求"的资源泄漏
   const pendingProxyFetches = new Map<string, { controller: AbortController, tabId?: number }>()
+  const badgeUpdateTimers = new Map<number, ReturnType<typeof setTimeout>>()
 
 
   let currentSettings: Settings = createDefaultSettings()
   let settingsSaveQueue: Promise<void> = Promise.resolve()
-  loadSettings().then(s => { currentSettings = s })
+  loadSettings().then(s => {
+    currentSettings = s
+    refreshBadgesForLiveTabs()
+  })
 
   browser.storage.local.onChanged.addListener((changes) => {
     if (changes['ext_settings']) {
       loadSettings().then(s => {
         currentSettings = s
+        refreshBadgesForLiveTabs()
         browser.tabs.query({}).then(tabs => {
           for (const tab of tabs) {
             if (tab.id) {
@@ -567,6 +586,9 @@ export default defineBackground(() => {
       }
     }
     deleteTabList(tabId).catch(() => {})
+    // Clearing the in-memory list must clear the toolbar badge immediately as
+    // well; otherwise it keeps the previous page's count until new media arrives.
+    updateBadge(tabId)
     // tabMap has already been removed, so broadcastDebounced would return
     // without notifying the popup. Send the empty snapshot immediately so
     // the old page's resources disappear before the new page emits media.
@@ -578,11 +600,7 @@ export default defineBackground(() => {
       tabMap.set(tabId, mediaMap)
     })
     isDataLoaded = true
-    browser.tabs.query({ active: true, currentWindow: true }).then(tabs => {
-      if (tabs[0]?.id) {
-        updateBadge(tabs[0].id)
-      }
-    })
+    refreshBadgesForLiveTabs()
     
     pendingMessages.forEach(({msg, sender, sendResponse}) => {
       handleMessage(msg, sender, sendResponse)
@@ -924,10 +942,11 @@ export default defineBackground(() => {
       return { requestHeaders: newHeaders }
     },
     { urls: ['<all_urls>'] },
-    proxyHeaderExtraInfoSpec,
+    proxyHeaderExtraInfoSpec as any[],
   )
 
-  // 代理请求的 DNR session 规则缓存（按 host 去重）
+  // 代理请求的 DNR session 规则缓存（按 host 去重）。流媒体 manifest
+  // 常以相对 URL 引用同主机分片，因此同一播放上下文必须覆盖整个主机。
   const DNR_RULES_MAX = 5000
   const DNR_RULES_EVICT = 100
   const dnlRefererRules = new Map<string, { id: number; referer: string; headersKey: string; lastUsed: number }>()
@@ -1030,34 +1049,7 @@ export default defineBackground(() => {
 
   // 清理已处理的请求记录（当标签页关闭时）
   browser.tabs.onRemoved.addListener((tabId) => {
-    for (const key of processedRequests) {
-      if (key.startsWith(`${tabId}:`)) {
-        processedRequests.delete(key)
-      }
-    }
-    // 中止该标签页发起的、仍在后台进行的代理拉取（分片下载/预览播放），
-    // 否则标签页关闭后 Service Worker 仍会继续请求分片造成泄漏
-    for (const [rid, entry] of pendingProxyFetches) {
-      if (entry.tabId === tabId) {
-        entry.controller.abort()
-        pendingProxyFetches.delete(rid)
-      }
-    }
-    pendingDownloads.delete(tabId)
-    tabMap.delete(tabId)
-    pageSessionIds.delete(tabId)
-    bilibiliManagedUrls.delete(tabId)
-    platformManagedUrls.delete(tabId)
-    platformTaskPriorities.delete(tabId)
-    douyinMediaMetadata.delete(tabId)
-    douyinNativeTracks.delete(tabId)
-    tabPageUrls.delete(tabId)
-    tabPageTitles.delete(tabId)
-    sidebarClosedTabs.delete(tabId)
-    masterPrefixIndex.delete(tabId)
-    tabMediaVersion.delete(tabId)
-    uiListeningTabs.delete(tabId)
-    deleteTabList(tabId)
+    purgeTabState(tabId)
   })
 
   const notifyPages = new Map<string, string>()
@@ -1113,7 +1105,9 @@ export default defineBackground(() => {
       const tabId = sender.tab?.id
       const format = msg.format || 'm3u8'
       if (tabId !== undefined) {
-        const rh = (msg.requestHeaders && typeof msg.requestHeaders === 'object') ? msg.requestHeaders : undefined
+        const rh = (msg.requestHeaders && typeof msg.requestHeaders === 'object')
+          ? msg.requestHeaders
+          : (sender.tab?.url ? { referer: sender.tab.url } : undefined)
         addMedia(msg.url, tabId, format, undefined, 'media', rh, undefined, undefined, sender.tab?.title)
       }
       sendResponse({ ok: tabId !== undefined })
@@ -1133,10 +1127,14 @@ export default defineBackground(() => {
       const tabId = sender.tab?.id
       const items: Array<{ url: string; format: string }> = Array.isArray(msg.items) ? msg.items : []
       const tabTitle = sender.tab?.title
+      // Page-world hooks only report URL/format. Preserve the containing page
+      // as a minimum Referer context until webRequest upgrades it with the
+      // original request's Cookie/Authorization headers.
+      const fallbackHeaders = sender.tab?.url ? { referer: sender.tab.url } : undefined
       if (tabId !== undefined) {
         for (const item of items) {
           if (item && typeof item.url === 'string') {
-            addMedia(item.url, tabId, item.format || 'm3u8', undefined, 'media', undefined, undefined, undefined, tabTitle)
+            addMedia(item.url, tabId, item.format || 'm3u8', undefined, 'media', fallbackHeaders, undefined, undefined, tabTitle)
           }
         }
       }
@@ -1262,7 +1260,6 @@ export default defineBackground(() => {
       return true
     }
 
-
     if (msg.type === 'FLOWPICK_DOWNLOAD_READY') {
       const tabId = sender.tab?.id
       if (tabId && pendingDownloads.has(tabId)) {
@@ -1286,6 +1283,7 @@ export default defineBackground(() => {
       masterPrefixIndex.delete(tabId)
       tabMediaVersion.delete(tabId)
       deleteTabList(tabId)
+      updateBadge(tabId)
       for (const key of processedRequests) {
         if (key.startsWith(`${tabId}:`)) {
           processedRequests.delete(key)
@@ -1826,32 +1824,143 @@ export default defineBackground(() => {
     }
   }
 
+  function isMissingTabError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error)
+    return /no tab with id|invalid tab id|tab (?:was )?not found/i.test(message)
+  }
+
+  function purgeTabState(tabId: number) {
+    const badgeTimer = badgeUpdateTimers.get(tabId)
+    if (badgeTimer) clearTimeout(badgeTimer)
+    badgeUpdateTimers.delete(tabId)
+    const broadcastTimer = broadcastDebounceTimers.get(tabId)
+    if (broadcastTimer) clearTimeout(broadcastTimer)
+    broadcastDebounceTimers.delete(tabId)
+
+    for (const key of processedRequests) {
+      if (key.startsWith(`${tabId}:`)) processedRequests.delete(key)
+    }
+    for (const [requestId, request] of pendingRequestSessions) {
+      if (request.tabId === tabId) {
+        pendingRequestSessions.delete(requestId)
+        pendingRequestHeaders.delete(requestId)
+      }
+    }
+    // 中止已关闭标签页发起的代理请求，避免 Service Worker 继续下载。
+    for (const [requestId, request] of pendingProxyFetches) {
+      if (request.tabId === tabId) {
+        request.controller.abort()
+        pendingProxyFetches.delete(requestId)
+      }
+    }
+
+    pendingDownloads.delete(tabId)
+    tabMap.delete(tabId)
+    pageSessionIds.delete(tabId)
+    bilibiliManagedUrls.delete(tabId)
+    platformManagedUrls.delete(tabId)
+    platformTaskPriorities.delete(tabId)
+    douyinMediaMetadata.delete(tabId)
+    douyinNativeTracks.delete(tabId)
+    tabPageUrls.delete(tabId)
+    tabPageTitles.delete(tabId)
+    sidebarClosedTabs.delete(tabId)
+    sidePanelPorts.delete(tabId)
+    masterPrefixIndex.delete(tabId)
+    tabMediaVersion.delete(tabId)
+    uiListeningTabs.delete(tabId)
+    deleteTabList(tabId).catch(() => {})
+  }
+
+  async function refreshBadgesForLiveTabs() {
+    try {
+      const tabs = await browser.tabs.query({})
+      const liveTabIds = new Set<number>()
+      for (const tab of tabs) {
+        if (typeof tab.id === 'number') liveTabIds.add(tab.id)
+      }
+      // Session storage may retain entries for tabs that disappeared while the
+      // background worker was asleep. Remove those before updating badges.
+      for (const tabId of [...tabMap.keys()]) {
+        if (!liveTabIds.has(tabId)) purgeTabState(tabId)
+      }
+      for (const tabId of liveTabIds) updateBadge(tabId)
+    } catch (error) {
+      console.warn('[FlowPick] failed to refresh toolbar badges:', error)
+    }
+  }
+
   function updateBadge(tabId: number) {
+    // Media requests often arrive in bursts. Coalesce them so tab validation
+    // and toolbar API calls run once for the latest state.
+    const existingTimer = badgeUpdateTimers.get(tabId)
+    if (existingTimer) clearTimeout(existingTimer)
+    badgeUpdateTimers.set(tabId, setTimeout(() => {
+      badgeUpdateTimers.delete(tabId)
+      applyBadge(tabId).catch((error) => {
+        // applyBadge handles expected browser errors; this is a final guard so
+        // no toolbar update can surface as an unhandled Promise rejection.
+        console.warn('[FlowPick] unexpected badge update failure:', error)
+      })
+    }, 30))
+  }
+
+  async function applyBadge(tabId: number) {
+    try {
+      // The tab can be removed after a request was captured but before this
+      // deferred badge update runs.
+      await browser.tabs.get(tabId)
+    } catch (error) {
+      if (isMissingTabError(error)) {
+        purgeTabState(tabId)
+        return
+      }
+      throw error
+    }
+
     const mediaMap = tabMap.get(tabId)
-    const countedGroups = new Set<string>()
     let count = 0
-    mediaMap?.forEach((entry, url) => {
-      // A grouped stream may contain one master plus multiple quality
-      // variants, audio tracks, and segments. The badge represents usable
-      // resources, so count that entire group only once.
-      const groupKey = entry.groupId || entry.groupMasterId
-      if (groupKey) {
-        if (countedGroups.has(groupKey)) return
-        countedGroups.add(groupKey)
-      } else if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') {
-        // Keep malformed/legacy grouped entries visible instead of silently
-        // dropping them when the background data lacks a group identifier.
-        countedGroups.add(`legacy:${url}`)
+    mediaMap?.forEach((entry) => {
+      // Popup counters represent user-facing cards. Variants, separated audio
+      // and segments are children of one master card and must never inflate the
+      // toolbar badge, even when legacy data is missing its group id.
+      if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') return
+
+      const format = entry.format.toLowerCase()
+      const group = getFormatGroup(format)
+      if (group && currentSettings.sniffingRules[group]?.enabled === false) return
+      if (format === 'mse' && !currentSettings.enableMseCapture) return
+
+      // Match useMediaFilters' persistent minimum-size filter. Temporary UI
+      // filters (search, resolution, manual size range) intentionally do not
+      // change the extension badge.
+      const isStream = format === 'm3u8' || format === 'mpd' || format === 'mse' || format === 'flv'
+      if (!isStream && entry.size != null && group) {
+        const minSizeKB = currentSettings.sniffingRules[group]?.minSizeKB ?? 0
+        if (minSizeKB > 0 && entry.size < minSizeKB * 1024) return
       }
       count++
     })
     const action = (browser as any).action || (browser as any).browserAction
     if (!action) return
-    action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })
-    if (action.setBadgeTextColor) {
-      action.setBadgeTextColor({ color: '#FFFFFF', tabId })
+    try {
+      const operations: Array<Promise<unknown>> = [
+        Promise.resolve(action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })),
+        Promise.resolve(action.setBadgeBackgroundColor({ color: '#EF4444', tabId })),
+      ]
+      if (action.setBadgeTextColor) {
+        operations.push(Promise.resolve(action.setBadgeTextColor({ color: '#FFFFFF', tabId })))
+      }
+      await Promise.all(operations)
+    } catch (error) {
+      // A tab may disappear in the small window between tabs.get and these
+      // three asynchronous toolbar calls.
+      if (isMissingTabError(error)) {
+        purgeTabState(tabId)
+        return
+      }
+      console.warn('[FlowPick] failed to update toolbar badge:', error)
     }
-    action.setBadgeBackgroundColor({ color: '#EF4444', tabId })
   }
 
   function broadcast(tabId: number, list: Array<{url: string, format: string, size?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string}>) {
@@ -2386,6 +2495,7 @@ export default defineBackground(() => {
       }
 
       saveTabList(tabId, mediaMap).catch(() => {})
+      updateBadge(tabId)
       broadcastDebounced(tabId)
       break
     }
@@ -2521,6 +2631,7 @@ export default defineBackground(() => {
 
       saveTabList(tabId, mediaMap).catch(() => {})
       manifestParseCache.add(masterUrl)
+      updateBadge(tabId)
       broadcastDebounced(tabId)
     } catch (e) {
       manifestFailCache.set(masterUrl, Date.now())

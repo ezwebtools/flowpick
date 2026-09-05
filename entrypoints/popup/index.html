@@ -5,10 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FlowPick</title>
     <meta name="manifest.type" content="browser_action" />
-    <meta name="manifest.exclude" content="['firefox']" />
+    <!-- Some Chromium forks size a browser-action popup before external CSS
+         and Vue have loaded. Keep a real initial box instead of a 30px blank
+         square; Vue replaces this fallback as soon as it mounts. -->
+    <style>
+      html, body, #app { width: 500px; min-width: 500px; height: 600px; min-height: 600px; margin: 0; }
+      #app { box-sizing: border-box; }
+      .startup-placeholder { box-sizing: border-box; height: 100%; padding: 20px; font: 14px/1.5 system-ui, sans-serif; color: #374151; background: #fff; }
+      html.flowpick-mobile, html.flowpick-mobile body, html.flowpick-mobile #app {
+        width: 100vw; min-width: 0; height: 100dvh; min-height: 0; overflow: hidden;
+      }
+    </style>
+    <script>
+      if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        document.documentElement.classList.add('flowpick-mobile')
+      }
+    </script>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><div class="startup-placeholder">Loading FlowPick…</div></div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
