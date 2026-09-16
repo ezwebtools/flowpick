@@ -1,10 +1,13 @@
 import { detectMediaFromUrl, detectMedia, detectDoc, type MediaCategory } from '../utils/detect'
-import { loadAllTabData, saveTabList, deleteTabList, type MediaEntry } from '../utils/storage'
+import { loadAllTabData, saveTabList, deleteTabList, loadPageSessions, savePageSessions, type MediaEntry } from '../utils/storage'
 import { loadSettings, saveSettings, isFormatAllowed, isSizeAllowed, isDomainExcluded, getFormatGroup, type Settings, createDefaultSettings } from '../utils/settings'
 import { parseM3U8Manifest, parseDashManifest } from '../utils/stream-parser'
 import MediaInfoFactory from 'mediainfo.js'
 import type { MetadataBatchItem, MetadataBatchRequest, MetadataBatchResult } from './popup/types'
 import type { PlatformMediaTask } from '../utils/platform-media'
+import { PageSessions, pageIdentity, type PageContext } from '../utils/page-session'
+import { openResourceDownload, removeResourceDownloads } from '../utils/download-job'
+import { waitForNativeDownload } from '../utils/native-download'
 
 const mediaInfoCache = new Map<string, { width?: number; height?: number; duration?: number }>()
 // 失败负缓存：同一 URL 在 TTL 内不再重试 analyzeData，避免反复拉取分片（表现为"任务一直下载"）且刷屏报错
@@ -433,7 +436,6 @@ export default defineBackground(() => {
   const tabPageUrls = new Map<number, string>()
   // Each top-level navigation gets a new session. Results from an older page
   // must never be allowed to repopulate the current page's media list.
-  const pageSessionIds = new Map<number, number>()
   // 跟踪每个 tab 当前的网页标题（用于资源嗅探时记录"当时"的标题）
   const tabPageTitles = new Map<number, string>()
 
@@ -548,9 +550,6 @@ export default defineBackground(() => {
   })
 
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.url || (changeInfo.status === 'loading' && !changeInfo.url)) {
-      clearTabPageState(tabId, changeInfo.url || tab.url || undefined)
-    }
     if (changeInfo.title) {
       tabPageTitles.set(tabId, changeInfo.title)
     } else if (tab.title) {
@@ -558,7 +557,85 @@ export default defineBackground(() => {
     }
   })
 
+  const pageSessions = new PageSessions((tabId, url) => {
+    clearTabPageState(tabId, url)
+    // The main reporter already owns this transition. Only surviving child
+    // frames need to discard queued messages from the previous parent page.
+    browser.webNavigation.getAllFrames({ tabId }).then(frames => {
+      for (const frame of frames ?? []) {
+        if (frame.frameId !== 0) browser.tabs.sendMessage(tabId, { type: 'FLOWPICK_SESSION_CHANGED' }, { frameId: frame.frameId }).catch(() => {})
+      }
+    }).catch(() => {})
+  })
+  let savedPageSessions = ''
+  function persistPageSessions() {
+    if (!isDataLoaded) return
+    const snapshot = pageSessions.snapshot()
+    const signature = JSON.stringify(snapshot)
+    if (signature === savedPageSessions) return
+    savedPageSessions = signature
+    savePageSessions(snapshot).catch(() => { savedPageSessions = '' })
+  }
+  browser.webNavigation.onCommitted.addListener(details => {
+    if ((details as any).documentLifecycle && (details as any).documentLifecycle !== 'active') return
+    const previousGeneration = pageSessions.frameGeneration(details.tabId, details.frameId)
+    pageSessions.commit(details.tabId, details.frameId, details.url, (details as any).documentId)
+    if (details.frameId !== 0 && previousGeneration !== pageSessions.frameGeneration(details.tabId, details.frameId)) clearFrameMedia(details.tabId, details.frameId)
+    persistPageSessions()
+  })
+  // History notifications request a fresh snapshot from the actual document.
+  // They never clear state themselves: delivery can lag behind capture messages.
+  const requestPageSync = (details: { tabId: number; frameId: number }) => {
+    browser.tabs.sendMessage(details.tabId, { type: 'FLOWPICK_SYNC_PAGE' }, { frameId: details.frameId }).catch(() => {})
+  }
+  browser.webNavigation.onHistoryStateUpdated.addListener(requestPageSync)
+  browser.webNavigation.onReferenceFragmentUpdated.addListener(requestPageSync)
+
+  const recentMedia = new Map<number, Map<string, { entry: MediaEntry; at: number }>>()
+
+  function clearFrameMedia(tabId: number, frameId: number) {
+    for (const key of processedRequests) {
+      if (key.startsWith(`${tabId}:${frameId}:`)) processedRequests.delete(key)
+    }
+    const media = tabMap.get(tabId)
+    if (!media) return
+    let changed = false
+    for (const [url, entry] of media) {
+      const owners = entry.sourceFrameIds ?? (entry.frameId === undefined ? [] : [entry.frameId])
+      if (!owners.includes(frameId)) continue
+      const remaining = owners.filter(id => id !== frameId)
+      changed = true
+      if (remaining.length) media.set(url, { ...entry, sourceFrameIds: remaining })
+      else {
+        media.delete(url)
+        const cache = manifestCaches.get(media)
+        cache?.parsed.delete(url)
+        cache?.failed.delete(url)
+        cache?.pending.delete(url)
+        bilibiliManagedUrls.get(tabId)?.delete(url)
+        platformManagedUrls.get(tabId)?.delete(url)
+        platformTaskPriorities.get(tabId)?.delete(url)
+      }
+    }
+    if (changed) {
+      bumpTabVersion(tabId)
+      saveTabList(tabId, media).catch(() => {})
+      updateBadge(tabId)
+      broadcastDebounced(tabId)
+    }
+  }
+
   function clearTabPageState(tabId: number, pageUrl?: string): void {
+    // Retain metadata briefly, but restore it only after an exact URL is observed
+    // again in the new session. Never migrate the previous page's entire list.
+    const recent = recentMedia.get(tabId) ?? new Map()
+    for (const [url, entry] of tabMap.get(tabId) ?? []) {
+      if (!entry.captureId && !entry.groupRole) recent.set(url, { entry, at: Date.now() })
+    }
+    for (const [url, item] of recent) {
+      if (Date.now() - item.at > 30_000 || recent.size > 1000) recent.delete(url)
+    }
+    recentMedia.set(tabId, recent)
     tabMap.delete(tabId)
     bilibiliManagedUrls.delete(tabId)
     platformManagedUrls.delete(tabId)
@@ -567,18 +644,13 @@ export default defineBackground(() => {
     douyinNativeTracks.delete(tabId)
     masterPrefixIndex.delete(tabId)
     tabMediaVersion.delete(tabId)
-    pageSessionIds.set(tabId, (pageSessionIds.get(tabId) ?? 0) + 1)
     if (pageUrl) tabPageUrls.set(tabId, pageUrl)
 
     for (const key of processedRequests) {
       if (key.startsWith(`${tabId}:`)) processedRequests.delete(key)
     }
-    for (const [requestId, request] of pendingRequestSessions) {
-      if (request.tabId === tabId) {
-        pendingRequestSessions.delete(requestId)
-        pendingRequestHeaders.delete(requestId)
-      }
-    }
+    // Keep in-flight request ownership until completion. Deleting it here
+    // would make late responses appear to belong to the new page.
     for (const [requestId, request] of pendingProxyFetches) {
       if (request.tabId === tabId) {
         request.controller.abort()
@@ -595,11 +667,17 @@ export default defineBackground(() => {
     broadcast(tabId, [])
   }
 
-  loadAllTabData().then(data => {
+  Promise.all([loadAllTabData().catch(() => new Map<number, Map<string, MediaEntry>>()), loadPageSessions().catch(() => [])]).then(([data, sessions]) => {
     data.forEach((mediaMap, tabId) => {
-      tabMap.set(tabId, mediaMap)
+      if (!pageSessions.epoch(tabId) && !tabMap.has(tabId)) tabMap.set(tabId, mediaMap)
     })
+    pageSessions.restore(sessions)
+    for (const item of pageSessions.snapshot()) {
+      const main = item.frames.find(([frameId]) => frameId === 0)?.[1]
+      if (main && !tabPageUrls.has(item.tabId)) tabPageUrls.set(item.tabId, main.identity)
+    }
     isDataLoaded = true
+    persistPageSessions()
     refreshBadgesForLiveTabs()
     
     pendingMessages.forEach(({msg, sender, sendResponse}) => {
@@ -644,7 +722,7 @@ export default defineBackground(() => {
   // 以 requestId 为 key，在 onHeadersReceived 时合并到媒体条目，
   // 下载时通过 DNR/webRequest 重放，实现携带 token/cookie 绕过鉴权
   const pendingRequestHeaders = new Map<string, Record<string, string>>()
-  const pendingRequestSessions = new Map<string, { tabId: number; sessionId: number }>()
+  const pendingRequestSessions = new Map<string, { tabId: number; sessionId?: number; frameId: number; frameGeneration: number }>()
 
   // 需要缓存并重放的请求头名单。Referer 必须取媒体原始请求上的值，
   // 不能只依赖当前标签页 URL：部分 CDN 会校验完整播放页路径或嵌入页来源。
@@ -710,14 +788,16 @@ export default defineBackground(() => {
 
   browser.webRequest.onSendHeaders.addListener(
     (details) => {
-      if (details.tabId <= 0 || !details.requestHeaders?.length) return
+      if (details.tabId <= 0) return
       if (details.type === 'other' && !isPotentialMediaRequest(details.url)) return
       pendingRequestSessions.set(details.requestId, {
         tabId: details.tabId,
-        sessionId: pageSessionIds.get(details.tabId) ?? 0,
+        sessionId: isDataLoaded ? pageSessions.epoch(details.tabId) : undefined,
+        frameId: details.frameId,
+        frameGeneration: pageSessions.frameGeneration(details.tabId, details.frameId),
       })
       const capturedHeaders: Record<string, string> = {}
-      for (const h of details.requestHeaders) {
+      for (const h of details.requestHeaders ?? []) {
         const name = h.name.toLowerCase()
         if (CAPTURED_REQUEST_HEADER_NAMES.has(name) && h.value) {
           capturedHeaders[name] = h.value
@@ -742,6 +822,10 @@ export default defineBackground(() => {
     },
     { urls: ['<all_urls>'], types: ['main_frame', 'media', 'xmlhttprequest', 'sub_frame', 'image', 'other'] },
   )
+  browser.webRequest.onCompleted.addListener(details => {
+    pendingRequestHeaders.delete(details.requestId)
+    pendingRequestSessions.delete(details.requestId)
+  }, { urls: ['<all_urls>'] })
 
   function addProcessedRequest(key: string) {
     if (processedRequests.size >= PROCESSED_REQUESTS_MAX) {
@@ -763,7 +847,9 @@ export default defineBackground(() => {
       const effectiveTabId = details.tabId
       if (effectiveTabId <= 0) return undefined
       const requestSession = pendingRequestSessions.get(details.requestId)
-      if (requestSession && requestSession.sessionId !== (pageSessionIds.get(effectiveTabId) ?? 0)) {
+      if (!pageSessions.matchesDocument(effectiveTabId, details.frameId, (details as any).documentId)
+        || (requestSession && requestSession.sessionId !== undefined && (requestSession.sessionId !== pageSessions.epoch(effectiveTabId)
+          || requestSession.frameGeneration !== pageSessions.frameGeneration(effectiveTabId, requestSession.frameId)))) {
         pendingRequestHeaders.delete(details.requestId)
         pendingRequestSessions.delete(details.requestId)
         return undefined
@@ -779,7 +865,7 @@ export default defineBackground(() => {
         return undefined
       }
 
-      const requestKey = `${effectiveTabId}:${details.url}`
+      const requestKey = `${effectiveTabId}:${details.frameId}:${details.url}`
       if (processedRequests.has(requestKey)) return undefined
 
       if (details.statusCode === 416) {
@@ -854,7 +940,7 @@ export default defineBackground(() => {
         const pageUrl = tabPageUrls.get(effectiveTabId)
         if (settings && pageUrl && isDomainExcluded(pageUrl, settings)) return undefined
         if (settings && !isFormatAllowed(detectedFormat, settings)) return undefined
-        addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), undefined, contentType ?? undefined)
+        addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined)
         addProcessedRequest(requestKey)
         pendingRequestHeaders.delete(details.requestId)
         return undefined
@@ -878,7 +964,7 @@ export default defineBackground(() => {
 
       // XHR/fetch 触发的播放器资源也要保留响应 Content-Type。抖音常把
       // 分离的 audio/video 作为 XHR 请求；缺少它会使后续的配对逻辑失效。
-      addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), undefined, contentType ?? undefined, tabPageTitles.get(effectiveTabId))
+      addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined, tabPageTitles.get(effectiveTabId))
       addProcessedRequest(requestKey)
       pendingRequestHeaders.delete(details.requestId)
       return undefined
@@ -1049,6 +1135,7 @@ export default defineBackground(() => {
 
   // 清理已处理的请求记录（当标签页关闭时）
   browser.tabs.onRemoved.addListener((tabId) => {
+    void removeResourceDownloads(tabId).catch(() => {})
     purgeTabState(tabId)
   })
 
@@ -1085,6 +1172,10 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'OPEN_RESOURCE_DOWNLOAD' || msg.type === 'SAVE_PAGE_BLOB') {
+      void handleMessage(msg, sender, sendResponse)
+      return true
+    }
     const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
     if (asyncTypes.includes(msg.type)) {
       handleMessage(msg, sender, sendResponse)
@@ -1099,6 +1190,74 @@ export default defineBackground(() => {
   })
 
   async function handleMessage(msg: any, sender: any, sendResponse: (response?: any) => void) {
+    if (msg.type === 'OPEN_RESOURCE_DOWNLOAD') {
+      try {
+        const sourceTab = typeof msg.sourceTabId === 'number' ? await browser.tabs.get(msg.sourceTabId) : sender.tab
+        const headers = msg.requestHeaders as Record<string, string> | undefined
+        const referrer = headers?.referer || headers?.Referer || sourceTab?.url || ''
+        const resourceKind = msg.resourceKind || 'document'
+        if (resourceKind === 'live') {
+          sendResponse(await openResourceDownload({
+            url: msg.url, filename: msg.filename, format: msg.format, requestHeaders: headers,
+            referrer, resourceKind,
+          }))
+        } else {
+          const url = String(msg.url || '')
+          if (!/^https?:$/.test(new URL(url).protocol)) throw new Error('unsupported-download-url')
+          // Prepare the captured Referer/authentication context, then hand the
+          // original URL straight to the browser downloader. Unlike a Blob
+          // owned by popup/download.html, this request survives UI teardown.
+          await ensureProxyHeaderRule(url, referrer, headers)
+          const id = await browser.downloads.download({ url, filename: msg.filename })
+          if (!Number.isInteger(id)) throw new Error('download-not-started')
+          sendResponse({ ok: true, id })
+        }
+      } catch (error) { sendResponse({ ok: false, error: String(error) }) }
+      return
+    }
+    if (msg.type === 'SAVE_PAGE_BLOB') {
+      try {
+        if (!sender.tab || typeof msg.url !== 'string' || !msg.url.startsWith('blob:')) throw new Error('invalid-download')
+        const id = await waitForNativeDownload(msg.url, msg.filename, msg.size)
+        sendResponse({ ok: true, terminal: true, id })
+      } catch (error) { sendResponse({ ok: false, terminal: true, error: String(error) }) }
+      return
+    }
+    const captureTypes = ['MEDIA_FOUND', 'MEDIA_FOUND_BATCH', 'BILIBILI_DASH_FOUND', 'PLATFORM_MEDIA_FOUND', 'MSE_STREAM_UPDATE']
+    if (msg.type === 'PAGE_SESSION_SYNC') {
+      if (sender.documentLifecycle && sender.documentLifecycle !== 'active') { sendResponse({ ok: false, stale: true }); return }
+      const tabId = sender.tab?.id
+      const frameId = sender.frameId ?? 0
+      const context = msg.pageContext as PageContext | undefined
+      if (tabId === undefined || !context || typeof context.documentToken !== 'string'
+        || typeof context.url !== 'string' || !Number.isSafeInteger(context.revision) || context.revision < 0) {
+        sendResponse({ ok: false, stale: true }); return
+      }
+      if (!pageSessions.hasDocument(tabId, frameId, context, sender.documentId)) {
+        try {
+          const live = await browser.webNavigation.getFrame({ tabId, frameId })
+          if (!live || pageIdentity(live.url) !== pageIdentity(context.url)
+            || (sender.documentId && (live as any).documentId && sender.documentId !== (live as any).documentId)) {
+            sendResponse({ ok: false, stale: true }); return
+          }
+          pageSessions.reconnect(tabId, frameId, sender.documentId)
+        } catch { sendResponse({ ok: false }); return }
+      }
+      const previousFrameGeneration = pageSessions.frameGeneration(tabId, frameId)
+      const epoch = pageSessions.sync(tabId, frameId, context, sender.documentId)
+      if (frameId !== 0 && epoch !== undefined && pageSessions.frameGeneration(tabId, frameId) !== previousFrameGeneration) clearFrameMedia(tabId, frameId)
+      persistPageSessions()
+      if (epoch !== undefined && frameId === 0) tabPageUrls.set(tabId, context.url)
+      sendResponse({ ok: epoch !== undefined, stale: epoch === undefined, sessionId: epoch })
+      return
+    }
+    if (captureTypes.includes(msg.type)) {
+      const tabId = sender.tab?.id
+      if (tabId === undefined || !msg.pageContext
+        || !pageSessions.accepts(tabId, sender.frameId ?? 0, msg.pageContext, msg.sessionId, sender.documentId)) {
+        sendResponse({ ok: false, stale: true }); return
+      }
+    }
     // 嗅探类消息只能使用 runtime sender 所属的 Tab。消息体中的 tabId 来自页面，
     // 不能作为归属依据，否则并发页面或伪造消息可能把资源写入其他 Tab 的列表。
     if (msg.type === 'MEDIA_FOUND') {
@@ -1108,18 +1267,15 @@ export default defineBackground(() => {
         const rh = (msg.requestHeaders && typeof msg.requestHeaders === 'object')
           ? msg.requestHeaders
           : (sender.tab?.url ? { referer: sender.tab.url } : undefined)
-        addMedia(msg.url, tabId, format, undefined, 'media', rh, undefined, undefined, sender.tab?.title)
+        addMedia(msg.url, tabId, format, undefined, 'media', rh, { frameId: sender.frameId ?? 0 }, undefined, sender.tab?.title)
       }
       sendResponse({ ok: tabId !== undefined })
       return
     }
 
     if (msg.type === 'PAGE_NAVIGATED') {
-      const tabId = sender.tab?.id
-      if (tabId !== undefined && typeof msg.url === 'string' && tabPageUrls.get(tabId) !== msg.url) {
-        clearTabPageState(tabId, msg.url)
-      }
-      sendResponse({ ok: tabId !== undefined })
+      // Older content scripts must not reset a session owned by a new document.
+      sendResponse({ ok: false, stale: true })
       return
     }
 
@@ -1134,7 +1290,7 @@ export default defineBackground(() => {
       if (tabId !== undefined) {
         for (const item of items) {
           if (item && typeof item.url === 'string') {
-            addMedia(item.url, tabId, item.format || 'm3u8', undefined, 'media', fallbackHeaders, undefined, undefined, tabTitle)
+            addMedia(item.url, tabId, item.format || 'm3u8', undefined, 'media', fallbackHeaders, { frameId: sender.frameId ?? 0 }, undefined, tabTitle)
           }
         }
       }
@@ -1165,7 +1321,7 @@ export default defineBackground(() => {
     if (msg.type === 'BILIBILI_DASH_FOUND') {
       const tabId = sender.tab?.id
       if (tabId === undefined || !msg.task) { sendResponse({ ok: false }); return }
-      upsertBilibiliDashTask(tabId, msg.task, sender.tab?.title)
+      upsertBilibiliDashTask(tabId, msg.task, sender.tab?.title, sender.frameId ?? 0)
       sendResponse({ ok: true })
       return
     }
@@ -1178,7 +1334,7 @@ export default defineBackground(() => {
       }
       // The page adapter may suggest a referer, but the sender tab is the only
       // authoritative origin for a cross-page download session.
-      upsertPlatformMediaTask(tabId, { ...msg.task, referer: sender.tab?.url }, sender.tab?.title)
+      upsertPlatformMediaTask(tabId, { ...msg.task, referer: sender.tab?.url }, sender.tab?.title, sender.frameId ?? 0)
       sendResponse({ ok: true })
       return
     }
@@ -1211,7 +1367,7 @@ export default defineBackground(() => {
         sourceUrl = activeTab?.url || ''
       }
 
-      // 如果调用方没有直接传 requestHeaders，尝试从当前 tab 的媒体条目里查找
+      
       let resolvedHeaders = requestHeaders as Record<string, string> | undefined
       if (!resolvedHeaders && sender.tab?.id) {
         const tabMedia = tabMap.get(sender.tab.id)
@@ -1229,7 +1385,6 @@ export default defineBackground(() => {
       } else if (format === 'm3u8') {
         downloaderPage = 'm3u8-downloader'
       } else if (getFormatGroup(typeof format === 'string' ? format : '') === 'audio') {
-        // 音频（mp3/m4a/oga/weba/wav/flac/aac）转发到第三方音频下载页
         downloaderPage = 'audio-downloader'
       } else {
         downloaderPage = 'video-downloader'
@@ -1242,9 +1397,7 @@ export default defineBackground(() => {
         'zh-HK': 'zh-Hant',
         'ja': 'ja',
         'ko': 'ko',
-        'de': 'de',
-        'es': 'es',
-        'ru': 'ru',
+        'fr': 'fr'
       }
 
       const browserLang = browser.i18n.getUILanguage()
@@ -1347,6 +1500,7 @@ export default defineBackground(() => {
     if (msg.type === 'GET_MEDIA_METADATA_BATCH') {
       const request = msg as MetadataBatchRequest
       const tabId = request.tabId
+      const owner = tabMap.get(tabId)
       const taskId = request.taskId
       const items = Array.isArray(request.items) ? request.items.slice(0, 500) : []
       metadataBatchControllers.get(taskId)?.abort()
@@ -1393,6 +1547,7 @@ export default defineBackground(() => {
 
           controller.signal.throwIfAborted()
           const mediaMap = tabMap.get(tabId)
+          if (mediaMap !== owner) { sendResponse({ ok: false, stale: true, results: [] }); return }
           let changed = false
           let removedAny = false
           if (mediaMap) {
@@ -1640,6 +1795,7 @@ export default defineBackground(() => {
             return
           }
           const arrayBuffer = await response.arrayBuffer()
+          if (arrayBuffer.byteLength === 0) throw new Error('empty-download')
           const bytes = new Uint8Array(arrayBuffer)
           let binary = ''
           for (let i = 0; i < bytes.length; i += 32768) {
@@ -1707,6 +1863,12 @@ export default defineBackground(() => {
   }
 
   function addMedia(url: string, tabId: number, format: string, size?: number, category: MediaCategory = 'media', requestHeaders?: Record<string, string>, extra?: { captureId?: string; frameId?: number; trackCount?: number; mseComplete?: boolean }, contentType?: string, tabTitle?: string) {
+    const recovered = recentMedia.get(tabId)?.get(url)
+    if (recovered && Date.now() - recovered.at < 30_000) {
+      size ??= recovered.entry.size
+      contentType ??= recovered.entry.contentType
+      requestHeaders = mergeCapturedRequestHeaders(recovered.entry.requestHeaders, requestHeaders)
+    }
     if (url.startsWith('blob:') || url.startsWith('data:')) return
     if (bilibiliManagedUrls.get(tabId)?.has(url) || platformManagedUrls.get(tabId)?.has(url)) return
     // 坏 URL 黑名单：跳过，避免反复嗅探→请求→失败的循环
@@ -1719,6 +1881,8 @@ export default defineBackground(() => {
       tabMap.set(tabId, new Map())
     }
     const mediaMap = tabMap.get(tabId)!
+    const sourceFrame = extra?.frameId ?? 0
+    const sourceFrameIds = [...new Set([...(mediaMap.get(url)?.sourceFrameIds ?? []), sourceFrame])]
     // 资源嗅探时刻的网页标题（优先用传入的 tabTitle，否则从缓存 Map 取）
     const effectiveTabTitle = tabTitle ?? tabPageTitles.get(tabId)
 
@@ -1745,6 +1909,7 @@ export default defineBackground(() => {
             groupRole: 'segment',
             groupMasterId: bestMaster,
             tabTitle: effectiveTabTitle,
+            sourceFrameIds,
           })
           saveTabList(tabId, mediaMap).catch(() => {})
           try { updateBadge(tabId) } catch {}
@@ -1765,13 +1930,14 @@ export default defineBackground(() => {
       if (upgradedContentType !== existing.contentType
         || upgradedHeaders !== existing.requestHeaders
         || upgradedSize !== existing.size
-        || upgradedTitle !== existing.tabTitle) {
+        || upgradedTitle !== existing.tabTitle || !existing.sourceFrameIds?.includes(sourceFrame)) {
         mediaMap.set(url, {
           ...existing,
           contentType: upgradedContentType,
           requestHeaders: upgradedHeaders,
           size: upgradedSize,
           tabTitle: upgradedTitle,
+          sourceFrameIds,
         })
         if (upgradedContentType) tryGroupVideoAudio(url, tabId, upgradedContentType, upgradedSize)
         saveTabList(tabId, mediaMap).catch(() => {})
@@ -1800,6 +1966,7 @@ export default defineBackground(() => {
       requestHeaders,
       captureId: extra?.captureId ?? existing?.captureId,
       frameId: extra?.frameId ?? existing?.frameId,
+      sourceFrameIds,
       trackCount: extra?.trackCount ?? existing?.trackCount,
       mseComplete: extra?.mseComplete ?? existing?.mseComplete,
       contentType: contentType ?? existing?.contentType,
@@ -1819,7 +1986,7 @@ export default defineBackground(() => {
     broadcastDebounced(tabId)
 
     // 异步解析 m3u8/mpd master manifest，建立 variant 分组
-    if ((format === 'm3u8' || format === 'mpd') && !manifestParseCache.has(url)) {
+    if (format === 'm3u8' || format === 'mpd') {
       parseAndGroupManifest(url, tabId, format as 'm3u8' | 'mpd', requestHeaders).catch(() => {})
     }
   }
@@ -1856,7 +2023,9 @@ export default defineBackground(() => {
 
     pendingDownloads.delete(tabId)
     tabMap.delete(tabId)
-    pageSessionIds.delete(tabId)
+    pageSessions.remove(tabId)
+    persistPageSessions()
+    recentMedia.delete(tabId)
     bilibiliManagedUrls.delete(tabId)
     platformManagedUrls.delete(tabId)
     platformTaskPriorities.delete(tabId)
@@ -1968,7 +2137,7 @@ export default defineBackground(() => {
   }
 
   /** Convert Bilibili's playurl response into one virtual stream group. */
-  function upsertBilibiliDashTask(tabId: number, task: any, tabTitle?: string) {
+  function upsertBilibiliDashTask(tabId: number, task: any, tabTitle?: string, frameId = 0) {
     if (!tabMap.has(tabId)) tabMap.set(tabId, new Map())
     const mediaMap = tabMap.get(tabId)!
     const taskKey = String(task.key || 'current').replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -1980,6 +2149,7 @@ export default defineBackground(() => {
       ? { Referer: task.referer }
       : (tabPageUrls.get(tabId) ? { Referer: tabPageUrls.get(tabId)! } : undefined)
     const previousMaster = mediaMap.get(masterUrl)
+    const sourceFrameIds = [...new Set([...(previousMaster?.sourceFrameIds ?? []), frameId])]
     const duration = Number(task.duration) || undefined
     const preferredAudioBandwidth = Number(audios[0]?.bandwidth || 0)
     const estimateCombinedSize = (video: any): number | undefined => {
@@ -2020,6 +2190,7 @@ export default defineBackground(() => {
         : previousMaster?.coverUrl,
       requestHeaders,
       tabTitle: task.title || previousMaster?.tabTitle || tabTitle,
+      sourceFrameIds,
     })
     const audioOptions = audios.map((audio: any) => ({ url: audio.url, label: audio.label || '' }))
     const preferredAudio = audioOptions[0]?.url
@@ -2041,6 +2212,7 @@ export default defineBackground(() => {
         audioOptions,
         requestHeaders,
         tabTitle: task.title || tabTitle,
+        sourceFrameIds,
       })
     }
     saveTabList(tabId, mediaMap).catch(() => {})
@@ -2076,11 +2248,12 @@ export default defineBackground(() => {
   }
 
   /** Provider-neutral grouping for candidates emitted by a platform adapter. */
-  function upsertPlatformMediaTask(tabId: number, task: PlatformMediaTask, tabTitle?: string) {
+  function upsertPlatformMediaTask(tabId: number, task: PlatformMediaTask, tabTitle?: string, frameId = 0) {
     if (!tabMap.has(tabId)) tabMap.set(tabId, new Map())
     const mediaMap = tabMap.get(tabId)!
     const key = task.key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100) || 'current'
     const masterUrl = `vid_grp_${task.provider}_${key}`
+    const sourceFrameIds = [...new Set([...(mediaMap.get(masterUrl)?.sourceFrameIds ?? []), frameId])]
     const priorities = platformTaskPriorities.get(tabId) || new Map<string, number>()
     const priority = Number(task.priority || 0)
     if (priority < (priorities.get(masterUrl) || 0)) return
@@ -2175,6 +2348,7 @@ export default defineBackground(() => {
       format: videoCandidates[0]?.format || 'mp4',
       detectedAt: Date.now(), category: 'stream', groupId: masterUrl, groupRole: 'master',
       duration, coverUrl: task.coverUrl || previousMaster?.coverUrl, requestHeaders,
+      sourceFrameIds,
       tabTitle: task.title || previousMaster?.tabTitle || tabTitle,
     })
     for (const candidate of videoCandidates) {
@@ -2186,6 +2360,7 @@ export default defineBackground(() => {
         width: Number(candidate.width || 0) || undefined, height: Number(candidate.height || 0) || undefined,
         duration, coverUrl: task.coverUrl, requestHeaders, tabTitle: task.title || tabTitle,
         audioUrl: preferredAudio, audioOptions: audioOptions.length ? audioOptions : undefined,
+        sourceFrameIds,
       })
     }
     saveTabList(tabId, mediaMap).catch(() => {})
@@ -2491,6 +2666,7 @@ export default defineBackground(() => {
           groupId,
           groupRole: 'master',
           contentType: 'virtual/group',
+          sourceFrameIds: [...new Set([...(videoEntry.sourceFrameIds ?? []), ...(audioEntry.sourceFrameIds ?? [])])],
         })
       }
 
@@ -2517,14 +2693,31 @@ export default defineBackground(() => {
   }
 
   // ── Manifest 解析缓存与分组 ──────────────────────────────────────
-  const manifestParseCache = new Set<string>()
-  const manifestFailCache = new Map<string, number>()
+  // Cache ownership follows the actual list object, including manual clears.
+  // Weak keys release all parse state when that page is no longer reachable.
+  const manifestCaches = new WeakMap<Map<string, MediaEntry>, { parsed: Set<string>; failed: Map<string, number>; pending: Map<string, symbol> }>()
   const MANIFEST_PARSE_FAIL_TTL = 60_000
 
   async function parseAndGroupManifest(masterUrl: string, tabId: number, masterFormat: 'm3u8' | 'mpd', requestHeaders?: Record<string, string>) {
+    const owner = tabMap.get(tabId)
+    if (!owner) return
+    const frames = (owner.get(masterUrl)?.sourceFrameIds ?? []).map(frameId => ({ frameId, generation: pageSessions.frameGeneration(tabId, frameId) }))
+    const isCurrent = () => tabMap.get(tabId) === owner && owner.has(masterUrl)
+      && (!frames.length || frames.some(frame => pageSessions.frameGeneration(tabId, frame.frameId) === frame.generation
+        && owner.get(masterUrl)?.sourceFrameIds?.includes(frame.frameId)))
+    let cache = manifestCaches.get(owner)
+    if (!cache) {
+      cache = { parsed: new Set(), failed: new Map(), pending: new Map() }
+      manifestCaches.set(owner, cache)
+    }
+    const manifestParseCache = cache.parsed
+    const manifestFailCache = cache.failed
+    if (cache.pending.has(masterUrl)) return
     if (manifestParseCache.has(masterUrl)) return
     const lastFail = manifestFailCache.get(masterUrl)
     if (lastFail && Date.now() - lastFail < MANIFEST_PARSE_FAIL_TTL) return
+    const parseToken = Symbol()
+    cache.pending.set(masterUrl, parseToken)
 
     const fetchHeaders: Record<string, string> = {}
     if (requestHeaders) {
@@ -2546,6 +2739,8 @@ export default defineBackground(() => {
       const parsed = masterFormat === 'mpd'
         ? await parseDashManifest(masterUrl, fetchText)
         : await parseM3U8Manifest(masterUrl, fetchText, fetchHeaders)
+
+      if (!isCurrent()) return
 
       if (parsed.variants.length === 0) {
         const mm = tabMap.get(tabId)
@@ -2608,6 +2803,7 @@ export default defineBackground(() => {
           detectedAt: existing?.detectedAt ?? Date.now(),
           category: 'media',
           requestHeaders: requestHeaders ?? masterEntry.requestHeaders,
+          sourceFrameIds: masterEntry.sourceFrameIds,
           groupId,
           groupRole: 'variant',
           groupLabel: variant.label,
@@ -2622,6 +2818,7 @@ export default defineBackground(() => {
             detectedAt: Date.now(),
             category: 'media',
             requestHeaders: requestHeaders ?? masterEntry.requestHeaders,
+            sourceFrameIds: masterEntry.sourceFrameIds,
             groupId,
             groupRole: 'audio',
             groupMasterId: masterUrl,
@@ -2634,8 +2831,11 @@ export default defineBackground(() => {
       updateBadge(tabId)
       broadcastDebounced(tabId)
     } catch (e) {
+      if (!isCurrent()) return
       manifestFailCache.set(masterUrl, Date.now())
       console.warn('[FlowPick] manifest parse failed:', masterUrl, (e as Error)?.message)
+    } finally {
+      if (cache.pending.get(masterUrl) === parseToken) cache.pending.delete(masterUrl)
     }
   }
 })

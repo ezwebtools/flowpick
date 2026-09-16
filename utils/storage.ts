@@ -1,6 +1,15 @@
 import type { MediaCategory } from './detect'
+import type { StoredPageSession } from './page-session'
 
 const PREFIX = 'tab_'
+// In particular, Firefox's local-storage fallback is a read/modify/write.
+// Serialize mutations so a late delete/save cannot overwrite a newer page.
+let mutationQueue: Promise<void> = Promise.resolve()
+function mutate(operation: () => Promise<void>): Promise<void> {
+  const next = mutationQueue.then(operation, operation)
+  mutationQueue = next.catch(() => {})
+  return next
+}
 
 export interface MediaEntry {
   format: string
@@ -11,6 +20,8 @@ export interface MediaEntry {
   captureId?: string
   /** Frame that owns the in-page MSE capture. */
   frameId?: number
+  /** Frames that currently reference this resource; a shared URL can have several owners. */
+  sourceFrameIds?: number[]
   trackCount?: number
   mseComplete?: boolean
   contentType?: string
@@ -111,9 +122,18 @@ export async function saveTabList(tabId: number, mediaMap: Map<string, MediaEntr
     if (url.startsWith('blob:') || url.startsWith('data:')) return
     obj[url] = entry
   })
-  await setSessionData({ [tabKey(tabId)]: obj })
+  await mutate(() => setSessionData({ [tabKey(tabId)]: obj }))
 }
 
 export async function deleteTabList(tabId: number) {
-  await removeSessionData(tabKey(tabId))
+  await mutate(() => removeSessionData(tabKey(tabId)))
+}
+
+export async function loadPageSessions(): Promise<StoredPageSession[]> {
+  const data = await getSessionData()
+  return Array.isArray(data.page_sessions) ? data.page_sessions : []
+}
+
+export function savePageSessions(sessions: StoredPageSession[]): Promise<void> {
+  return mutate(() => setSessionData({ page_sessions: sessions }))
 }

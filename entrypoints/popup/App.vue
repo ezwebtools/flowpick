@@ -2047,7 +2047,7 @@
     void proxyImage(event, previewImageUrl.value, item?.requestHeaders)
   }
 
-  const downloadProtectedResource = async (
+  const downloadResourceDirectly = async (
     url: string,
     format: string,
     requestHeaders?: Record<string, string>,
@@ -2055,45 +2055,25 @@
     resourceKind: 'image' | 'audio' | 'document' = 'document',
   ) => {
     try {
-      const tabUrl = currentTabId === undefined
-        ? ''
-        : ((await browser.tabs.get(currentTabId).catch(() => undefined))?.url || '')
-      const headers = requestHeaders && typeof requestHeaders === 'object' ? requestHeaders : undefined
-      const referrer = headers?.Referer || headers?.referer || tabUrl
-      const response = await browser.runtime.sendMessage({
-        type: 'PROXY_FETCH',
-        url,
-        options: { authHeaders: headers, referrer, proxyHeader: true },
-      }) as { ok?: boolean; status?: number; data?: string; headers?: Record<string, string> } | undefined
-      if (!response?.ok || !response.data) throw new Error(`HTTP ${response?.status || 0}`)
-      const contentType = response.headers?.['content-type'] || response.headers?.['Content-Type'] || ''
-      // A hotlink-protection page may return HTTP 200. Never save that HTML
-      // response under an image extension.
-      const normalizedType = contentType.toLowerCase()
-      const typeMatches = resourceKind === 'image'
-        ? normalizedType.startsWith('image/')
-        : resourceKind === 'audio'
-          ? normalizedType.startsWith('audio/')
-            || normalizedType === 'video/mp4'
-            || normalizedType === 'application/ogg'
-            || normalizedType === 'application/mp4'
-            || normalizedType === 'application/octet-stream'
-          : true
-      if (normalizedType === 'text/html' || !typeMatches) {
-        throw new Error('unexpected protected resource response')
-      }
-      const blob = new Blob([decodeProxyImage(response.data)], {
-        type: contentType || (resourceKind === 'image'
-          ? `image/${format.toLowerCase() === 'jpg' ? 'jpeg' : format.toLowerCase()}`
-          : resourceKind === 'audio' ? `audio/${format.toLowerCase()}` : 'application/octet-stream'),
+      const result = await browser.runtime.sendMessage({
+        type: 'OPEN_RESOURCE_DOWNLOAD', url, format, requestHeaders,
+        filename: filename || getDownloadFilename(url, format), resourceKind, sourceTabId: currentTabId,
       })
-      const blobUrl = URL.createObjectURL(blob)
-      await browser.downloads.download({ url: blobUrl, filename: filename || getDownloadFilename(url, format) })
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+      if (!result?.ok) throw new Error(result?.error || 'download-not-started')
       showToastMsg(t('docDownloadStarted'))
-    } catch {
+    } catch (error) {
+      console.warn('[FlowPick] Direct resource download failed:', error)
       showToastMsg(t('docDownloadFailed'))
     }
+  }
+
+  // Masonry layout entries are positional snapshots and can briefly lag
+  // behind metadata/header updates. Always resolve the live store entry
+  // before downloading, which is especially important for Firefox's
+  // webRequest-based Referer/authentication header injection.
+  const downloadMasonryImage = (item: MediaItem) => {
+    const current = mediaByKey.value.get(getMediaKey(item)) ?? mediaByUrl.value.get(item.url) ?? item
+    downloadUrl(current.url, current.format, current.requestHeaders, current.captureId, current.isLiveStream, current.frameId)
   }
 
   // 视频缩略图：loadeddata 后 seek 到 0.1s 显示首帧，同时读取 duration
@@ -2149,64 +2129,12 @@
 
 
   const startLiveRecording = (url: string, format: string, requestHeaders?: Record<string, string>) => {
-    const key = getMediaKey({ url, format })
-    // 已在录制中：切换为停止
-    const existing = flvRecording.value.get(key)
-    if (existing) {
-      existing.controller.abort()
-      return
-    }
-    const controller = new AbortController()
-    const chunks: Uint8Array[] = []
-    const startTime = Date.now()
-    flvRecording.value.set(key, { chunks, controller, startTime })
-    showToastMsg(t('liveRecordingStarted'))
-    ;(async () => {
-      try {
-        const headers: Record<string, string> = { ...requestHeaders }
-        const resp = await fetch(url, {
-          signal: controller.signal,
-          headers,
-          mode: 'cors',
-        })
-        if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
-        const reader = resp.body.getReader()
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          if (value) chunks.push(value)
-          // 安全上限：500MB，避免内存爆炸
-          const totalBytes = chunks.reduce((s, c) => s + c.length, 0)
-          if (totalBytes > 500 * 1024 * 1024) {
-            showToastMsg(t('liveRecordingLimit'))
-            break
-          }
-        }
-      } catch (e: any) {
-        if (e.name !== 'AbortError') {
-          showToastMsg(t('liveRecordingError'))
-        }
-      } finally {
-        // 合并下载
-        const totalBytes = chunks.reduce((s, c) => s + c.length, 0)
-        if (totalBytes > 0) {
-          const blob = new Blob(chunks as BlobPart[], {
-            type: format === 'flv' ? 'video/x-flv' : 'video/mp2t',
-          })
-          const blobUrl = URL.createObjectURL(blob)
-          const duration = ((Date.now() - startTime) / 1000).toFixed(0)
-          const filename = `live-${duration}s-${Date.now().toString(36)}.${format}`
-          browser.downloads.download({ url: blobUrl, filename }).then(() => {
-            showToastMsg(t('downloadComplete'))
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
-          }).catch(() => {
-            showToastMsg(t('docDownloadFailed'))
-            URL.revokeObjectURL(blobUrl)
-          })
-        }
-        flvRecording.value.delete(key)
-      }
-    })()
+    browser.runtime.sendMessage({
+      type: 'OPEN_RESOURCE_DOWNLOAD', url, format, requestHeaders, sourceTabId: currentTabId,
+      filename: 'live-' + Date.now().toString(36) + '.' + format, resourceKind: 'live',
+    }).then(result => {
+      if (!result?.ok) showToastMsg(t('docDownloadFailed'))
+    }).catch(() => showToastMsg(t('docDownloadFailed')))
   }
   const isLiveRecording = (url: string, format: string): boolean => {
     return flvRecording.value.has(getMediaKey({ url, format }))
@@ -2227,20 +2155,15 @@
       })
       return
     }
-    // 直播流（HTTP-FLV/MPEG-TS 无 size）：在 popup 端录制，不能跳下载页
-    if (isLiveStream && (format === 'flv' || format === 'ts')) {
-      startLiveRecording(url, format, requestHeaders)
-      return
-    }
     const filename = getDownloadName(url)
     if (isStreamFormat(format) || isVideoDownloadFormat(format) || isAudioFormat(format)) {
-      // Keep audio on the external downloader workflow. Captured Referer and
-      // authentication headers are forwarded with the pending download session.
+      // Video and audio stay on the external downloader workflow, which can
+      // handle manifests, separate tracks, conversion, and media-specific UI.
       browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders })
     } else if (isImageFormat(format)) {
-      void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'image')
+      void downloadResourceDirectly(url, format, requestHeaders, getDownloadFilename(url, format), 'image')
     } else if (DOC_AND_SUB_FORMATS.includes(format.toLowerCase())) {
-      void downloadProtectedResource(url, format, requestHeaders, getDownloadFilename(url, format), 'document')
+      void downloadResourceDirectly(url, format, requestHeaders, getDownloadFilename(url, format), 'document')
     } else {
       browser.downloads.download({ url, filename: getDownloadFilename(url, format) }).then(
         () => showToastMsg(t('docDownloadStarted')),
@@ -2276,17 +2199,15 @@
       const suffix = items.length > 1 ? `_${idx + 1}` : ''
       if (item.format === 'mse') {
         if (item.captureId) browser.runtime.sendMessage({ type: 'MSE_DOWNLOAD', captureId: item.captureId, tabId: currentTabId, frameId: item.frameId })
-      } else if (item.isLiveStream && (item.format === 'flv' || item.format === 'ts')) {
-        startLiveRecording(item.url, item.format, item.requestHeaders)
       } else if (isStreamFormat(item.format) || isVideoDownloadFormat(item.format) || isAudioFormat(item.format)) {
         const filename = `${baseName}${suffix}`
         browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url: item.url, format: item.format, filename, requestHeaders: item.requestHeaders })
       } else if (isImageFormat(item.format)) {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
-        void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'image')
+        void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'image')
       } else if (DOC_AND_SUB_FORMATS.includes(item.format.toLowerCase())) {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
-        void downloadProtectedResource(item.url, item.format, item.requestHeaders, filename, 'document')
+        void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'document')
       } else {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
         browser.downloads.download({ url: item.url, filename })
@@ -2650,8 +2571,17 @@
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
+                  <button
+                    @click.stop="downloadMasonryImage(mItem.item)"
+                    class="image-card-download absolute top-2 right-2 z-20 w-7 h-7 rounded-lg flex items-center justify-center bg-gray-950/45 hover:bg-gray-950/70 text-white/90 hover:text-emerald-300 border border-white/20 hover:border-white/35 backdrop-blur-md shadow-sm opacity-0 -translate-y-0.5 group-hover:opacity-100 group-hover:translate-y-0 focus-visible:opacity-100 focus-visible:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-90 transition-all duration-150"
+                    :title="t('download')"
+                    :aria-label="t('download')">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                  </button>
                   <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-                    <div class="absolute bottom-0 left-0 right-0 p-2 pointer-events-auto">
+                    <div class="absolute bottom-7 left-0 right-0 p-2 pointer-events-auto">
                       <p class="text-xs text-white font-medium truncate mb-1">{{ mediaView(mItem.item).fileName }}</p>
                       <div class="flex items-center gap-1" @click.stop>
                         <button @click="copyUrl(mItem.item.url)"
@@ -2659,13 +2589,6 @@
                           :title="t('copyUrl')">
                           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                        </button>
-                        <button @click="downloadUrl(mItem.item.url, mItem.item.format, mItem.item.requestHeaders)"
-                          class="p-1 rounded bg-white/20 hover:bg-white/30 text-white transition-colors"
-                          :title="t('download')">
-                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
                         <button @click="previewImage(mItem.item.url)"
@@ -3219,20 +3142,22 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                 </svg>
               </button>
-              <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2" @click.stop>
+              <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2.5" @click.stop>
                 <button @click="copyUrl(previewImageUrl)"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs transition-colors">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 border border-white/10 hover:border-white/20 text-white/90 hover:text-white backdrop-blur-md active:scale-90 transition-all"
+                  :title="t('copyUrl')"
+                  :aria-label="t('copyUrl')">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
-                  {{ t('copyUrl') }}
                 </button>
                 <button @click="downloadUrl(previewImageUrl, previewCurrentItem?.format ?? '', previewCurrentItem?.requestHeaders)"
-                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs transition-colors">
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 border border-white/10 hover:border-white/20 text-white/90 hover:text-white backdrop-blur-md active:scale-90 transition-all"
+                  :title="t('download')"
+                  :aria-label="t('download')">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
-                  {{ t('download') }}
                 </button>
               </div>
             </div>
