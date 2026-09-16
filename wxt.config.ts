@@ -13,7 +13,7 @@ export default defineConfig({
     description: '__MSG_extDescription__',
     default_locale: 'en',
     permissions: [
-      'storage', 'tabs', 'webRequest', 'downloads', 'declarativeNetRequest', 'notifications',
+      'storage', 'tabs', 'webRequest', 'webNavigation', 'downloads', 'declarativeNetRequest', 'notifications',
       ...(browser !== 'firefox' ? ['sidePanel'] : ['webRequestBlocking']),
     ],
     host_permissions: ['<all_urls>'],

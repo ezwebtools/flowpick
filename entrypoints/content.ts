@@ -1,3 +1,6 @@
+import { createPageReporter } from '../utils/page-reporter'
+import { pageIdentity } from '../utils/page-session'
+
 export default defineContentScript({
   matches: ['*://*/*'],
   allFrames: true,
@@ -5,6 +8,15 @@ export default defineContentScript({
   // document_end many players have already created their SourceBuffers.
   runAt: 'document_start',
   main() {
+    const activeBlobDownloads = new Set<string>()
+    window.addEventListener('beforeunload', event => {
+      if (activeBlobDownloads.size) { event.preventDefault(); event.returnValue = '' }
+    })
+    const reporter = createPageReporter(() => {
+      window.postMessage({ type: 'FLOWPICK_RESCAN', url: location.href }, '*')
+    })
+    void reporter.sync()
+    window.addEventListener('pageshow', () => void reporter.sync())
     if (!document.querySelector('script[data-m3u8-injected]')) {
       // WXT uses an external extension URL for MV3 (Chrome/Edge), but fetches
       // the source and injects it as page-world code for MV2 (Firefox). The
@@ -44,8 +56,13 @@ export default defineContentScript({
       if (event.data?.type === 'FLOWPICK_INJECTED_READY' && latestSettings) {
         applyPageSettings(latestSettings)
       }
+      if (event.data?.type === 'FLOWPICK_INJECTED_READY') void reporter.sync()
       if (event.data?.type === 'FLOWPICK_PAGE_NAVIGATED' && typeof event.data.url === 'string') {
-        browser.runtime.sendMessage({ type: 'PAGE_NAVIGATED', url: event.data.url }).catch(() => {})
+        if (reporter.observeNavigation(event.data.url)) {
+          mediaBuffer.length = 0
+          douyinTracks.clear()
+        }
+        if (pageIdentity(event.data.url) === pageIdentity(location.href)) void reporter.sync()
       }
       if (event.data?.type === 'FLOWPICK_REQUEST_DOWNLOAD') {
         let retries = 0
@@ -136,6 +153,11 @@ export default defineContentScript({
 
     // 接收 background 发来的消息，通过 postMessage 转发给页面
     browser.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'FLOWPICK_SESSION_CHANGED' || msg.type === 'FLOWPICK_SYNC_PAGE') {
+        if (msg.type === 'FLOWPICK_SESSION_CHANGED') reporter.invalidate()
+        window.postMessage({ type: 'FLOWPICK_CHECK_PAGE' }, '*')
+        void reporter.sync()
+      }
       if (msg.type === 'FLOWPICK_SOURCE_URL' && msg.sourceUrl) {
         window.postMessage({ type: 'FLOWPICK_SOURCE_URL', sourceUrl: msg.sourceUrl }, '*')
       }
@@ -162,12 +184,11 @@ export default defineContentScript({
 
     window.dispatchEvent(new CustomEvent('m3u8ext:ready'))
 
-    let currentTabId: number | undefined
     const flowpickFetchControllers = new Map<string, AbortController>()
 
     // 批量缓冲 M3U8_DETECTED：HLS 直播首屏可能并发数十条分片，逐条 sendMessage
     // 会产生大量 IPC 往返。用 50ms 窗口合并成单条 MEDIA_FOUND_BATCH。
-    const mediaBuffer: Array<{ url: string; format: string }> = []
+    const mediaBuffer: Array<{ url: string; format: string; pageUrl: string }> = []
     let mediaFlushTimer: ReturnType<typeof setTimeout> | null = null
     // Last-resort Douyin player collector. Unlike generic media sniffing this
     // preserves the relation carried by the CDN playback token, before either
@@ -209,7 +230,7 @@ export default defineContentScript({
       const audio = track.role === 'audio' ? url : opposite.url
       const coverUrl = document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content
       const duration = document.querySelector('video')?.duration
-      browser.runtime.sendMessage({
+      reporter.report({
         type: 'PLATFORM_MEDIA_FOUND',
         task: {
           provider: 'douyin', key: douyinGroupKey(video), referer: location.href, priority: 3,
@@ -223,39 +244,20 @@ export default defineContentScript({
         },
       }).catch(() => {})
     }
-    let tabIdFetching = false
-    async function ensureTabId(): Promise<number | undefined> {
-      if (currentTabId) return currentTabId
-      if (tabIdFetching) {
-        // 等待正在进行的获取完成
-        while (tabIdFetching) await new Promise(r => setTimeout(r, 5))
-        return currentTabId
-      }
-      tabIdFetching = true
-      try {
-        const tab = await browser.runtime.sendMessage({ type: 'GET_CURRENT_TAB' })
-        currentTabId = tab?.id
-      } catch {}
-      tabIdFetching = false
-      // tabId 就绪后若有缓冲数据且无定时器，立即排一次 flush
-      if (currentTabId && mediaBuffer.length > 0 && mediaFlushTimer === null) {
-        mediaFlushTimer = setTimeout(flushMediaBuffer, 50)
-      }
-      return currentTabId
-    }
     function flushMediaBuffer() {
       mediaFlushTimer = null
-      if (mediaBuffer.length === 0 || !currentTabId) return
-      const batch = mediaBuffer.splice(0)
-      browser.runtime.sendMessage({
+      if (mediaBuffer.length === 0) return
+      const batch = mediaBuffer.splice(0).filter(item => pageIdentity(item.pageUrl) === pageIdentity(location.href))
+      if (!batch.length) return
+      reporter.report({
         type: 'MEDIA_FOUND_BATCH',
-        tabId: currentTabId,
         items: batch,
       }).catch(() => {})
     }
 
     window.addEventListener('message', async (event) => {
       if (event.source !== window) return
+      if (typeof event.data?.pageUrl === 'string' && pageIdentity(event.data.pageUrl) !== pageIdentity(location.href)) return
 
       // injected 脚本加载后主动请求设置，补发避免竞态丢失
       if (event.data?.type === 'FLOWPICK_REQUEST_SETTINGS') {
@@ -276,8 +278,7 @@ export default defineContentScript({
         typeof event.data.url === 'string'
       ) {
         collectDouyinPlayerTrack(event.data.url)
-        mediaBuffer.push({ url: event.data.url, format: event.data.format || 'm3u8' })
-        if (!currentTabId && !tabIdFetching) ensureTabId()
+        mediaBuffer.push({ url: event.data.url, format: event.data.format || 'm3u8', pageUrl: event.data.pageUrl || location.href })
         if (mediaFlushTimer === null) {
           mediaFlushTimer = setTimeout(flushMediaBuffer, 50)
         }
@@ -285,37 +286,24 @@ export default defineContentScript({
       }
 
       if (event.data?.type === 'BILIBILI_DASH_DETECTED' && event.data.task) {
-        if (!currentTabId) {
-          const tab = await browser.runtime.sendMessage({ type: 'GET_CURRENT_TAB' })
-          currentTabId = tab?.id
-        }
-        if (currentTabId) {
-          browser.runtime.sendMessage({ type: 'BILIBILI_DASH_FOUND', tabId: currentTabId, task: event.data.task })
-        }
+        void reporter.report({ type: 'BILIBILI_DASH_FOUND', task: event.data.task })
         return
       }
 
       if (event.data?.type === 'PLATFORM_MEDIA_DETECTED' && event.data.task) {
-        browser.runtime.sendMessage({ type: 'PLATFORM_MEDIA_FOUND', task: event.data.task }).catch(() => {})
+        reporter.report({ type: 'PLATFORM_MEDIA_FOUND', task: event.data.task }).catch(() => {})
         return
       }
 
       if (event.data?.type === 'MSE_STREAM_UPDATE') {
-        if (!currentTabId) {
-          const tab = await browser.runtime.sendMessage({ type: 'GET_CURRENT_TAB' })
-          currentTabId = tab?.id
-        }
-        if (currentTabId) {
-          browser.runtime.sendMessage({
+          reporter.report({
             type: 'MSE_STREAM_UPDATE',
-            tabId: currentTabId,
             captureId: event.data.captureId,
             title: event.data.title,
             totalBytes: event.data.totalBytes,
             trackCount: event.data.trackCount,
             complete: event.data.complete,
           }).catch(() => {})
-        }
         return
       }
 
@@ -489,6 +477,7 @@ export default defineContentScript({
         if (!track.buffers || !track.buffers.length) continue
 
         const totalSize = track.buffers.reduce((s, b) => s + b.byteLength, 0)
+        if (totalSize <= 0) continue
         const merged = new Uint8Array(totalSize)
         let offset = 0
         for (const buf of track.buffers) {
@@ -504,17 +493,17 @@ export default defineContentScript({
 
         const blob = new Blob([merged], { type: track.mimeType || 'application/octet-stream' })
         const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = filename
-        a.style.display = 'none'
-        document.body.appendChild(a)
-        a.click()
+        activeBlobDownloads.add(url)
+        // Keep the source document's object URL until the native downloader
+        // confirms a terminal state. A messaging error is not completion.
+        browser.runtime.sendMessage({ type: 'SAVE_PAGE_BLOB', url, filename, size: blob.size }).then(result => {
+          if (result?.terminal) {
+            activeBlobDownloads.delete(url)
+            URL.revokeObjectURL(url)
+          }
+          if (!result?.ok) console.warn('[FlowPick] MSE download was not completed:', result?.error)
+        }).catch(error => console.warn('[FlowPick] MSE download status unavailable; retaining file:', error))
         downloadCount++
-        setTimeout(() => {
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-        }, 10000)
       }
       return downloadCount
     }

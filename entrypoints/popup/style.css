@@ -89,3 +89,12 @@ video::-webkit-media-controls-mute-button {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Touch devices have no reliable hover state, so keep the primary image
+   action available without forcing users through the preview dialog. */
+@media (hover: none), (pointer: coarse) {
+  .image-card-download {
+    opacity: 1 !important;
+    transform: translateY(0) !important;
+  }
+}

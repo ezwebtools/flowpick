@@ -1,4 +1,5 @@
 import type { PlatformMediaCandidate, PlatformMediaTask } from '../utils/platform-media'
+import { pageIdentity } from '../utils/page-session'
 
 export default defineContentScript({
   matches: [
@@ -7,6 +8,7 @@ export default defineContentScript({
   ],
   runAt: 'document_idle',
   main() {
+    const initialPage = pageIdentity(location.href)
     const MAX_OBJECTS = 6_000
     const MAX_CANDIDATES = 24
     const announced = new Set<string>()
@@ -138,7 +140,20 @@ export default defineContentScript({
         const parsed = parseJsonScript(script)
         if (parsed) roots.push(parsed)
       }
-      const candidates = roots.flatMap(collectCandidates)
+      let selectedRoots = roots
+      if (pageIdentity(location.href) !== initialPage) {
+        const id = /\/(?:video|note)\/(\d+)/.exec(location.pathname)?.[1] || new URLSearchParams(location.search).get('modal_id')
+        if (!id) return undefined
+        selectedRoots = []
+        let visited = 0
+        const select = (value: any) => {
+          if (!value || typeof value !== 'object' || visited++ > MAX_OBJECTS) return
+          if (String(value.aweme_id || value.id || '') === id && value.video) { selectedRoots.push(value); return }
+          for (const child of Object.values(value)) select(child)
+        }
+        roots.forEach(select)
+      }
+      const candidates = selectedRoots.flatMap(collectCandidates)
       const uniqueCandidates = [...new Map(candidates.map(candidate => [candidate.url, candidate])).values()]
       if (!uniqueCandidates.length) return undefined
 
@@ -159,7 +174,7 @@ export default defineContentScript({
       if (announced.has(signature)) return
       announced.add(signature)
       if (announced.size > 30) announced.clear()
-      browser.runtime.sendMessage({ type: 'PLATFORM_MEDIA_FOUND', task }).catch(() => {})
+      window.postMessage({ type: 'PLATFORM_MEDIA_DETECTED', task, pageUrl: location.href }, '*')
     }
 
     function schedule(): void {
@@ -171,6 +186,12 @@ export default defineContentScript({
     schedule()
     window.addEventListener('popstate', schedule)
     window.addEventListener('hashchange', schedule)
+    window.addEventListener('message', event => {
+      if (event.source === window && event.data?.type === 'FLOWPICK_RESCAN') {
+        announced.clear()
+        schedule()
+      }
+    })
     new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true })
     setInterval(schedule, 2_500)
   },

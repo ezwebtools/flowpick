@@ -1,4 +1,15 @@
+import { pageIdentity } from '../utils/page-session'
+
 export default defineUnlistedScript(() => {
+  let capturePage = pageIdentity(location.href)
+  let pageGeneration = 0
+  let routeStartedAt = 0
+  let recoveryVersion = 0
+  let previousMediaUrls = new Set<string>()
+  const observedMediaUrls = new Set<string>()
+  function emitCapture(data: Record<string, unknown>) {
+    window.postMessage({ ...data, pageUrl: location.href }, '*')
+  }
   const sentUrls = new Set<string>()
   const sentBilibiliTasks = new Set<string>()
   const sentPlatformTasks = new Set<string>()
@@ -149,6 +160,7 @@ export default defineUnlistedScript(() => {
     routeKey: string
     createdAt: number
   }>()
+  const confirmedBilibiliPlayurls = new Map<string, { json: any; sourceUrl?: string; at: number }>()
 
   function rememberPendingBilibiliPlayurl(json: any, sourceUrl: string | undefined, routeKey: string, key: string): void {
     pendingBilibiliPlayurls.set(`${routeKey}:${key}`, {
@@ -168,6 +180,7 @@ export default defineUnlistedScript(() => {
     const currentCid = getBilibiliPageCid()
     if (!currentCid) return
     for (const [pendingKey, entry] of pendingBilibiliPlayurls) {
+      if (Date.now() - entry.createdAt > 15_000) { pendingBilibiliPlayurls.delete(pendingKey); continue }
       const data = entry.json?.data ?? entry.json?.result ?? entry.json
       const responseKey = getBilibiliRequestCid(entry.sourceUrl) || getBilibiliTaskKey(data, entry.sourceUrl)
       if (responseKey !== currentCid) continue
@@ -271,10 +284,11 @@ export default defineUnlistedScript(() => {
         sentUrls.delete(v.value)
       }
     }
-    window.postMessage({ type: 'M3U8_DETECTED', url, format }, '*')
+    emitCapture({ type: 'M3U8_DETECTED', url, format })
   }
 
   function tryDetect(url: unknown) {
+    checkPage()
     try {
       if (isYouTubePage) return
       let urlStr: string | null = null
@@ -310,7 +324,7 @@ export default defineUnlistedScript(() => {
             sentUrls.delete(v.value)
           }
         }
-        window.postMessage({ type: 'M3U8_DETECTED', url: urlStr, format: fmt }, '*')
+        emitCapture({ type: 'M3U8_DETECTED', url: urlStr, format: fmt })
         return
       }
       if (!urlStr.startsWith('http://') && !urlStr.startsWith('https://')) {
@@ -349,6 +363,7 @@ export default defineUnlistedScript(() => {
   }
 
   const mseCaptures = new Map<string, MseCapture>()
+  const mseCaptureGenerations = new Map<string, number>()
   const mseCaptureIds = new WeakMap<MediaSource, string>()
   const msePlaybackSources = new WeakSet<MediaSource>()
   // A page may temporarily contain listeners from two extension injections
@@ -366,8 +381,10 @@ export default defineUnlistedScript(() => {
   }
 
   function notifyMseUpdate(capture: MseCapture) {
+    if (mseCaptureGenerations.get(capture.captureId) !== pageGeneration) return
     window.postMessage({
       type: 'MSE_STREAM_UPDATE',
+      pageUrl: location.href,
       captureId: capture.captureId,
       title: capture.title,
       totalBytes: capture.totalBytes,
@@ -400,6 +417,7 @@ export default defineUnlistedScript(() => {
               title: document.title,
             }
             mseCaptures.set(captureId, capture)
+            mseCaptureGenerations.set(captureId, pageGeneration)
             notifyMseUpdate(capture)
           }
 
@@ -733,6 +751,10 @@ export default defineUnlistedScript(() => {
             return
           }
         }
+        if (responseCid) {
+          confirmedBilibiliPlayurls.set(responseCid, { json, sourceUrl, at: Date.now() })
+          if (confirmedBilibiliPlayurls.size > 20) confirmedBilibiliPlayurls.delete(confirmedBilibiliPlayurls.keys().next().value!)
+        }
         const routeMeta = bilibiliRouteMeta.get(getBilibiliRouteKey())
         const responseDuration = Number(data.timelength || data.dash?.duration || 0) / (data.timelength ? 1000 : 1) || undefined
         const duration = routeMeta?.duration || responseDuration
@@ -745,6 +767,7 @@ export default defineUnlistedScript(() => {
         if (sentBilibiliTasks.size > 100) sentBilibiliTasks.clear()
         window.postMessage({
           type: 'BILIBILI_DASH_DETECTED',
+          pageUrl: location.href,
           task: {
             key: taskKey,
             referer: location.href,
@@ -815,10 +838,30 @@ export default defineUnlistedScript(() => {
   }
 
   /** Extract the player-owned tracks from Douyin's detail/feed response. */
-  function parseDouyinAwemeResponse(json: any, sourceUrl?: string): void {
+  const pendingDouyinItems = new Map<string, { aweme: any; at: number }>()
+  function currentDouyinId(): string | undefined {
+    return /\/(?:video|note)\/(\d+)/.exec(location.pathname)?.[1]
+      || new URLSearchParams(location.search).get('modal_id') || undefined
+  }
+  function replayCurrentDouyinTask() {
+    const id = currentDouyinId()
+    const pending = id ? pendingDouyinItems.get(id) : undefined
+    if (pending && Date.now() - pending.at < 30_000) parseDouyinAwemeResponse({ aweme_detail: pending.aweme })
+  }
+  function parseDouyinAwemeResponse(json: any, sourceUrl?: string, requestPage = pageIdentity(location.href)): void {
     try {
       const data = json?.data ?? json
-      const aweme = data?.aweme_detail || data?.aweme || data?.item_list?.[0] || data?.aweme_list?.[0]
+      const items = [data?.aweme_detail, data?.aweme, ...(data?.item_list || []), ...(data?.aweme_list || [])].filter(Boolean)
+      for (const item of items) {
+        const id = String(item.aweme_id || item.id || '')
+        if (id && !pendingDouyinItems.has(id)) pendingDouyinItems.set(id, { aweme: item, at: Date.now() })
+      }
+      for (const [id, item] of pendingDouyinItems) {
+        if (Date.now() - item.at > 30_000 || pendingDouyinItems.size > 20) pendingDouyinItems.delete(id)
+      }
+      const currentId = currentDouyinId()
+      const aweme = currentId ? items.find(item => String(item.aweme_id || item.id) === currentId)
+        : requestPage === pageIdentity(location.href) ? items[0] : undefined
       const video = aweme?.video
       if (!aweme || !video) return
       const candidates: Array<any> = []
@@ -860,6 +903,7 @@ export default defineUnlistedScript(() => {
       if (sentPlatformTasks.size > 100) sentPlatformTasks.clear()
       window.postMessage({
         type: 'PLATFORM_MEDIA_DETECTED',
+        pageUrl: location.href,
         task: {
           provider: 'douyin', key, referer: location.href, duration, priority: 2,
           title: String(aweme.desc || document.title || '').trim() || undefined,
@@ -884,10 +928,12 @@ export default defineUnlistedScript(() => {
   const originalXHRSend = XMLHttpRequest.prototype.send
 
   XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: any[]) {
+    checkPage()
     ;(this as any)._fpUrl = typeof url === 'string' ? url : url.toString()
     // Save the route at request creation, rather than looking at location when
     // the async response arrives.
     ;(this as any)._fpBilibiliRouteKey = getBilibiliRouteKey()
+    ;(this as any)._fpPage = pageIdentity(location.href)
     tryDetect(url)
     return originalXHROpen.apply(this, [method, url, ...rest] as any)
   }
@@ -895,6 +941,7 @@ export default defineUnlistedScript(() => {
   XMLHttpRequest.prototype.send = function (...args: any[]) {
     const fpUrl: string = (this as any)._fpUrl || ''
     const fpBilibiliRouteKey: string = (this as any)._fpBilibiliRouteKey || getBilibiliRouteKey()
+    const requestPage = (this as any)._fpPage
     this.addEventListener('load', function (this: XMLHttpRequest) {
       try {
         if (this.status < 200 || this.status >= 300) return
@@ -910,7 +957,7 @@ export default defineUnlistedScript(() => {
         }
 
         if (isDouyinMediaApi(fpUrl)) {
-          parseDouyinAwemeResponse(JSON.parse(this.responseText), fpUrl)
+          parseDouyinAwemeResponse(JSON.parse(this.responseText), fpUrl, requestPage)
           return
         }
 
@@ -923,8 +970,10 @@ export default defineUnlistedScript(() => {
   // ── 拦截 fetch 响应体 ──────────────────────────────────────────────
   const originalFetch = window.fetch
   window.fetch = function (...args: Parameters<typeof fetch>) {
+    checkPage()
     let urlStr = ''
     const requestRouteKey = getBilibiliRouteKey()
+    const requestPage = pageIdentity(location.href)
     try {
       const input = args[0]
       if (typeof input === 'string') urlStr = input
@@ -955,7 +1004,7 @@ export default defineUnlistedScript(() => {
       if (isDouyinMediaApi(urlStr)) {
         return promise.then(async (response) => {
           if (!response.ok) return response
-          try { parseDouyinAwemeResponse(await response.clone().json(), urlStr) } catch {}
+          try { parseDouyinAwemeResponse(await response.clone().json(), urlStr, requestPage) } catch {}
           return response
         })
       }
@@ -1023,6 +1072,11 @@ export default defineUnlistedScript(() => {
         continue
       }
 
+      if (mutation.type === 'attributes' && mutation.target instanceof HTMLElement) {
+        if (mutation.target.matches('source, video, audio')) detectMediaElement(mutation.target)
+        continue
+      }
+
       for (const node of mutation.addedNodes) {
         if (!(node instanceof HTMLElement)) continue
 
@@ -1035,12 +1089,11 @@ export default defineUnlistedScript(() => {
         }
 
         // <source>/<video>/<audio> src 检测
-        const sources = node.nodeName === 'SOURCE'
+        const sources = /^(SOURCE|VIDEO|AUDIO)$/.test(node.nodeName)
           ? [node as HTMLSourceElement]
           : Array.from(node.querySelectorAll?.('source, video, audio') ?? [])
         for (const el of sources) {
-          const src = (el as HTMLSourceElement | HTMLMediaElement).src || (el as HTMLSourceElement).getAttribute?.('src')
-          if (src && !src.startsWith('blob:') && !src.startsWith('data:')) tryDetect(src)
+          detectMediaElement(el)
         }
         // data: 内嵌图片（开关开启时才扫描 <img>，避免性能开销）
         if (dataImagesEnabled) {
@@ -1058,20 +1111,44 @@ export default defineUnlistedScript(() => {
       }
     }
   })
-  try {
+  function observeDocument() {
+    if (!document.documentElement) return
     domObserver.observe(document.documentElement, {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['sandbox'],
+      attributeFilter: ['sandbox', 'src'],
     })
+  }
+  observeDocument()
+  if (!document.documentElement) document.addEventListener('DOMContentLoaded', observeDocument, { once: true })
+
+  function detectMediaElement(el: Element, confirmed = false) {
+    const src = (el as HTMLMediaElement).currentSrc || (el as HTMLMediaElement).src || el.getAttribute('src')
+    if (!src || src.startsWith('blob:') || src.startsWith('data:')) return
+    if (!confirmed && previousMediaUrls.has(src)) return
+    observedMediaUrls.add(src)
+    tryDetect(src)
+  }
+  // A player can reuse a preloaded URL or the same DOM node after a route change.
+  // Playback evidence can re-associate it; a stale DOM snapshot alone cannot.
+  for (const event of ['loadedmetadata', 'playing', 'loadstart']) {
+    document.addEventListener(event, e => {
+      if (e.target instanceof HTMLMediaElement) detectMediaElement(e.target, true)
+    }, true)
+  }
+  try {
+    new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) {
+        if (entry.startTime >= routeStartedAt) tryDetect(entry.name)
+      }
+    }).observe({ type: 'resource', buffered: true })
   } catch {}
 
   // ── 页面扫描 ──────────────────────────────────────────────────────
   function scanExistingMedia() {
     document.querySelectorAll('video[src], audio[src], source[src]').forEach(el => {
-      const src = (el as HTMLMediaElement | HTMLSourceElement).src || el.getAttribute('src')
-      if (src && !src.startsWith('blob:') && !src.startsWith('data:')) tryDetect(src)
+      detectMediaElement(el)
     })
     document.querySelectorAll<HTMLIFrameElement>('iframe[sandbox]').forEach(iframe => {
       clearIframeSandbox(iframe)
@@ -1132,20 +1209,53 @@ export default defineUnlistedScript(() => {
   const originalPushState = history.pushState
   history.pushState = function (...args: Parameters<History['pushState']>) {
     const result = originalPushState.apply(this, args)
-    refreshBilibiliPrimaryAfterNavigation()
-    window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*')
+    checkPage()
     return result
   }
   const originalReplaceState = history.replaceState
   history.replaceState = function (...args: Parameters<History['replaceState']>) {
     const result = originalReplaceState.apply(this, args)
-    refreshBilibiliPrimaryAfterNavigation()
-    window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*')
+    checkPage()
     return result
   }
-  window.addEventListener('popstate', refreshBilibiliPrimaryAfterNavigation)
-  window.addEventListener('popstate', () => window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*'))
-  window.addEventListener('hashchange', () => window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*'))
+  function checkPage() {
+    const next = pageIdentity(location.href)
+    if (next === capturePage) return
+    capturePage = next
+    pageGeneration++
+    routeStartedAt = performance.now()
+    recoveryVersion++
+    previousMediaUrls = new Set(observedMediaUrls)
+    observedMediaUrls.clear()
+    sentUrls.clear()
+    sentBilibiliTasks.clear()
+    sentPlatformTasks.clear()
+    refreshBilibiliPrimaryAfterNavigation()
+    window.postMessage({ type: 'FLOWPICK_PAGE_NAVIGATED', url: location.href }, '*')
+  }
+  window.addEventListener('popstate', checkPage)
+  window.addEventListener('hashchange', checkPage)
+  window.addEventListener('pageshow', checkPage)
+  window.addEventListener('message', event => {
+    if (event.source !== window) return
+    if (event.data?.type === 'FLOWPICK_CHECK_PAGE') checkPage()
+    if (event.data?.type !== 'FLOWPICK_RESCAN' || pageIdentity(event.data.url || '') !== pageIdentity(location.href)) return
+    checkPage()
+    sentUrls.clear()
+    sentBilibiliTasks.clear()
+    sentPlatformTasks.clear()
+    const version = ++recoveryVersion
+    for (const delay of [0, 150, 600, 1800]) setTimeout(() => {
+      if (version !== recoveryVersion) return
+      scanExistingMedia()
+      flushPendingBilibiliPlayurls()
+      const cid = getBilibiliPageCid()
+      const confirmed = cid ? confirmedBilibiliPlayurls.get(cid) : undefined
+      if (confirmed && Date.now() - confirmed.at < 30_000) parseBilibiliPlayurl(confirmed.json, confirmed.sourceUrl)
+      replayCurrentDouyinTask()
+      for (const capture of mseCaptures.values()) notifyMseUpdate(capture)
+    }, delay)
+  })
   // Autoplay does not always go through the page's wrapped History methods.
   // This lightweight Bilibili-only guard still resets the primary on such
   // route transitions; it does not inspect or intercept media requests.
