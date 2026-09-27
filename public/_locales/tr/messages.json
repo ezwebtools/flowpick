@@ -3,7 +3,7 @@
         "message": "FlowPick - Medya Algılayıcı ve İndirici"
     },
     "extDescription": {
-        "message": "Auto-detect & download M3U8/HLS streams, videos, audio & images. Built-in player. Batch download. 100% local & private."
+        "message": "M3U8/HLS akışlarını, videoları, sesleri ve görselleri otomatik algılar ve indirir. Dahili oynatıcı. Toplu indirme. %100 yerel ve gizli."
     },
     "title": {
         "message": "FlowPick"
@@ -60,10 +60,10 @@
         "message": "Oynatmak için tıklayın"
     },
     "unplayable": {
-        "message": "Your browser does not support video playback."
+        "message": "Tarayıcınız video oynatmayı desteklemiyor."
     },
     "playError": {
-        "message": "Play error: "
+        "message": "Oynatma hatası: "
     },
     "stopPlay": {
         "message": "Oynatmayı durdur"
@@ -123,10 +123,10 @@
         "message": "Maximum items"
     },
     "maxItemsDesc": {
-        "message": "Max media items captured per tab (10–5000). Oldest items are replaced when the limit is reached."
+        "message": "Sekme başına yakalanan maksimum medya öğesi sayısı (10–5000). Sınıra ulaşılınca en eski öğeler değiştirilir."
     },
     "excludeDomainsDesc": {
-        "message": "Sniffing will be disabled on these domains. One per line (e.g. twitter.com)"
+        "message": "Bu alan adlarında algılama devre dışı bırakılır. Her satıra bir tane (örn. twitter.com)"
     },
     "excludeDomainsPlaceholder": {
         "message": "twitter.com\nfacebook.com\ninstagram.com"
@@ -135,124 +135,124 @@
         "message": "Keyboard shortcuts"
     },
     "keyboardShortcutsDesc": {
-        "message": "Configure shortcuts to open the extension panel"
+        "message": "Uzantı panelini açmak için kısayolları yapılandırın"
     },
     "manageShortcuts": {
-        "message": "Manage keyboard shortcuts in Chrome's extension settings"
+        "message": "Chrome’un uzantı ayarlarından klavye kısayollarını yönetin"
     },
     "openShortcuts": {
-        "message": "Open Shortcuts"
+        "message": "Kısayolları aç"
     },
     "resetToDefaults": {
         "message": "Varsayılanlara dön"
     },
     "resetConfirm": {
-        "message": "Click again to confirm reset"
+        "message": "Sıfırlamayı onaylamak için tekrar tıklayın"
     },
     "welcomeSubtitle": {
-        "message": "Smart Media Sniffer & Downloader"
+        "message": "Akıllı Medya Algılayıcı ve İndirici"
     },
     "tutorialTitle": {
-        "message": "Getting Started"
+        "message": "Başlarken"
     },
     "step1Title": {
-        "message": "Install the Extension"
+        "message": "Uzantıyı Yükleyin"
     },
     "step1Desc": {
-        "message": "After installation, the FlowPick icon will appear in your browser toolbar. Click the icon to open the extension popup."
+        "message": "Yüklemeden sonra FlowPick simgesi tarayıcı araç çubuğunuzda görünür. Uzantı panelini açmak için simgeye tıklayın."
     },
     "step2Title": {
-        "message": "Open a Video Page"
+        "message": "Bir Video Sayfası Açın"
     },
     "step2Desc": {
-        "message": "Visit a webpage containing video or audio, and FlowPick will automatically detect media resources. When resources are detected, the extension icon will show the count."
+        "message": "Video veya ses içeren bir web sayfasını ziyaret edin; FlowPick medya kaynaklarını otomatik olarak algılar. Kaynaklar algılandığında uzantı simgesi sayıyı gösterir."
     },
     "step3Title": {
-        "message": "Play Video to Trigger Detection"
+        "message": "Algılamayı Tetiklemek için Videoyu Oynatın"
     },
     "step3Desc": {
-        "message": "Some videos need to be played first before the extension can capture the streaming URL. If no count appears on the icon, try playing the video."
+        "message": "Bazı videoların akış URL'sinin yakalanabilmesi için önce oynatılması gerekir. Simgede sayı görünmüyorsa videoyu oynatmayı deneyin."
     },
     "step4Title": {
-        "message": "View Detected Resources"
+        "message": "Algılanan Kaynakları Görüntüleyin"
     },
     "step4Desc": {
-        "message": "Click the extension icon to see all detected media resources in the popup. You can filter by type (streaming, video, audio, image) and use format or size filters for precise searching."
+        "message": "Panelde algılanan tüm medya kaynaklarını görmek için uzantı simgesine tıklayın. Türe göre (akış, video, ses, görsel) filtreleyebilir ve hassas arama için biçim veya boyut filtrelerini kullanabilirsiniz."
     },
     "step5Title": {
-        "message": "Download or Copy"
+        "message": "İndirin veya Kopyalayın"
     },
     "step5Desc": {
-        "message": "In the resource list, click the download button to download a file, or click the copy button to copy the resource URL. You can also select multiple files for batch download."
+        "message": "Kaynak listesinde, bir dosyayı indirmek için indirme düğmesine veya kaynak URL'sini kopyalamak için kopyala düğmesine tıklayın. Toplu indirme için birden fazla dosya da seçebilirsiniz."
     },
     "step6Title": {
-        "message": "Customize Settings"
+        "message": "Ayarları Özelleştirin"
     },
     "step6Desc": {
-        "message": "Click the settings icon in the popup to toggle sniffing by type, set minimum capture size, exclude specific domains, and configure keyboard shortcuts."
+        "message": "Paneldeki ayarlar simgesine tıklayarak türe göre algılamayı açıp kapatın, minimum yakalama boyutunu ayarlayın, belirli alan adlarını hariç tutun ve klavye kısayollarını yapılandırın."
     },
     "faqTitle": {
-        "message": "FAQ"
+        "message": "SSS"
     },
     "faq1Q": {
-        "message": "Why can't some videos be detected?"
+        "message": "Bazı videolar neden algılanamıyor?"
     },
     "faq1A": {
-        "message": "Some websites use special encryption or dynamic loading techniques (such as DRM protection), which prevents the extension from capturing video streams. Additionally, certain streaming URLs are not triggered until the video starts playing. We recommend playing the video first and waiting for a number to appear on the extension icon."
+        "message": "Bazı siteler özel şifreleme veya dinamik yükleme teknikleri (ör. DRM koruması) kullanır; bu, uzantının video akışlarını yakalamasını engeller. Ayrıca bazı akış URL'leri yalnızca video oynatılmaya başlandığında tetiklenir. Önce videoyu oynatmanızı ve uzantı simgesinde bir sayı görünmesini beklemenizi öneririz."
     },
     "faq2Q": {
-        "message": "What should I do if the downloaded M3U8 file won't play?"
+        "message": "İndirilen M3U8 dosyası oynatılmıyorsa ne yapmalıyım?"
     },
     "faq2A": {
-        "message": "M3U8 is an index file, not the video itself. You need to use an HLS-compatible player (such as VLC) to play it, or use a dedicated tool to convert M3U8 to MP4 format. The extension will attempt to provide a direct download option when an M3U8 stream is detected."
+        "message": "M3U8 bir dizin dosyasıdır, videonun kendisi değildir. Oynatmak için HLS uyumlu bir oynatıcı (ör. VLC) kullanmalı veya M3U8'i MP4 biçimine dönüştürmek için özel bir araç kullanmalısınız. Uzantı, bir M3U8 akışı algılandığında doğrudan indirme seçeneği sunmayı dener."
     },
     "faq3Q": {
-        "message": "Does the extension collect my private data?"
+        "message": "Uzantı özel verilerimi topluyor mu?"
     },
     "faq3A": {
-        "message": "No. This extension runs entirely locally and does not send any data to external servers. All detection and download operations are completed in your browser."
+        "message": "Hayır. Bu uzantı tamamen yerel çalışır ve hiçbir veriyi harici sunuculara göndermez. Tüm algılama ve indirme işlemleri tarayıcınızda tamamlanır."
     },
     "faq4Q": {
-        "message": "Why doesn't the icon show the detection count?"
+        "message": "Simge algılama sayısını neden göstermiyor?"
     },
     "faq4A": {
-        "message": "The extension only shows a count on the icon when media resources are detected on the current tab. Please make sure: 1) You have opened a webpage with video; 2) The video has started playing; 3) The website is not in the excluded domains list."
+        "message": "Uzantı, yalnızca geçerli sekmede medya kaynakları algılandığında simgede bir sayı gösterir. Şunları kontrol edin: 1) Video içeren bir web sayfası açtınız; 2) Video oynatılmaya başlandı; 3) Site, hariç tutulan alan adları listesinde değil."
     },
     "faq5Q": {
-        "message": "How do I exclude unwanted domains?"
+        "message": "İstenmeyen alan adlarını nasıl hariç tutarım?"
     },
     "faq5A": {
-        "message": "Click the settings icon in the extension popup, enter the domains you want to exclude in the \"Exclude Domains\" section (one per line), e.g. twitter.com. After saving, media sniffing will be disabled on those domains."
+        "message": "Uzantı panelindeki ayarlar simgesine tıklayın, \"Hariç tutulan alan adları\" bölümüne hariç tutmak istediğiniz alan adlarını girin (her satıra bir tane), örn. twitter.com. Kaydettikten sonra bu alan adlarında medya algılama devre dışı bırakılır."
     },
     "faq6Q": {
-        "message": "Why is the download speed slow?"
+        "message": "İndirme hızı neden yavaş?"
     },
     "faq6A": {
-        "message": "Download speed depends on the video source server's bandwidth and your network environment. The extension uses the browser's native download function, so the speed is the same as downloading files directly in the browser. If the speed is consistently slow, the source server may be throttling downloads."
+        "message": "İndirme hızı, video kaynağı sunucusunun bant genişliğine ve ağ ortamınıza bağlıdır. Uzantı tarayıcının yerleşik indirme işlevini kullanır; dolayısıyla hız, tarayıcıda dosya indirmekle aynıdır. Hız sürekli yavaşsa kaynak sunucu indirmeleri kısıtlıyor olabilir."
     },
     "faq7Q": {
-        "message": "How do I set up keyboard shortcuts?"
+        "message": "Klavye kısayollarını nasıl ayarlarım?"
     },
     "faq7A": {
-        "message": "In the extension popup's settings page, find the \"Keyboard Shortcuts\" section and click the \"Open Shortcuts\" button to jump to the browser's shortcut management page for configuration."
+        "message": "Uzantı panelindeki ayarlar sayfasında \"Klavye kısayolları\" bölümünü bulun ve tarayıcının kısayol yönetim sayfasına gitmek için \"Kısayolları aç\" düğmesine tıklayın."
     },
     "faq8Q": {
-        "message": "Why does Firefox show a different layout than Chrome?"
+        "message": "Firefox neden Chrome'dan farklı bir düzen gösteriyor?"
     },
     "faq8A": {
-        "message": "Firefox and Chrome have some differences in CSS flexbox and grid layout rendering. FlowPick has been optimized to maintain consistent UI across both browsers. If you notice any display issues, please report them on GitHub."
+        "message": "Firefox ve Chrome, CSS flexbox ve grid düzenini oluşturmada bazı farklılıklar gösterir. FlowPick, her iki tarayıcıda da tutarlı bir arayüz sağlayacak şekilde optimize edilmiştir. Görüntüleme sorunları fark ederseniz lütfen GitHub'da bildirin."
     },
     "faq9Q": {
-        "message": "Why can't I find videos on certain pages?"
+        "message": "Bazı sayfalardaki videoları neden bulamıyorum?"
     },
     "faq9A": {
-        "message": "Some websites use special encryption, DRM protection, or obfuscated loading techniques that prevent media URL capture. Videos may also be served from embedded iframes with cross-origin restrictions. Try refreshing the page and playing the video first to trigger detection."
+        "message": "Bazı siteler, medya URL'sinin yakalanmasını engelleyen özel şifreleme, DRM koruması veya gizli yükleme teknikleri kullanır. Videolar ayrıca çıkış noktası kısıtlamalarıyla gömülü iframe'lerden sunuluyor olabilir. Algılamayı tetiklemek için sayfayı yenileyip videoyu önce oynatmayı deneyin."
     },
     "needMoreHelp": {
-        "message": "Need more help?"
+        "message": "Daha fazla yardıma mı ihtiyacınız var?"
     },
     "needMoreHelpDesc": {
-        "message": "If the above content didn't solve your problem, feel free to get support through the following"
+        "message": "Yukarıdaki içerik sorununuzu çözmediyse, aşağıdaki kanallardan destek almaktan çekinmeyin"
     },
     "subtitle": {
         "message": "Geçerli sayfadaki medyaları algılayıp indirin."
@@ -285,7 +285,7 @@
         "message": "Type"
     },
     "any": {
-        "message": "Any"
+        "message": "Herhangi"
     },
     "filterSize": {
         "message": "Boyut"
@@ -300,25 +300,25 @@
         "message": "Boyutlar"
     },
     "width": {
-        "message": "Width"
+        "message": "Genişlik"
     },
     "height": {
-        "message": "Height"
+        "message": "Yükseklik"
     },
     "filterResolution": {
         "message": "Çözünürlük"
     },
     "reset": {
-        "message": "Reset"
+        "message": "Sıfırla"
     },
     "sortByTime": {
-        "message": "Sort by time (click to enable)"
+        "message": "Zamana göre sırala (etkinleştirmek için tıklayın)"
     },
     "sortDesc": {
-        "message": "Newest first (click for oldest first)"
+        "message": "Önce en yeni (en eski için tıklayın)"
     },
     "sortAsc": {
-        "message": "Oldest first (click to disable)"
+        "message": "Önce en eski (kapatmak için tıklayın)"
     },
     "preview": {
         "message": "Önizleme"
@@ -327,22 +327,19 @@
         "message": "Toplu indirme başlatıldı"
     },
     "open": {
-        "message": "Open"
+        "message": "Aç"
     },
     "changelogTitle": {
-        "message": "What’s New"
-    },
-    "changelogVersion": {
-        "message": "v1.1.4"
+        "message": "Yenilikler"
     },
     "changelogFeaturesTitle": {
-        "message": "New Features"
+        "message": "Yeni Özellikler"
     },
     "changelogFeatures": {
         "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
     },
     "changelogFixesTitle": {
-        "message": "Bug Fixes"
+        "message": "Hata Düzeltmeleri"
     },
     "changelogFixes": {
         "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."

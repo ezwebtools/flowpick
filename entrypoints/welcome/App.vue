@@ -1,6 +1,30 @@
 <script lang="ts" setup>
+  import { loadAppearance, useI18n } from '../../utils/i18n'
+
   const version = browser.runtime.getManifest().version
-  const t = (key: string) => browser.i18n.getMessage(key as any)
+
+  // Welcome-page strings live in _locales/<locale>/messages.json (not in utils/i18n.ts),
+  // so load the JSON of the locale chosen in the extension settings; fall back to browser.i18n.
+  const { resolvedLocale } = useI18n()
+  const messages = ref<Record<string, string>>({})
+  const t = (key: string) => messages.value[key] ?? browser.i18n.getMessage(key as any)
+
+  async function loadMessages() {
+    try {
+      // Absolute path resolves to the extension root (chrome-extension://<id>/)
+      const res = await fetch(`/_locales/${resolvedLocale.value}/messages.json`)
+      if (!res.ok) return
+      const json = await res.json()
+      const map: Record<string, string> = {}
+      for (const [k, v] of Object.entries(json)) map[k] = (v as { message: string }).message
+      if (Object.keys(map).length) messages.value = map
+    } catch {
+      // keep browser.i18n fallback
+    }
+  }
+
+  loadAppearance().then(loadMessages)
+  watch(resolvedLocale, loadMessages)
 
   interface FaqItem {
     questionKey: string
@@ -48,7 +72,7 @@
               </span>
               {{ t('changelogTitle') }}
             </h2>
-            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400">{{ t('changelogVersion') }}</span>
+            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400">v{{ version }}</span>
           </div>
 
           <div class="space-y-5 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">

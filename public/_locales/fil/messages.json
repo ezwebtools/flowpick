@@ -1,0 +1,128 @@
+{
+    "extName": {
+        "message": "FlowPick - Media Sniffer at Downloader"
+    },
+    "extDescription": {
+        "message": "Awtomatikong tuklasin at i-download ang mga M3U8/HLS stream, video, audio at larawan. May built-in na player. Batch download. 100% lokal at pribado."
+    },
+    "welcomeSubtitle": {
+        "message": "Smart Media Sniffer at Downloader"
+    },
+    "changelogTitle": {
+        "message": "Ano ang Bago"
+    },
+    "changelogFeaturesTitle": {
+        "message": "Mga Bagong Tampok"
+    },
+    "changelogFeatures": {
+        "message": "• Pinahusay na pagtuklas ng resources at pag-load ng metadata para sa mas mabilis na unang resulta.\n• Pinahusay na pag-update ng cover at duration para sa mga video at stream resource.\n• Nagdagdag ng malinaw na babala kapag itinatago ng mga panuntunan sa sniffing ang mga natuklasang resource.\n• Ang mga batch download ay pumipili na lang ng top-level HLS master sa halip na mga child variant at segment."
+    },
+    "changelogFixesTitle": {
+        "message": "Mga Pag-aayos"
+    },
+    "changelogFixes": {
+        "message": "• Inayos ang metadata requests na nakikipag-compet sa pag-load ng nakikitang media.\n• Inayos ang batch downloads na naglalaman ng HLS variants, audio tracks at segments.\n• Inayos ang video thumbnails na hindi nag-a-update ng duration sa ilang kaso."
+    },
+    "tutorialTitle": {
+        "message": "Magsimula"
+    },
+    "step1Title": {
+        "message": "I-install ang Extension"
+    },
+    "step1Desc": {
+        "message": "Pagkatapos i-install, lalabas ang FlowPick icon sa toolbar ng browser mo. I-click ang icon para buksan ang panel ng extension."
+    },
+    "step2Title": {
+        "message": "Buksan ang isang Video Page"
+    },
+    "step2Desc": {
+        "message": "Puntahan ang isang webpage na may video o audio, at awtomatikong tuklasin ng FlowPick ang mga media resource. Kapag may natuklasang resource, magpapakita ng bilang ang extension icon."
+    },
+    "step3Title": {
+        "message": "I-play ang Video para Mag-trigger ng Detection"
+    },
+    "step3Desc": {
+        "message": "Kailangan munang i-play ang ilang video bago makuha ng extension ang streaming URL. Kung walang lumalabas na bilang sa icon, subukang i-play ang video."
+    },
+    "step4Title": {
+        "message": "Tingnan ang mga Natuklasang Resource"
+    },
+    "step4Desc": {
+        "message": "I-click ang extension icon para makita lahat ng natuklasang media resource sa panel. Pwede kang mag-filter ayon sa uri (streaming, video, audio, larawan) at gumamit ng format o size filter para sa tumpak na paghahanap."
+    },
+    "step5Title": {
+        "message": "I-download o Kopyahin"
+    },
+    "step5Desc": {
+        "message": "Sa listahan ng resources, i-click ang download button para i-download ang file, o i-click ang copy button para kopyahin ang resource URL. Pwede rin pumili ng maraming file para sa batch download."
+    },
+    "step6Title": {
+        "message": "I-customize ang mga Setting"
+    },
+    "step6Desc": {
+        "message": "I-click ang settings icon sa panel para i-on/i-off ang sniffing ayon sa uri, itakda ang pinakamaliit na laki ng capture, mag-exclude ng mga domain, at i-configure ang mga keyboard shortcut."
+    },
+    "faqTitle": {
+        "message": "Mga Madalas Itanong"
+    },
+    "faq1Q": {
+        "message": "Bakit hindi matuklasan ang ilang video?"
+    },
+    "faq1A": {
+        "message": "Gumagamit ang ilang website ng espesyal na encryption o dynamic loading techniques (tulad ng DRM protection) kaya hindi makuha ng extension ang video streams. Bukod pa rito, ang ilang streaming URL ay nagti-trigger lang kapag nagsimula nang mag-play ang video. Inirerekomenda naming i-play muna ang video at maghintay ng bilang sa extension icon."
+    },
+    "faq2Q": {
+        "message": "Ano ang gagawin kung hindi ma-play ang na-download na M3U8 file?"
+    },
+    "faq2A": {
+        "message": "Ang M3U8 ay index file, hindi mismong video. Kailangan mo ng HLS-compatible player (tulad ng VLC) para i-play ito, o dedicated tool para i-convert ang M3U8 sa MP4. Sinusubukan ng extension na magbigay ng direct download option kapag nakita ang M3U8 stream."
+    },
+    "faq3Q": {
+        "message": "Kinokolekta ba ng extension ang private data ko?"
+    },
+    "faq3A": {
+        "message": "Hindi. Ganap na lokal ang pagtakbo ng extension na ito at walang ipinapadang data sa mga external server. Lahat ng detection at download ay nangyayari sa browser mo."
+    },
+    "faq4Q": {
+        "message": "Bakit walang bilang na lumalabas sa icon?"
+    },
+    "faq4A": {
+        "message": "Nagpapakita lang ng bilang sa icon ang extension kapag may natuklasang media resource sa kasalukuyang tab. Siguraduhin: 1) may binuksan kang webpage na may video; 2) nagsimula nang mag-play ang video; 3) wala ang website sa listahan ng mga excluded domain."
+    },
+    "faq5Q": {
+        "message": "Paano mag-exclude ng mga ayaw mong domain?"
+    },
+    "faq5A": {
+        "message": "I-click ang settings icon sa panel ng extension, ilagay ang mga domain na gusto mong i-exclude sa bahaging \"Mga Domain na Hindi Kasama\" (isa kada linya), hal. twitter.com. Pagkatapos i-save, hindi na gagana ang media sniffing sa mga domain na iyon."
+    },
+    "faq6Q": {
+        "message": "Bakit mabagal ang download speed?"
+    },
+    "faq6A": {
+        "message": "Depende ang download speed sa bandwidth ng video source server at sa network environment mo. Gumagamit ang extension ng native download function ng browser, kaya pareho lang ang speed sa direktang pag-download sa browser. Kung palaging mabagal, maaaring nililimitahan ng source server ang mga download."
+    },
+    "faq7Q": {
+        "message": "Paano mag-set up ng mga keyboard shortcut?"
+    },
+    "faq7A": {
+        "message": "Sa settings page ng extension panel, hanapin ang bahaging \"Mga Keyboard Shortcut\" at i-click ang \"Buksan ang mga Shortcut\" para pumunta sa shortcut management page ng browser."
+    },
+    "faq8Q": {
+        "message": "Bakit magkaiba ang layout ng Firefox at Chrome?"
+    },
+    "faq8A": {
+        "message": "May ilang pagkakaiba ang Firefox at Chrome sa pag-render ng CSS flexbox at grid layout. Na-optimize ang FlowPick para manatiling consistent ang UI sa dalawang browser. Kung may napansin kang display issue, mag-report sa GitHub."
+    },
+    "faq9Q": {
+        "message": "Bakit hindi ko mahanap ang mga video sa ilang pahina?"
+    },
+    "faq9A": {
+        "message": "Gumagamit ang ilang website ng espesyal na encryption, DRM protection, o obfuscated loading techniques na pumipigil sa pagkuha ng media URL. Maaari ring galing ang mga video sa mga naka-embed na iframe na may cross-origin restrictions. Subukang i-refresh ang pahina at i-play muna ang video para mag-trigger ng detection."
+    },
+    "needMoreHelp": {
+        "message": "Kailangan pa ng tulong?"
+    },
+    "needMoreHelpDesc": {
+        "message": "Kung hindi nalutas ng nabanggit sa itaas ang problema mo, malayang makakuha ng suporta sa mga sumusunod na channel"
+    }
+}

@@ -2,6 +2,7 @@ import { computed, onUnmounted, ref, watch, type Ref, type ShallowRef } from 'vu
 import { getFormatGroup, type Settings } from '../../../utils/settings'
 
 export type MediaType = 'stream' | 'video' | 'audio' | 'image' | 'doc' | 'other'
+export type MediaTab = 'all' | Exclude<MediaType, 'other'>
 
 export interface FilterableMedia {
   url: string
@@ -23,7 +24,7 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
   formatGroups: Record<Exclude<MediaType, 'other'>, string[]>
   getFormatLabel: (format: string) => string
 }) {
-  const activeTab = ref<Exclude<MediaType, 'other'>>('stream')
+  const activeTab = ref<MediaTab>('stream')
   const typeFilter = ref('any')
   const sizeFilter = ref({ min: 0, max: 0 })
   const dimensionFilter = ref({ minWidth: 0, minHeight: 0 })

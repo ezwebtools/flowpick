@@ -1,0 +1,128 @@
+{
+    "extName": {
+        "message": "FlowPick - Mediasniffer en downloader"
+    },
+    "extDescription": {
+        "message": "Detecteer en download automatisch M3U8/HLS-streams, video’s, audio en afbeeldingen. Ingebouwde speler. Batchdownload. 100% lokaal en privé."
+    },
+    "welcomeSubtitle": {
+        "message": "Slimme mediasniffer en downloader"
+    },
+    "changelogTitle": {
+        "message": "Nieuw"
+    },
+    "changelogFeaturesTitle": {
+        "message": "Nieuwe functies"
+    },
+    "changelogFeatures": {
+        "message": "• Verbeterde resourcedetectie en metadatalading voor een sneller eerste resultaat.\n• Verbeterde updates van covers en duur voor video- en streamresources.\n• Duidelijke hint toegevoegd wanneer sniffregels gevonden resources verbergen.\n• Batchdownloads selecteren nu alleen de HLS-master op het hoogste niveau in plaats van onderliggende varianten en segmenten."
+    },
+    "changelogFixesTitle": {
+        "message": "Opgeloste problemen"
+    },
+    "changelogFixes": {
+        "message": "• Opgelost: metadataverzoeken concurreerden met het laden van zichtbare media.\n• Opgelost: batchdownloads bevatten HLS-varianten, audiosporen en segmenten.\n• Opgelost: videotumbnails toonden in sommige gevallen geen duurupdates."
+    },
+    "tutorialTitle": {
+        "message": "Aan de slag"
+    },
+    "step1Title": {
+        "message": "Installeer de extensie"
+    },
+    "step1Desc": {
+        "message": "Na installatie verschijnt het FlowPick-pictogram in de werkbalk van je browser. Klik op het pictogram om het extensiepaneel te openen."
+    },
+    "step2Title": {
+        "message": "Open een videopagina"
+    },
+    "step2Desc": {
+        "message": "Bezoek een webpagina met video of audio en FlowPick detecteert automatisch mediaresources. Wanneer resources zijn gedetecteerd, toont het extensiepictogram het aantal."
+    },
+    "step3Title": {
+        "message": "Speel de video af om detectie te activeren"
+    },
+    "step3Desc": {
+        "message": "Sommige video’s moeten eerst worden afgespeeld voordat de extensie de streaming-URL kan vastleggen. Als er geen aantal op het pictogram verschijnt, speel de video dan af."
+    },
+    "step4Title": {
+        "message": "Bekijk gedetecteerde resources"
+    },
+    "step4Desc": {
+        "message": "Klik op het extensiepictogram om alle gedetecteerde mediaresources in het paneel te zien. Je kunt filteren op type (streaming, video, audio, afbeelding) en formaat- of groottefilters gebruiken voor precies zoeken."
+    },
+    "step5Title": {
+        "message": "Downloaden of kopiëren"
+    },
+    "step5Desc": {
+        "message": "Klik in de resourcelijst op de downloadknop om een bestand te downloaden, of op de kopieerknop om de resource-URL te kopiëren. Je kunt ook meerdere bestanden selecteren voor batchdownload."
+    },
+    "step6Title": {
+        "message": "Pas de instellingen aan"
+    },
+    "step6Desc": {
+        "message": "Klik op het instellingenpictogram in het paneel om sniffing per type in/uit te schakelen, de minimale vastleggingsgrootte in te stellen, specifieke domeinen uit te sluiten en sneltoetsen te configureren."
+    },
+    "faqTitle": {
+        "message": "Veelgestelde vragen"
+    },
+    "faq1Q": {
+        "message": "Waarom worden sommige video’s niet gedetecteerd?"
+    },
+    "faq1A": {
+        "message": "Sommige websites gebruiken speciale versleuteling of dynamische laadtechnieken (zoals DRM-bescherming), waardoor de extensie videostreams niet kan vastleggen. Bovendien worden sommige streaming-URL’s pas geactiveerd wanneer de video begint af te spelen. We raden aan eerst de video af te spelen en te wachten tot er een getal op het extensiepictogram verschijnt."
+    },
+    "faq2Q": {
+        "message": "Wat moet ik doen als het gedownloade M3U8-bestand niet afspeelt?"
+    },
+    "faq2A": {
+        "message": "M3U8 is een indexbestand, niet de video zelf. Je hebt een HLS-compatibele speler nodig (zoals VLC) om het af te spelen, of een speciaal hulpmiddel om M3U8 naar MP4 te converteren. De extensie probeert een directe downloadoptie aan te bieden zodra een M3U8-stream wordt gedetecteerd."
+    },
+    "faq3Q": {
+        "message": "Verzamelt de extensie mijn privégegevens?"
+    },
+    "faq3A": {
+        "message": "Nee. Deze extensie werkt volledig lokaal en stuurt geen gegevens naar externe servers. Alle detectie- en downloadbewerkingen vinden plaats in je browser."
+    },
+    "faq4Q": {
+        "message": "Waarom toont het pictogram geen aantal?"
+    },
+    "faq4A": {
+        "message": "De extensie toont alleen een aantal op het pictogram wanneer er mediaresources op het huidige tabblad zijn gedetecteerd. Zorg ervoor dat: 1) je een webpagina met video hebt geopend; 2) de video is begonnen met afspelen; 3) de website niet in de lijst met uitgesloten domeinen staat."
+    },
+    "faq5Q": {
+        "message": "Hoe sluit ik ongewenste domeinen uit?"
+    },
+    "faq5A": {
+        "message": "Klik op het instellingenpictogram in het extensiepaneel en voer de uit te sluiten domeinen in bij “Uitgesloten domeinen” (één per regel), bijv. twitter.com. Na het opslaan wordt mediasniffing op die domeinen uitgeschakeld."
+    },
+    "faq6Q": {
+        "message": "Waarom is de downloadsnelheid langzaam?"
+    },
+    "faq6A": {
+        "message": "De downloadsnelheid hangt af van de bandbreedte van de bronserver en je netwerkomgeving. De extensie gebruikt de native downloadfunctie van de browser, dus de snelheid is hetzelfde als bij direct downloaden in de browser. Als de snelheid aanhoudend laag is, beperkt de bronserver mogelijk de downloads."
+    },
+    "faq7Q": {
+        "message": "Hoe stel ik sneltoetsen in?"
+    },
+    "faq7A": {
+        "message": "Zoek in de instellingenpagina van het extensiepaneel de sectie “Sneltoetsen” en klik op “Sneltoetsen openen” om naar de sneltoetsenbeheerpagina van de browser te gaan."
+    },
+    "faq8Q": {
+        "message": "Waarom toont Firefox een andere lay-out dan Chrome?"
+    },
+    "faq8A": {
+        "message": "Firefox en Chrome verschillen enigszins in het renderen van CSS flexbox- en gridlay-outs. FlowPick is geoptimaliseerd voor een consistente interface in beide browsers. Meld weergaveproblemen op GitHub."
+    },
+    "faq9Q": {
+        "message": "Waarom vind ik geen video’s op bepaalde pagina’s?"
+    },
+    "faq9A": {
+        "message": "Sommige websites gebruiken speciale versleuteling, DRM-bescherming of versluierde laadtechnieken die het vastleggen van media-URL’s verhinderen. Video’s kunnen ook worden geleverd via ingesloten iframes met cross-origin-beperkingen. Vernieuw de pagina en speel eerst de video af."
+    },
+    "needMoreHelp": {
+        "message": "Meer hulp nodig?"
+    },
+    "needMoreHelpDesc": {
+        "message": "Als het bovenstaande je probleem niet heeft opgelost, kun je via de onderstaande kanalen ondersteuning krijgen"
+    }
+}

@@ -1,4 +1,4 @@
-import { detectMediaFromUrl, detectMedia, detectDoc, type MediaCategory } from '../utils/detect'
+import { detectMediaFromUrl, detectMediaFromContentType, detectMedia, detectDoc, type MediaCategory } from '../utils/detect'
 import { loadAllTabData, saveTabList, deleteTabList, loadPageSessions, savePageSessions, type MediaEntry } from '../utils/storage'
 import { loadSettings, saveSettings, isFormatAllowed, isSizeAllowed, isDomainExcluded, getFormatGroup, type Settings, createDefaultSettings } from '../utils/settings'
 import { parseM3U8Manifest, parseDashManifest } from '../utils/stream-parser'
@@ -1402,9 +1402,12 @@ export default defineBackground(() => {
 
       const browserLang = browser.i18n.getUILanguage()
       const langSuffix = languageMapping[browserLang]
+      // const targetUrl = langSuffix
+      //   ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
+      //   : `https://flowpick.net/${downloaderPage}`
       const targetUrl = langSuffix
-        ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
-        : `https://flowpick.net/${downloaderPage}`
+        ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
+        : `http://localhost:3001/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl, requestHeaders: resolvedHeaders, audioUrl: msg.audioUrl as string | undefined })
@@ -1923,25 +1926,38 @@ export default defineBackground(() => {
     if (existing && format !== 'mse') {
       // 页面世界的 fetch/XHR hook 会比响应头更早上报同一个 URL。不要直接
       // 丢弃响应头里的认证信息和媒体类型；这也是分离流无法被配对的根因。
-      const upgradedContentType = existing.contentType ?? contentType
+      // Content-Type 是比 URL 后缀更强的证据：例如动态 HLS 入口可以以 .mp4 结尾。
+      const responseFormat = contentType ? detectMediaFromContentType(contentType) : null
+      const upgradedFormat = responseFormat ?? existing.format
+      const upgradedContentType = contentType ?? existing.contentType
       const upgradedHeaders = mergeCapturedRequestHeaders(existing.requestHeaders, requestHeaders)
-      const upgradedSize = existing.size ?? size
+      const upgradedSize = upgradedFormat === 'm3u8' || upgradedFormat === 'mpd'
+        ? undefined
+        : existing.size ?? size
       const upgradedTitle = existing.tabTitle ?? effectiveTabTitle
-      if (upgradedContentType !== existing.contentType
+      const formatChanged = upgradedFormat !== existing.format
+      if (formatChanged
+        || upgradedContentType !== existing.contentType
         || upgradedHeaders !== existing.requestHeaders
         || upgradedSize !== existing.size
         || upgradedTitle !== existing.tabTitle || !existing.sourceFrameIds?.includes(sourceFrame)) {
         mediaMap.set(url, {
           ...existing,
+          format: upgradedFormat,
           contentType: upgradedContentType,
           requestHeaders: upgradedHeaders,
           size: upgradedSize,
           tabTitle: upgradedTitle,
           sourceFrameIds,
         })
+        if (formatChanged && (existing.format === 'm3u8' || existing.format === 'mpd'
+          || upgradedFormat === 'm3u8' || upgradedFormat === 'mpd')) bumpTabVersion(tabId)
         if (upgradedContentType) tryGroupVideoAudio(url, tabId, upgradedContentType, upgradedSize)
         saveTabList(tabId, mediaMap).catch(() => {})
         broadcastDebounced(tabId)
+        if (formatChanged && (upgradedFormat === 'm3u8' || upgradedFormat === 'mpd')) {
+          parseAndGroupManifest(url, tabId, upgradedFormat, upgradedHeaders).catch(() => {})
+        }
       }
       return
     }

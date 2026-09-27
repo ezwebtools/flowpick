@@ -60,10 +60,10 @@
         "message": "Klik untuk memutar"
     },
     "unplayable": {
-        "message": "Your browser does not support video playback."
+        "message": "Peramban Anda tidak mendukung pemutaran video."
     },
     "playError": {
-        "message": "Play error: "
+        "message": "Kesalahan pemutaran: "
     },
     "stopPlay": {
         "message": "Hentikan pemutaran"
@@ -123,10 +123,10 @@
         "message": "Jumlah item maksimum"
     },
     "maxItemsDesc": {
-        "message": "Max media items captured per tab (10–5000). Oldest items are replaced when the limit is reached."
+        "message": "Jumlah maksimum item media yang ditangkap per tab (10–5000). Item terlama diganti ketika batas tercapai."
     },
     "excludeDomainsDesc": {
-        "message": "Sniffing will be disabled on these domains. One per line (e.g. twitter.com)"
+        "message": "Deteksi akan dinonaktifkan di domain ini. Satu per baris (mis. twitter.com)"
     },
     "excludeDomainsPlaceholder": {
         "message": "twitter.com\nfacebook.com\ninstagram.com"
@@ -135,124 +135,124 @@
         "message": "Pintasan keyboard"
     },
     "keyboardShortcutsDesc": {
-        "message": "Configure shortcuts to open the extension panel"
+        "message": "Atur pintasan untuk membuka panel ekstensi"
     },
     "manageShortcuts": {
-        "message": "Manage keyboard shortcuts in Chrome's extension settings"
+        "message": "Kelola pintasan keyboard di pengaturan ekstensi Chrome"
     },
     "openShortcuts": {
-        "message": "Open Shortcuts"
+        "message": "Buka pintasan"
     },
     "resetToDefaults": {
         "message": "Kembalikan ke default"
     },
     "resetConfirm": {
-        "message": "Click again to confirm reset"
+        "message": "Klik lagi untuk mengonfirmasi reset"
     },
     "welcomeSubtitle": {
-        "message": "Smart Media Sniffer & Downloader"
+        "message": "Pendeteksi dan Pengunduh Media Pintar"
     },
     "tutorialTitle": {
-        "message": "Getting Started"
+        "message": "Memulai"
     },
     "step1Title": {
-        "message": "Install the Extension"
+        "message": "Instal Ekstensi"
     },
     "step1Desc": {
-        "message": "After installation, the FlowPick icon will appear in your browser toolbar. Click the icon to open the extension popup."
+        "message": "Setelah instalasi, ikon FlowPick akan muncul di bilah alat peramban Anda. Klik ikon untuk membuka panel ekstensi."
     },
     "step2Title": {
-        "message": "Open a Video Page"
+        "message": "Buka Halaman Video"
     },
     "step2Desc": {
-        "message": "Visit a webpage containing video or audio, and FlowPick will automatically detect media resources. When resources are detected, the extension icon will show the count."
+        "message": "Kunjungi halaman web yang berisi video atau audio, dan FlowPick akan otomatis mendeteksi sumber media. Saat sumber terdeteksi, ikon ekstensi akan menampilkan jumlahnya."
     },
     "step3Title": {
-        "message": "Play Video to Trigger Detection"
+        "message": "Putar Video untuk Memicu Deteksi"
     },
     "step3Desc": {
-        "message": "Some videos need to be played first before the extension can capture the streaming URL. If no count appears on the icon, try playing the video."
+        "message": "Beberapa video perlu diputar terlebih dahulu agar ekstensi dapat menangkap URL streaming. Jika tidak ada angka yang muncul di ikon, coba putar videonya."
     },
     "step4Title": {
-        "message": "View Detected Resources"
+        "message": "Lihat Sumber yang Terdeteksi"
     },
     "step4Desc": {
-        "message": "Click the extension icon to see all detected media resources in the popup. You can filter by type (streaming, video, audio, image) and use format or size filters for precise searching."
+        "message": "Klik ikon ekstensi untuk melihat semua sumber media yang terdeteksi di panel. Anda dapat memfilter berdasarkan jenis (streaming, video, audio, gambar) dan menggunakan filter format atau ukuran untuk pencarian yang presisi."
     },
     "step5Title": {
-        "message": "Download or Copy"
+        "message": "Unduh atau Salin"
     },
     "step5Desc": {
-        "message": "In the resource list, click the download button to download a file, or click the copy button to copy the resource URL. You can also select multiple files for batch download."
+        "message": "Di daftar sumber, klik tombol unduh untuk mengunduh berkas, atau klik tombol salin untuk menyalin URL sumber. Anda juga dapat memilih beberapa berkas untuk diunduh sekaligus."
     },
     "step6Title": {
-        "message": "Customize Settings"
+        "message": "Sesuaikan Pengaturan"
     },
     "step6Desc": {
-        "message": "Click the settings icon in the popup to toggle sniffing by type, set minimum capture size, exclude specific domains, and configure keyboard shortcuts."
+        "message": "Klik ikon pengaturan di panel untuk mengaktifkan/menonaktifkan deteksi per jenis, mengatur ukuran tangkapan minimum, mengecualikan domain tertentu, dan mengonfigurasi pintasan keyboard."
     },
     "faqTitle": {
         "message": "FAQ"
     },
     "faq1Q": {
-        "message": "Why can't some videos be detected?"
+        "message": "Mengapa beberapa video tidak terdeteksi?"
     },
     "faq1A": {
-        "message": "Some websites use special encryption or dynamic loading techniques (such as DRM protection), which prevents the extension from capturing video streams. Additionally, certain streaming URLs are not triggered until the video starts playing. We recommend playing the video first and waiting for a number to appear on the extension icon."
+        "message": "Beberapa situs menggunakan enkripsi khusus atau teknik pemuatan dinamis (seperti proteksi DRM), yang mencegah ekstensi menangkap stream video. Selain itu, URL streaming tertentu baru terpicu saat video mulai diputar. Kami menyarankan memutar video terlebih dahulu dan menunggu angka muncul di ikon ekstensi."
     },
     "faq2Q": {
-        "message": "What should I do if the downloaded M3U8 file won't play?"
+        "message": "Apa yang harus dilakukan jika berkas M3U8 yang diunduh tidak bisa diputar?"
     },
     "faq2A": {
-        "message": "M3U8 is an index file, not the video itself. You need to use an HLS-compatible player (such as VLC) to play it, or use a dedicated tool to convert M3U8 to MP4 format. The extension will attempt to provide a direct download option when an M3U8 stream is detected."
+        "message": "M3U8 adalah berkas indeks, bukan videonya itu sendiri. Anda perlu menggunakan pemutar yang kompatibel dengan HLS (seperti VLC) untuk memutarnya, atau menggunakan alat khusus untuk mengonversi M3U8 ke format MP4. Ekstensi akan mencoba menyediakan opsi unduhan langsung saat stream M3U8 terdeteksi."
     },
     "faq3Q": {
-        "message": "Does the extension collect my private data?"
+        "message": "Apakah ekstensi mengumpulkan data pribadi saya?"
     },
     "faq3A": {
-        "message": "No. This extension runs entirely locally and does not send any data to external servers. All detection and download operations are completed in your browser."
+        "message": "Tidak. Ekstensi ini sepenuhnya berjalan secara lokal dan tidak mengirim data apa pun ke server eksternal. Semua operasi deteksi dan unduhan selesai di peramban Anda."
     },
     "faq4Q": {
-        "message": "Why doesn't the icon show the detection count?"
+        "message": "Mengapa ikon tidak menampilkan jumlah deteksi?"
     },
     "faq4A": {
-        "message": "The extension only shows a count on the icon when media resources are detected on the current tab. Please make sure: 1) You have opened a webpage with video; 2) The video has started playing; 3) The website is not in the excluded domains list."
+        "message": "Ekstensi hanya menampilkan jumlah di ikon saat sumber media terdeteksi di tab saat ini. Pastikan: 1) Anda membuka halaman web dengan video; 2) Video sudah mulai diputar; 3) Situs tidak ada dalam daftar domain yang dikecualikan."
     },
     "faq5Q": {
-        "message": "How do I exclude unwanted domains?"
+        "message": "Bagaimana cara mengecualikan domain yang tidak diinginkan?"
     },
     "faq5A": {
-        "message": "Click the settings icon in the extension popup, enter the domains you want to exclude in the \"Exclude Domains\" section (one per line), e.g. twitter.com. After saving, media sniffing will be disabled on those domains."
+        "message": "Klik ikon pengaturan di panel ekstensi, masukkan domain yang ingin dikecualikan di bagian \"Domain yang dikecualikan\" (satu per baris), mis. twitter.com. Setelah disimpan, deteksi media akan dinonaktifkan di domain tersebut."
     },
     "faq6Q": {
-        "message": "Why is the download speed slow?"
+        "message": "Mengapa kecepatan unduhan lambat?"
     },
     "faq6A": {
-        "message": "Download speed depends on the video source server's bandwidth and your network environment. The extension uses the browser's native download function, so the speed is the same as downloading files directly in the browser. If the speed is consistently slow, the source server may be throttling downloads."
+        "message": "Kecepatan unduhan bergantung pada bandwidth server sumber video dan lingkungan jaringan Anda. Ekstensi menggunakan fungsi unduhan bawaan peramban, sehingga kecepatannya sama seperti mengunduh berkas langsung di peramban. Jika kecepatannya terus lambat, server sumber mungkin membatasi unduhan."
     },
     "faq7Q": {
-        "message": "How do I set up keyboard shortcuts?"
+        "message": "Bagaimana cara mengatur pintasan keyboard?"
     },
     "faq7A": {
-        "message": "In the extension popup's settings page, find the \"Keyboard Shortcuts\" section and click the \"Open Shortcuts\" button to jump to the browser's shortcut management page for configuration."
+        "message": "Di halaman pengaturan panel ekstensi, temukan bagian \"Pintasan keyboard\" dan klik tombol \"Buka pintasan\" untuk menuju halaman pengelolaan pintasan peramban."
     },
     "faq8Q": {
-        "message": "Why does Firefox show a different layout than Chrome?"
+        "message": "Mengapa Firefox menampilkan tata letak berbeda dari Chrome?"
     },
     "faq8A": {
-        "message": "Firefox and Chrome have some differences in CSS flexbox and grid layout rendering. FlowPick has been optimized to maintain consistent UI across both browsers. If you notice any display issues, please report them on GitHub."
+        "message": "Firefox dan Chrome memiliki beberapa perbedaan dalam merender tata letak CSS flexbox dan grid. FlowPick telah dioptimalkan agar antarmuka tetap konsisten di kedua peramban. Jika Anda melihat masalah tampilan, laporkan di GitHub."
     },
     "faq9Q": {
-        "message": "Why can't I find videos on certain pages?"
+        "message": "Mengapa saya tidak dapat menemukan video di halaman tertentu?"
     },
     "faq9A": {
-        "message": "Some websites use special encryption, DRM protection, or obfuscated loading techniques that prevent media URL capture. Videos may also be served from embedded iframes with cross-origin restrictions. Try refreshing the page and playing the video first to trigger detection."
+        "message": "Beberapa situs menggunakan enkripsi khusus, proteksi DRM, atau teknik pemuatan yang disembunyikan yang mencegah penangkapan URL media. Video juga dapat disajikan dari iframe tersemat dengan pembatasan lintas asal. Coba muat ulang halaman dan putar videonya terlebih dahulu untuk memicu deteksi."
     },
     "needMoreHelp": {
-        "message": "Need more help?"
+        "message": "Butuh bantuan lebih lanjut?"
     },
     "needMoreHelpDesc": {
-        "message": "If the above content didn't solve your problem, feel free to get support through the following"
+        "message": "Jika konten di atas tidak menyelesaikan masalah Anda, jangan ragu untuk mendapatkan dukungan melalui kanal berikut"
     },
     "subtitle": {
         "message": "Deteksi dan unduh media dari halaman saat ini."
@@ -312,13 +312,13 @@
         "message": "Atur ulang"
     },
     "sortByTime": {
-        "message": "Sort by time (click to enable)"
+        "message": "Urutkan berdasarkan waktu (klik untuk mengaktifkan)"
     },
     "sortDesc": {
-        "message": "Newest first (click for oldest first)"
+        "message": "Terbaru dulu (klik untuk terlama)"
     },
     "sortAsc": {
-        "message": "Oldest first (click to disable)"
+        "message": "Terlama dulu (klik untuk menonaktifkan)"
     },
     "preview": {
         "message": "Pratinjau"
@@ -330,19 +330,16 @@
         "message": "Buka"
     },
     "changelogTitle": {
-        "message": "What’s New"
-    },
-    "changelogVersion": {
-        "message": "v1.1.4"
+        "message": "Yang Baru"
     },
     "changelogFeaturesTitle": {
-        "message": "New Features"
+        "message": "Fitur Baru"
     },
     "changelogFeatures": {
         "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
     },
     "changelogFixesTitle": {
-        "message": "Bug Fixes"
+        "message": "Perbaikan Bug"
     },
     "changelogFixes": {
         "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."

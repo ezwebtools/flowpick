@@ -1,0 +1,128 @@
+{
+    "extName": {
+        "message": "FlowPick - Detector și descărcător de media"
+    },
+    "extDescription": {
+        "message": "Detectează și descarcă automat fluxuri M3U8/HLS, videoclipuri, audio și imagini. Player încorporat. Descărcare în lot. 100% local și privat."
+    },
+    "welcomeSubtitle": {
+        "message": "Detector și descărcător media inteligent"
+    },
+    "changelogTitle": {
+        "message": "Noutăți"
+    },
+    "changelogFeaturesTitle": {
+        "message": "Funcții noi"
+    },
+    "changelogFeatures": {
+        "message": "• Detectare îmbunătățită a resurselor și încărcarea metadatelor pentru un prim rezultat mai rapid.\n• Îmbunătățiri la actualizările copertei și duratei pentru resurse video și stream.\n• Adăugat un indiciu clar când regulile de detectare ascund resursele găsite.\n• Descărcările în lot selectează acum doar masterul HLS de nivel superior în loc de variante și segmente copil."
+    },
+    "changelogFixesTitle": {
+        "message": "Corecturi"
+    },
+    "changelogFixes": {
+        "message": "• Corectat: cererile de metadate concura cu încărcarea media vizibilă.\n• Corectat: descărcările în lot includeau variante HLS, piste audio și segmente.\n• Corectat: miniaturile video nu actualizau durata în unele cazuri."
+    },
+    "tutorialTitle": {
+        "message": "Început"
+    },
+    "step1Title": {
+        "message": "Instalează extensia"
+    },
+    "step1Desc": {
+        "message": "După instalare, pictograma FlowPick va apărea în bara de instrumente a browserului. Apasă pictograma pentru a deschide panoul extensiei."
+    },
+    "step2Title": {
+        "message": "Deschide o pagină cu video"
+    },
+    "step2Desc": {
+        "message": "Vizitează o pagină web care conține video sau audio, iar FlowPick va detecta automat resursele media. Când sunt detectate resurse, pictograma extensiei va afișa numărul."
+    },
+    "step3Title": {
+        "message": "Redă video-ul pentru a declanșa detectarea"
+    },
+    "step3Desc": {
+        "message": "Unele videoclipuri trebuie reduse întâi pentru ca extensia să poată captura URL-ul fluxului. Dacă nu apare niciun număr pe pictogramă, încearcă să redai video-ul."
+    },
+    "step4Title": {
+        "message": "Vezi resursele detectate"
+    },
+    "step4Desc": {
+        "message": "Apasă pictograma extensiei pentru a vedea toate resursele media detectate în panou. Poți filtra după tip (streaming, video, audio, imagine) și folosi filtre de format sau dimensiune pentru căutare precisă."
+    },
+    "step5Title": {
+        "message": "Descarcă sau copiază"
+    },
+    "step5Desc": {
+        "message": "În lista de resurse, apasă butonul de descărcare pentru a descărca un fișier, sau butonul de copiere pentru a copia URL-ul resursei. Poți selecta și mai multe fișiere pentru descărcare în lot."
+    },
+    "step6Title": {
+        "message": "Personalizează setările"
+    },
+    "step6Desc": {
+        "message": "Apasă pictograma de setări din panou pentru a activa/dezactiva detectarea pe tip, a stabili dimensiunea minimă de captură, a exclude anumite domenii și a configura comenzile rapide."
+    },
+    "faqTitle": {
+        "message": "Întrebări frecvente"
+    },
+    "faq1Q": {
+        "message": "De ce unele videoclipuri nu pot fi detectate?"
+    },
+    "faq1A": {
+        "message": "Unele site-uri folosesc criptare specială sau tehnici de încărcare dinamică (precum protecția DRM), ceea ce împiedică extensia să captureze fluxurile video. În plus, unele URL-uri de streaming se declanșează doar când video-ul începe să ruleze. Recomandăm să redai întâi video-ul și să aștepți apariția unui număr pe pictograma extensiei."
+    },
+    "faq2Q": {
+        "message": "Ce fac dacă fișierul M3U8 descărcat nu se redă?"
+    },
+    "faq2A": {
+        "message": "M3U8 este un fișier index, nu video-ul propriu-zis. Ai nevoie de un player compatibil HLS (precum VLC) pentru redare, sau de un instrument dedicat pentru conversia M3U8 în MP4. Extensia va încerca să ofere o opțiune de descărcare directă când detectează un flux M3U8."
+    },
+    "faq3Q": {
+        "message": "Extensia colectează datele mele private?"
+    },
+    "faq3A": {
+        "message": "Nu. Această extensie rulează complet local și nu trimite date către servere externe. Toate operațiunile de detectare și descărcare au loc în browserul tău."
+    },
+    "faq4Q": {
+        "message": "De ce pictograma nu afișează numărul de detecții?"
+    },
+    "faq4A": {
+        "message": "Extensia afișează un număr pe pictogramă doar când sunt detectate resurse media în fila curentă. Asigură-te că: 1) ai deschis o pagină web cu video; 2) video-ul a început să ruleze; 3) site-ul nu se află în lista domeniilor excluse."
+    },
+    "faq5Q": {
+        "message": "Cum exclud domeniile nedorite?"
+    },
+    "faq5A": {
+        "message": "Apasă pictograma de setări din panoul extensiei, introdu domeniile de exclus în secțiunea „Domenii excluse” (câte unul pe linie), ex. twitter.com. După salvare, detectarea media va fi dezactivată pe acele domenii."
+    },
+    "faq6Q": {
+        "message": "De ce viteza de descărcare este lentă?"
+    },
+    "faq6A": {
+        "message": "Viteza de descărcare depinde de lățimea de bandă a serverului sursă și de rețeaua ta. Extensia folosește funcția nativă de descărcare a browserului, deci viteza este aceeași ca la descărcarea directă în browser. Dacă viteza rămâne lentă, serverul sursă ar putea limita descărcările."
+    },
+    "faq7Q": {
+        "message": "Cum configurez comenzile rapide?"
+    },
+    "faq7A": {
+        "message": "În pagina de setări a panoului extensiei, găsește secțiunea „Comenzi rapide” și apasă butonul „Deschide comenzile rapide” pentru a ajunge la pagina de gestionare a comenzilor rapide a browserului."
+    },
+    "faq8Q": {
+        "message": "De ce Firefox afișează un aspect diferit față de Chrome?"
+    },
+    "faq8A": {
+        "message": "Firefox și Chrome au unele diferențe la randarea aspectelor CSS flexbox și grid. FlowPick a fost optimizat pentru o interfață consistentă în ambele browsere. Dacă observi probleme de afișare, raportează-le pe GitHub."
+    },
+    "faq9Q": {
+        "message": "De ce nu găsesc videoclipuri pe anumite pagini?"
+    },
+    "faq9A": {
+        "message": "Unele site-uri folosesc criptare specială, protecție DRM sau tehnici de încărcare ascunsă care împiedică capturarea URL-urilor media. Videoclipurile pot fi livrate și din iframe-uri încorporate cu restricții cross-origin. Încearcă să reîmprospătezi pagina și să redai întâi video-ul."
+    },
+    "needMoreHelp": {
+        "message": "Ai nevoie de mai mult ajutor?"
+    },
+    "needMoreHelpDesc": {
+        "message": "Dacă conținutul de mai sus nu ți-a rezolvat problema, poți obține suport prin următoarele canale"
+    }
+}

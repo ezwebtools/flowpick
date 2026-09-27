@@ -252,7 +252,7 @@ export default defineUnlistedScript(() => {
 
   // 预编译正则：一次扫描完成扩展名识别，替代此前 N 次 indexOf 线性查找
   // 顺序按"特异性优先"：m3u8 必须在 m3u 之前匹配，避免 .m3u8 被截断成 m3u
-  const EXT_REGEX = /\.(m3u8|m3u|mpd|mp4|webm|mkv|flv|mov|avi|mp3|aac|flac|ogg|wav)(?:[?#\/]|$)/i
+  const EXT_REGEX = /\.(m3u8|m3u|mpd|mp4|webm|mkv|flv|mov|avi|mp3|aac|flac|ogg|wav)$/i
   const EXT_TO_FMT: Record<string, string> = {
     m3u8: 'm3u8', m3u: 'm3u8', mpd: 'mpd',
     mp4: 'mp4', webm: 'webm', mkv: 'mkv',
@@ -261,12 +261,23 @@ export default defineUnlistedScript(() => {
     ogg: 'ogg', wav: 'wav',
   }
   // 分片扩展名快速排除（单次正则，避免 some() + hasExtension 的 N 次扫描）
-  const EXCLUDED_EXT_REGEX = /\.(m4s|m4f|m4i|cmfv|cmfa|cmft|ts)(?:[?#\/]|$)/i
+  const EXCLUDED_EXT_REGEX = /\.(m4s|m4f|m4i|cmfv|cmfa|cmft|ts)$/i
 
   function getFormatFromUrl(url: string): string | null {
+    // 只根据外层 URL 自身的 pathname 判断格式。查询参数可能包含一个
+    // 嵌套的媒体 URL（如 /dplayer/?url=...m3u8），但外层请求仍是 HTML 页面。
+    let pathname: string
+    try {
+      pathname = new URL(url, location.href).pathname
+    } catch {
+      pathname = url.split(/[?#]/, 1)[0]!
+    }
+    // 动态 HLS 打包地址可以以 _TPL_.mp4 结尾，.mp4 只是源模板名。
+    if (/(?:^|\/)media=hls[0-9a-z_-]*(?:\/|$)/i.test(pathname)
+      && /(?:^|\/)multi=[^/]+(?:\/|$)/i.test(pathname)) return 'm3u8'
     // 分片扩展名短路：先排除再识别，避免 .m4s 等被 EXT_REGEX 误判
-    if (EXCLUDED_EXT_REGEX.test(url)) return null
-    const m = EXT_REGEX.exec(url)
+    if (EXCLUDED_EXT_REGEX.test(pathname)) return null
+    const m = EXT_REGEX.exec(pathname)
     if (m) return EXT_TO_FMT[m[1]!.toLowerCase()] ?? null
     return detectSiteFormat(url)
   }

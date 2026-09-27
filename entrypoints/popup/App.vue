@@ -622,6 +622,12 @@
     if (activeTab.value === 'stream') {
       return groupedStreamList.value.map(group => group.masterItem)
     }
+    if (activeTab.value === 'all') {
+      return [
+        ...groupedStreamList.value.map(group => group.masterItem),
+        ...flatMediaList.value,
+      ]
+    }
     return flatMediaList.value
   })
 
@@ -630,6 +636,15 @@
       return groupedStreamList.value
         .filter(group => selectedKeys.value.has(getMediaKey(group.masterItem)))
         .map(group => group.isVirtual ? getPreferredStreamItem(group) : group.masterItem)
+    }
+    if (activeTab.value === 'all') {
+      const selectedStreams = groupedStreamList.value
+        .filter(group => selectedKeys.value.has(getMediaKey(group.masterItem)))
+        .map(group => group.isVirtual ? getPreferredStreamItem(group) : group.masterItem)
+      return [
+        ...selectedStreams,
+        ...flatMediaList.value.filter(item => selectedKeys.value.has(getMediaKey(item))),
+      ]
     }
     return flatMediaList.value.filter(item => selectedKeys.value.has(getMediaKey(item)))
   })
@@ -1539,7 +1554,7 @@
     sizeFilter.value = { min: 0, max: 0 }
     dimensionFilter.value = { minWidth: 0, minHeight: 0 }
     resolutionFilter.value = 'any'
-    selectedKeys.value.clear()
+    selectedKeys.value = new Set()
   })
 
   watch(audioPlayingKey, async (newId, oldId) => {
@@ -2214,7 +2229,7 @@
       }
     })
     showToastMsg(t('batchDownloadStarted', items.length.toString()))
-    selectedKeys.value.clear()
+    selectedKeys.value = new Set()
   }
 
   const openFeedback = () => {
@@ -2614,7 +2629,12 @@
               <div v-for="{ group, index: groupIndex, top } in virtualStreamGroups" :key="group.id"
                 :ref="el => observeStreamGroup(el, group.id)"
                 :style="{ position: 'absolute', top: top + 'px', left: '8px', right: '8px' }"
-                class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                :class="[
+                  'rounded-lg border overflow-hidden shadow-sm transition-all',
+                  selectedKeys.has(getMediaKey(group.masterItem))
+                    ? 'ring-2 ring-blue-400 dark:ring-blue-500 border-blue-200 dark:border-blue-700'
+                    : 'border-gray-200 dark:border-gray-700'
+                ]">
 
                 <!-- 卡片主体：封面 + 信息 + 操作 -->
                 <div class="flex gap-2 px-2 bg-white dark:bg-gray-800"
@@ -2664,6 +2684,20 @@
                       class="absolute top-0.5 left-0.5 px-1 py-px text-[9px] font-bold bg-red-500 text-white rounded animate-pulse leading-none">
                       LIVE
                     </span>
+                    <button
+                      @click.stop="toggleSelect(getMediaKey(group.masterItem))"
+                      :aria-label="selectedKeys.has(getMediaKey(group.masterItem)) ? t('deselectAll') : t('selectAll')"
+                      :style="{ top: getStreamThumbItem(group).isLiveStream ? '1.25rem' : '0.125rem' }"
+                      :class="[
+                        'absolute left-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-150 cursor-pointer backdrop-blur-sm',
+                        selectedKeys.has(getMediaKey(group.masterItem))
+                          ? 'bg-blue-500 border-blue-500'
+                          : 'bg-white/70 dark:bg-gray-800/70 border-gray-300 dark:border-gray-500 hover:border-blue-400'
+                      ]">
+                      <svg v-if="selectedKeys.has(getMediaKey(group.masterItem))" class="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </button>
                   </div>
 
                   <!-- 信息区 -->
@@ -2823,7 +2857,12 @@
               <!-- Same StreamGroup card visual treatment, reused in All. -->
               <div v-if="activeTab === 'all' && groupedStreamList.length" :ref="observeAllStreamGroups" class="space-y-1.5 mb-2">
                 <div v-for="group in groupedStreamList" :key="'all-group-' + group.id"
-                  class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                  :class="[
+                    'rounded-lg border overflow-hidden shadow-sm transition-all',
+                    selectedKeys.has(getMediaKey(group.masterItem))
+                      ? 'ring-2 ring-blue-400 dark:ring-blue-500 border-blue-200 dark:border-blue-700'
+                      : 'border-gray-200 dark:border-gray-700'
+                  ]">
                   <div class="flex gap-2 px-2 bg-white dark:bg-gray-800 cursor-pointer"
                     :class="[group.variants.length ? '' : '', currentDensity === 'compact' ? 'py-2' : 'py-3']"
                     @click="group.variants.length && toggleGroupExpand(group.id)">
@@ -2838,6 +2877,20 @@
                       <div v-if="(!group.masterItem.coverUrl || imageLoadStatus.get(group.masterItem.coverUrl) === false) && !streamThumbCache.has(getStreamThumbItem(group).url) && (!isVideoFormat(getStreamThumbItem(group).format) || videoThumbFailed.has(getStreamThumbItem(group).url)) && ((getStreamThumbItem(group).format !== 'm3u8' && getStreamThumbItem(group).format !== 'mpd' && getStreamThumbItem(group).format !== 'flv') || streamThumbFailed.has(getStreamThumbItem(group).url))" class="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/30 text-orange-400"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg></div>
                       <span v-if="getStreamDuration(group)" class="absolute bottom-0.5 right-0.5 px-1 py-px text-[9px] font-semibold bg-black/70 text-white rounded tabular-nums leading-none">{{ formatDuration(getStreamDuration(group)!) }}</span>
                       <span v-if="getStreamThumbItem(group).isLiveStream" class="absolute top-0.5 left-0.5 px-1 py-px text-[9px] font-bold bg-red-500 text-white rounded animate-pulse leading-none">LIVE</span>
+                      <button
+                        @click.stop="toggleSelect(getMediaKey(group.masterItem))"
+                        :aria-label="selectedKeys.has(getMediaKey(group.masterItem)) ? t('deselectAll') : t('selectAll')"
+                        :style="{ top: getStreamThumbItem(group).isLiveStream ? '1.25rem' : '0.125rem' }"
+                        :class="[
+                          'absolute left-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-150 cursor-pointer backdrop-blur-sm',
+                          selectedKeys.has(getMediaKey(group.masterItem))
+                            ? 'bg-blue-500 border-blue-500'
+                            : 'bg-white/70 dark:bg-gray-800/70 border-gray-300 dark:border-gray-500 hover:border-blue-400'
+                        ]">
+                        <svg v-if="selectedKeys.has(getMediaKey(group.masterItem))" class="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </button>
                     </div>
                     <div class="flex-1 min-w-0 flex flex-col justify-center gap-1">
                       <div class="flex items-start gap-1 min-w-0"><input v-if="editingUrl === getGroupRenameUrl(group)" v-model="editingName" @click.stop @keyup.enter="saveRename" @keyup.escape="cancelRename" @blur="saveRename" class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 bg-blue-50 dark:bg-blue-900/30 border border-blue-400 dark:border-blue-500 rounded px-1 -mx-1 outline-none flex-1 min-w-0" /><p v-else class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors" :title="group.masterItem.tabTitle || currentTabTitle || group.masterItem.url" @click.stop="startRename(getGroupRenameUrl(group), getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)))">{{ getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)) }}</p><span v-if="group.masterItem.detectedAt" class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0 mt-0.5">{{ getRelativeTime(group.masterItem.detectedAt) }}</span></div>
@@ -3003,7 +3056,7 @@
                         </template>
 
                         <template v-else-if="mediaView(item).isStream">
-                          <span v-if="item.size" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400 flex-shrink-0 leading-tight" title="Estimated size">{{ formatItemSize(item) }}</span>
+                          <span v-if="item.size" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400 flex-shrink-0 leading-tight" :title="t('estimatedSize')">{{ formatItemSize(item) }}</span>
                         </template>
 
                         <template v-else-if="mediaView(item).isVideo">
@@ -3243,7 +3296,7 @@
       enter-to-class="opacity-100 translate-y-0" leave-active-class="transition ease-in duration-200"
       leave-from-class="opacity-100 translate-y-0" leave-to-class="opacity-0 translate-y-2">
       <div v-if="showToast"
-        class="absolute bottom-16 left-1/2 -translate-x-1/2 px-4 py-2 bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-800 rounded-lg shadow-lg text-sm flex items-center gap-2 z-50">
+        class="fixed bottom-16 left-1/2 -translate-x-1/2 px-4 py-2 bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-800 rounded-lg shadow-lg text-sm flex items-center gap-2 z-[10000] pointer-events-none">
         <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
         </svg>

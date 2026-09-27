@@ -1,0 +1,128 @@
+{
+    "extName": {
+        "message": "FlowPick - médiaszimatoló és letöltő"
+    },
+    "extDescription": {
+        "message": "M3U8/HLS streamek, videók, hangok és képek automatikus észlelése és letöltése. Beépített lejátszó. Kötegelt letöltés. 100% helyi és privát."
+    },
+    "welcomeSubtitle": {
+        "message": "Okos médiaszimatoló és letöltő"
+    },
+    "changelogTitle": {
+        "message": "Újdonságok"
+    },
+    "changelogFeaturesTitle": {
+        "message": "Új funkciók"
+    },
+    "changelogFeatures": {
+        "message": "• Gyorsabb első eredmény érdekében javult az erőforrás-észlelés és a metaadat-betöltés.\n• Javult a borítók és az időtartam frissítése videó- és streamerőforrásoknál.\n• Világos figyelmeztetés jelent meg, amikor az észlelési szabályok elrejtik a talált erőforrásokat.\n• A kötegelt letöltések mostantól csak a legfelső szintű HLS mastert választják az alárendelt variánsok és szegmensek helyett."
+    },
+    "changelogFixesTitle": {
+        "message": "Hibajavítások"
+    },
+    "changelogFixes": {
+        "message": "• Javítva: a metaadat-kérések versenyeztek a látható média betöltésével.\n• Javítva: a kötegelt letöltések HLS-variánsokat, hangsávokat és szegmenseket is tartalmaztak.\n• Javítva: a videóbélyegképek egyes esetekben nem frissítették az időtartamot."
+    },
+    "tutorialTitle": {
+        "message": "Első lépések"
+    },
+    "step1Title": {
+        "message": "Telepítse a bővítményt"
+    },
+    "step1Desc": {
+        "message": "Telepítés után a FlowPick ikon megjelenik a böngésző eszköztárán. Kattintson az ikonra a bővítménypanel megnyitásához."
+    },
+    "step2Title": {
+        "message": "Nyisson meg egy videóoldalt"
+    },
+    "step2Desc": {
+        "message": "Látogasson el egy videót vagy hangot tartalmazó weboldalra, és a FlowPick automatikusan észleli a médiaforrásokat. Erőforrás észlelésekor az ikon darabszámot mutat."
+    },
+    "step3Title": {
+        "message": "Játssza le a videót az észlelés elindításához"
+    },
+    "step3Desc": {
+        "message": "Egyes videókat le kell játszani, mielőtt a bővítmény rögzítheti a stream URL-jét. Ha nem jelenik meg szám az ikonon, próbálja lejátszani a videót."
+    },
+    "step4Title": {
+        "message": "Tekintse meg az észlelt erőforrásokat"
+    },
+    "step4Desc": {
+        "message": "Kattintson a bővítmény ikonjára, hogy megtekintse az összes észlelt médiaerőforrást a panelen. Szűrhet típus szerint (streaming, videó, hang, kép), és pontos kereséshez formátum- vagy méretszűrőket használhat."
+    },
+    "step5Title": {
+        "message": "Letöltés vagy másolás"
+    },
+    "step5Desc": {
+        "message": "Az erőforráslistában kattintson a letöltés gombra a fájl letöltéséhez, vagy a másolás gombra az erőforrás URL-jének másolásához. Több fájlt is kijelölhet kötegelt letöltéshez."
+    },
+    "step6Title": {
+        "message": "Beállítások testreszabása"
+    },
+    "step6Desc": {
+        "message": "Kattintson a panel beállítások ikonjára a szimatolás típus szerinti be-/kikapcsolásához, a minimális rögzítési méret beállításához, adott domainek kizárásához és a billentyűparancsok konfigurálásához."
+    },
+    "faqTitle": {
+        "message": "Gyakori kérdések"
+    },
+    "faq1Q": {
+        "message": "Miért nem észlelhetők egyes videók?"
+    },
+    "faq1A": {
+        "message": "Egyes weboldalak speciális titkosítást vagy dinamikus betöltési technikákat (pl. DRM-védelmet) használnak, amelyek megakadályozzák a bővítményt a videóstreamek rögzítésében. Emellett egyes stream URL-ek csak a videó lejátszásának megkezdésekor aktiválódnak. Javasoljuk, hogy először játssza le a videót, és várja meg, amíg szám jelenik meg a bővítmény ikonján."
+    },
+    "faq2Q": {
+        "message": "Mit tegyek, ha a letöltött M3U8 fájl nem játszik le?"
+    },
+    "faq2A": {
+        "message": "Az M3U8 egy indexfájl, nem maga a videó. Lejátszásához HLS-kompatibilis lejátszó (pl. VLC) szükséges, vagy speciális eszköz az M3U8 MP4-re alakításához. A bővítmény megpróbál közvetlen letöltési lehetőséget kínálni, amikor M3U8 streamet észlel."
+    },
+    "faq3Q": {
+        "message": "Gyűjti a bővítmény a személyes adataimat?"
+    },
+    "faq3A": {
+        "message": "Nem. Ez a bővítmény teljesen helyileg működik, és nem küld adatokat külső szervereknek. Minden észlelési és letöltési művelet a böngészőjében zajlik."
+    },
+    "faq4Q": {
+        "message": "Miért nem mutat az ikon darabszámot?"
+    },
+    "faq4A": {
+        "message": "A bővítmény csak akkor mutat számot az ikonon, ha az aktuális lapon médiaerőforrásokat észlel. Győződjön meg arról, hogy: 1) megnyitott videót tartalmazó weboldalt; 2) a videó lejátszása megkezdődött; 3) a weboldal nem szerepel a kizárt domainek listájában."
+    },
+    "faq5Q": {
+        "message": "Hogyan zárhat ki nem kívánt domaineket?"
+    },
+    "faq5A": {
+        "message": "Kattintson a bővítménypanel beállítások ikonjára, és írja be a kizárandó domaineket a „Kizárt domainek” részbe (soronként egyet), pl. twitter.com. Mentés után az ezeken a domaineken lévő médiaszimatolás letiltásra kerül."
+    },
+    "faq6Q": {
+        "message": "Miért lassú a letöltési sebesség?"
+    },
+    "faq6A": {
+        "message": "A letöltési sebesség a videóforrás szerver sávszélességétől és a hálózati környezetétől függ. A bővítmény a böngésző natív letöltési funkcióját használja, így a sebesség megegyezik a böngészőben közvetlenül történő fájletöltéssel. Ha a sebesség folyamatosan lassú, a forrásszerver korlátozhatja a letöltéseket."
+    },
+    "faq7Q": {
+        "message": "Hogyan állíthatok be billentyűparancsokat?"
+    },
+    "faq7A": {
+        "message": "A bővítménypanel beállítási oldalán keresse meg a „Billentyűparancsok” részt, és kattintson a „Parancsok megnyitása” gombra a böngésző parancskezelő oldalára jutáshoz."
+    },
+    "faq8Q": {
+        "message": "Miért más a Firefox elrendezése, mint a Chrome-é?"
+    },
+    "faq8A": {
+        "message": "A Firefox és a Chrome némileg eltérően jeleníti meg a CSS flexbox és grid elrendezéseket. A FlowPick-ot optimalizáltuk, hogy mindkét böngészőben konzisztens felületet biztosítson. Ha megjelenítési problémát észlel, jelentse a GitHubon."
+    },
+    "faq9Q": {
+        "message": "Miért nem találok videókat egyes oldalakon?"
+    },
+    "faq9A": {
+        "message": "Egyes weboldalak speciális titkosítást, DRM-védelmet vagy rejtett betöltési technikákat használnak, amelyek megakadályozzák a média URL-ek rögzítését. A videók beágyazott iframe-ekből is származhatnak cross-origin korlátozásokkal. Próbálja frissíteni az oldalt, és először lejátszani a videót."
+    },
+    "needMoreHelp": {
+        "message": "További segítségre van szüksége?"
+    },
+    "needMoreHelpDesc": {
+        "message": "Ha a fenti tartalom nem oldotta meg a problémáját, a következő csatornákon kérhet támogatást"
+    }
+}
