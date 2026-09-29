@@ -88,7 +88,7 @@ Deep parsing of M3U8 / MPD manifests for complete metadata:
 Automatically fetched and displayed:
 
 - **File Size** — Real-time file size display
-- **Video Resolution** — MediaInfo-powered width/height parsing with resolution labels
+- **Video Resolution** — Native media metadata and stream-manifest resolution labels
 - **Audio Duration** — Automatic duration detection
 - **Image Dimensions** — Automatic width/height recognition
 - **Stream Duration/Size** — Estimated total duration and size for VOD streams via manifest parsing
@@ -184,7 +184,6 @@ npm run dev:firefox
 | [mpegts.js](https://github.com/xqq/mpegts.js) | HTTP-FLV / MPEG-TS live stream playback and recording |
 | [m3u8-parser](https://github.com/videojs/m3u8-parser) | M3U8 manifest parsing |
 | [mpd-parser](https://github.com/videojs/mpd-parser) | MPD manifest parsing |
-| [mediainfo.js](https://github.com/buzz/mediainfo.js) | Media metadata parsing |
 | [Vite](https://vitejs.dev/) | Build tooling |
 
 ---
@@ -228,8 +227,7 @@ flowpick/
 │   └── i18n.ts            # i18n + theme/density management (7 languages)
 ├── public/
 │   ├── _locales/          # Internationalization (en / zh_CN / zh_TW / ja / de / es / ko)
-│   ├── icon/              # Extension icons
-│   └── MediaInfoModule.wasm  # MediaInfo WASM module
+│   └── icon/              # Extension icons
 ├── wxt.config.ts          # WXT configuration (permissions, Side Panel, Sidebar)
 └── package.json           # Project dependencies
 ```
@@ -273,5 +271,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 - [dash.js](https://dashif.org/) — DASH streaming playback support
 - [mpegts.js](https://github.com/xqq/mpegts.js) — HTTP-FLV / MPEG-TS live stream support
 - [m3u8-parser](https://github.com/videojs/m3u8-parser) / [mpd-parser](https://github.com/videojs/mpd-parser) — Stream manifest parsing
-- [mediainfo.js](https://github.com/buzz/mediainfo.js) — Media metadata parsing
 - [Tailwind CSS](https://tailwindcss.com/) — Utility-first CSS framework

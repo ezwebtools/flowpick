@@ -578,7 +578,7 @@
     // Video tab by format. Attach them to their visible virtual stream master
     // here instead of exposing video/audio/CDN URLs as unrelated cards.
     for (const item of supportItems) {
-      if (item.groupRole !== 'variant' || !item.groupMasterId || !item.audioOptions) continue
+      if (item.groupRole !== 'variant' || !item.groupMasterId || (!item.audioUrl && !item.audioOptions?.length)) continue
       const group = groups.get(item.groupMasterId)
       if (!group || group.variants.some(variant => variant.item.url === item.url)) continue
       const audioItem = item.audioUrl ? supportItems.find(candidate => candidate.url === item.audioUrl) : undefined
@@ -693,6 +693,12 @@
   const getPreferredStreamItem = (group: StreamGroup): MediaItem =>
     group.variants[0]?.item ?? group.masterItem
 
+  // A real HLS/DASH master carries its own audio rendition mapping. Preview
+  // the master so the player loads both tracks; only synthetic direct-track
+  // groups need to preview their preferred video variant separately.
+  const getPreviewStreamItem = (group: StreamGroup): MediaItem =>
+    group.isVirtual ? getPreferredStreamItem(group) : group.masterItem
+
   const getRecommendedAudioUrl = (variant: StreamVariant): string | undefined =>
     variant.item.audioUrl || variant.audioItem?.url || variant.audioOptions?.[0]?.url
 
@@ -756,19 +762,10 @@
   // 当 tab 标题变化时（页面刷新、跳转、SPA 路由变化等），同步更新 currentTabTitle
   const onTabUpdated = (tabId: number, changeInfo: { title?: string; status?: string; url?: string }) => {
     if (tabId !== currentTabId) return
-    if (changeInfo.status === 'loading' || typeof changeInfo.url === 'string') {
-      // Clear locally as soon as navigation starts. The background also sends
-      // an empty snapshot, but this avoids waiting for that IPC round trip.
-      cancelMetadataBatch()
-      failedMetadataKeys.clear()
-      resetNativeMediaThumbnailState()
-      mediaSession++
-      clearMediaStore()
-      reconcileMediaState()
-      imageLoadStatus.value.clear()
-      videoDimensionCache.value.clear()
-      audioDurationCache.value.clear()
-    }
+    // Do not clear from the generic tab loading signal. Infinite-scroll sites
+    // can emit transient updates while staying on the same document. The
+    // background page-session state machine broadcasts an authoritative empty
+    // list when a real top-level navigation commits.
     if (typeof changeInfo.title === 'string' && changeInfo.title && changeInfo.title !== currentTabTitle.value) {
       currentTabTitle.value = changeInfo.title
     }
@@ -1336,25 +1333,15 @@
       if (isStreamSegment(item)) return []
       // 会话内已失败的资源跳过，不再发起元数据请求
       if (failedMetadataKeys.has(key)) return []
-      // Visible video/audio cards already load the native media element for
-      // the cover and duration. Avoid competing with that request by running
-      // the expensive MediaInfo/WASM parser for those formats here.
-      // Stream manifests keep the background fallback because their duration
-      // is not reliably exposed by a plain media element.
-      const needMediaInfo = (
-        !isVideoFormat(item.format)
-        && !isAudioFormat(item.format)
-        && ((item.format === 'm3u8' || item.format === 'mpd' || item.format === 'flv') && !item.duration)
-      )
       const needSize = !item.size
         && !isStreamFormat(item.format)
         && item.format !== 'mse'
         && !!item.url
         && !item.url.startsWith('blob:')
         && !item.url.startsWith('data:')
-      if ((!needMediaInfo && !needSize) || pendingBatchKeys.has(requestKey)) return []
+      if (!needSize || pendingBatchKeys.has(requestKey)) return []
       pendingBatchKeys.add(requestKey)
-      return [{ key, requestKey, url: item.url, format: item.format, requestHeaders: item.requestHeaders, needMediaInfo, needSize }]
+      return [{ key, requestKey, url: item.url, format: item.format, requestHeaders: item.requestHeaders, needSize }]
     })
     if (!requests.length) return
 
@@ -1377,21 +1364,18 @@
         for (const result of response.items) {
           if (result.removed) {
             removedKeys.add(result.key)
-            // background 端已剔除并拉黑：会话内不再重试
+            // 后台已根据明确的大小规则剔除：会话内不再重试
             failedMetadataKeys.add(result.key)
             continue
           }
           // 请求异常（未 removed 但有 error）：记入会话失败集合，避免反复重试
           // 注意：只有真正报错的才记，size 拿不到（size=undefined）不算失败
-          if (result.error && result.width === undefined && result.height === undefined && result.duration === undefined && result.size === undefined) {
+          if (result.error && result.size === undefined) {
             failedMetadataKeys.add(result.key)
             continue
           }
           if (!mediaIndexByKey.value.has(result.key)) continue
           const patch: Partial<MediaItem> = {}
-          if (typeof result.width === 'number') patch.width = result.width
-          if (typeof result.height === 'number') patch.height = result.height
-          if (typeof result.duration === 'number') patch.duration = result.duration
           if (typeof result.size === 'number') patch.size = result.size
           if (Object.keys(patch).length) metadataPatches.set(result.key, patch)
         }
@@ -2216,7 +2200,14 @@
         if (item.captureId) browser.runtime.sendMessage({ type: 'MSE_DOWNLOAD', captureId: item.captureId, tabId: currentTabId, frameId: item.frameId })
       } else if (isStreamFormat(item.format) || isVideoDownloadFormat(item.format) || isAudioFormat(item.format)) {
         const filename = `${baseName}${suffix}`
-        browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url: item.url, format: item.format, filename, requestHeaders: item.requestHeaders })
+        browser.runtime.sendMessage({
+          type: 'OPEN_DOWNLOAD_PAGE',
+          url: item.url,
+          format: item.format,
+          filename,
+          requestHeaders: item.requestHeaders,
+          audioUrl: item.audioUrl || item.audioOptions?.[0]?.url,
+        })
       } else if (isImageFormat(item.format)) {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
         void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'image')
@@ -2757,11 +2748,11 @@
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                       </button>
-                      <button @click="playUrl(getPreferredStreamItem(group).url, getPreferredStreamItem(group).format, getPreferredStreamItem(group))"
-                        :class="['p-1.5 rounded text-white transition-colors', isItemPlaying(getPreferredStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']"
-                        :title="isItemPlaying(getPreferredStreamItem(group)) ? t('stopPlay') : t('play')">
+                      <button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))"
+                        :class="['p-1.5 rounded text-white transition-colors', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']"
+                        :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <template v-if="isItemPlaying(getPreferredStreamItem(group))">
+                          <template v-if="isItemPlaying(getPreviewStreamItem(group))">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" />
                           </template>
@@ -2792,11 +2783,11 @@
 
                 <!-- 播放器必须挂载在 Stream 分组自身，不能借用 All 标签的同名媒体节点 -->
                 <div
-                  v-if="playingKey === getMediaKey(getPreferredStreamItem(group))"
+                  v-if="playingKey === getMediaKey(getPreviewStreamItem(group))"
                   class="border-t border-gray-100 dark:border-gray-700/60 bg-white dark:bg-gray-800 px-3 pb-3 pt-2">
                   <div class="bg-black rounded-lg overflow-hidden flex items-center justify-center aspect-video">
                     <video
-                      :id="'video-player-' + getMediaDomId(getPreferredStreamItem(group))"
+                      :id="'video-player-' + getMediaDomId(getPreviewStreamItem(group))"
                       class="w-full h-full object-contain bg-black block"
                       controls
                       preload="metadata" />
@@ -2897,7 +2888,7 @@
                       <div class="flex items-center gap-1 min-w-0 overflow-hidden whitespace-nowrap"><span :class="getFormatColor(group.masterItem.format)" class="px-1.5 py-px rounded text-[10px] font-bold tracking-wide uppercase flex-shrink-0 leading-tight">{{ getFormatLabel(group.masterItem.format) }}</span><span v-if="group.isVirtual" class="text-[10px] text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-1.5 py-0.5 rounded-full flex-shrink-0 leading-tight">{{ t('separatedStream') }}</span><span v-if="getGroupEstimatedSize(group)" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400">{{ formatItemSize({ format: group.masterItem.format, size: getGroupEstimatedSize(group) } as MediaItem) }}</span></div>
                       <p class="text-[10px] text-gray-400 dark:text-gray-500 truncate">{{ getDomainLabel(getPreferredStreamItem(group).url) }}<span v-if="group.variants.length"> · {{ group.variants.length }} variants</span></p>
                     </div>
-                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreferredStreamItem(group).url, getPreferredStreamItem(group).format, getPreferredStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreferredStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="isItemPlaying(getPreferredStreamItem(group)) ? t('stopPlay') : t('play')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreferredStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
+                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreviewStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
                     <button v-if="group.isVirtual && group.variants.length" @click.stop="downloadStreamVariant(group.variants[0])" class="p-1.5 rounded text-white bg-green-600 hover:bg-green-500" :title="t('download')">
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                     </button>
@@ -2906,9 +2897,9 @@
                     </button>
                     </div></div>
                   </div>
-                  <div v-if="getPreferredStreamItem(group).format !== 'mse' && playingKey === getMediaKey(getPreferredStreamItem(group))" class="border-t border-gray-100 dark:border-gray-700/60 bg-white dark:bg-gray-800 px-3 pb-3 pt-2">
+                  <div v-if="getPreviewStreamItem(group).format !== 'mse' && playingKey === getMediaKey(getPreviewStreamItem(group))" class="border-t border-gray-100 dark:border-gray-700/60 bg-white dark:bg-gray-800 px-3 pb-3 pt-2">
                     <div class="bg-black rounded-lg overflow-hidden flex items-center justify-center aspect-video">
-                      <video :id="'video-player-' + getMediaDomId(getPreferredStreamItem(group))" class="w-full h-full object-contain bg-black block" controls preload="metadata" />
+                      <video :id="'video-player-' + getMediaDomId(getPreviewStreamItem(group))" class="w-full h-full object-contain bg-black block" controls preload="metadata" />
                     </div>
                   </div>
                   <div v-if="expandedGroups.has(group.id) && group.variants.length" class="border-t border-gray-100 dark:border-gray-700/60 bg-gray-50 dark:bg-gray-900/40">

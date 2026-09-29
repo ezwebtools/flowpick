@@ -88,7 +88,7 @@
 自动获取并展示：
 
 - **文件大小** — 实时显示媒体文件体积
-- **视频分辨率** — 通过 MediaInfo 解析视频宽高与分辨率标签
+- **视频分辨率** — 通过原生媒体元数据与流媒体清单解析宽高和分辨率标签
 - **音频时长** — 自动获取音频文件时长
 - **图片尺寸** — 自动识别图片宽高像素
 - **流媒体时长/大小** — 通过清单解析估算 VOD 流的总时长与总大小
@@ -184,7 +184,6 @@ npm run dev:firefox
 | [mpegts.js](https://github.com/xqq/mpegts.js) | HTTP-FLV / MPEG-TS 直播流播放与录制 |
 | [m3u8-parser](https://github.com/videojs/m3u8-parser) | M3U8 清单解析 |
 | [mpd-parser](https://github.com/videojs/mpd-parser) | MPD 清单解析 |
-| [mediainfo.js](https://github.com/buzz/mediainfo.js) | 媒体元数据解析 |
 | [Vite](https://vitejs.dev/) | 构建工具 |
 
 ---
@@ -228,8 +227,7 @@ flowpick/
 │   └── i18n.ts            # 国际化与主题/密度管理（7 种语言）
 ├── public/
 │   ├── _locales/          # 国际化（en / zh_CN / zh_TW / ja / de / es / ko）
-│   ├── icon/              # 扩展图标
-│   └── MediaInfoModule.wasm  # MediaInfo WASM 模块
+│   └── icon/              # 扩展图标
 ├── wxt.config.ts          # WXT 配置（权限、Side Panel、Sidebar）
 └── package.json           # 项目依赖
 ```
@@ -273,5 +271,4 @@ MIT License - 详见 [LICENSE](LICENSE)
 - [dash.js](https://dashif.org/) — DASH 流媒体播放支持
 - [mpegts.js](https://github.com/xqq/mpegts.js) — HTTP-FLV / MPEG-TS 直播流支持
 - [m3u8-parser](https://github.com/videojs/m3u8-parser) / [mpd-parser](https://github.com/videojs/mpd-parser) — 流媒体清单解析
-- [mediainfo.js](https://github.com/buzz/mediainfo.js) — 媒体元数据解析
 - [Tailwind CSS](https://tailwindcss.com/) — 原子化 CSS 框架

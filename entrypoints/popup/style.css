@@ -24,17 +24,6 @@ body {
   height: 100%;
 }
 
-/* 视频播放器自定义样式 */
-video::-webkit-media-controls-panel {
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-}
-
-video::-webkit-media-controls-play-button,
-video::-webkit-media-controls-volume-slider,
-video::-webkit-media-controls-mute-button {
-  filter: invert(1);
-}
-
 /* 视频播放器响应式 */
 @media (max-width: 500px) {
   html,

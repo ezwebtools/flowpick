@@ -33,7 +33,6 @@ export interface MetadataBatchItem {
   url: string
   format: string
   requestHeaders?: Record<string, string>
-  needMediaInfo: boolean
   needSize: boolean
 }
 
@@ -52,9 +51,6 @@ export interface MetadataBatchCancelRequest {
 export interface MetadataBatchResult {
   key: string
   url: string
-  width?: number
-  height?: number
-  duration?: number
   size?: number | null
   removed: boolean
   error?: string

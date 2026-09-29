@@ -2,192 +2,13 @@ import { detectMediaFromUrl, detectMediaFromContentType, detectMedia, detectDoc,
 import { loadAllTabData, saveTabList, deleteTabList, loadPageSessions, savePageSessions, type MediaEntry } from '../utils/storage'
 import { loadSettings, saveSettings, isFormatAllowed, isSizeAllowed, isDomainExcluded, getFormatGroup, type Settings, createDefaultSettings } from '../utils/settings'
 import { parseM3U8Manifest, parseDashManifest } from '../utils/stream-parser'
-import MediaInfoFactory from 'mediainfo.js'
 import type { MetadataBatchItem, MetadataBatchRequest, MetadataBatchResult } from './popup/types'
 import type { PlatformMediaTask } from '../utils/platform-media'
 import { PageSessions, pageIdentity, type PageContext } from '../utils/page-session'
 import { openResourceDownload, removeResourceDownloads } from '../utils/download-job'
 import { waitForNativeDownload } from '../utils/native-download'
 
-const mediaInfoCache = new Map<string, { width?: number; height?: number; duration?: number }>()
-// 失败负缓存：同一 URL 在 TTL 内不再重试 analyzeData，避免反复拉取分片（表现为"任务一直下载"）且刷屏报错
-const mediaInfoFailCache = new Map<string, number>()
-const MEDIA_INFO_FAIL_TTL_MS = 60_000
 const metadataBatchControllers = new Map<string, AbortController>()
-
-// ── 资源健康度跟踪 ──────────────────────────────────────────────────
-// 元数据批量请求失败的资源会累计失败次数；连续失败且未拿到任何有效元数据时
-// 自动从 mediaMap 剔除，并加入坏 URL 黑名单，避免反复嗅探→请求→失败的循环。
-// 黑名单带 TTL（默认 10 分钟），到期后允许重新嗅探（资源可能已恢复）。
-const urlFailureCount = new Map<string, { count: number; lastFail: number }>()
-const badUrlBlacklist = new Map<string, number>() // url → 加入黑名单的时间戳
-const URL_FAILURE_THRESHOLD = 2       // 连续失败次数阈值，达到则剔除并拉黑
-const BAD_URL_TTL_MS = 10 * 60_000   // 黑名单有效期 10 分钟
-const BAD_URL_MAX = 2000             // 黑名单上限，超限淘汰最旧
-
-function isUrlBlacklisted(url: string): boolean {
-  const ts = badUrlBlacklist.get(url)
-  if (!ts) return false
-  if (Date.now() - ts > BAD_URL_TTL_MS) {
-    badUrlBlacklist.delete(url)
-    return false
-  }
-  return true
-}
-
-function blacklistUrl(url: string) {
-  badUrlBlacklist.set(url, Date.now())
-  urlFailureCount.delete(url)
-  // LRU 淘汰：超阈值时删除最旧的一批
-  if (badUrlBlacklist.size > BAD_URL_MAX) {
-    const sorted = [...badUrlBlacklist.entries()].sort((a, b) => a[1] - b[1])
-    const evict = Math.min(200, sorted.length)
-    for (let i = 0; i < evict; i++) {
-      const [u] = sorted[i]!
-      badUrlBlacklist.delete(u)
-    }
-  }
-}
-
-function recordUrlFailure(url: string): boolean {
-  const entry = urlFailureCount.get(url) ?? { count: 0, lastFail: 0 }
-  entry.count += 1
-  entry.lastFail = Date.now()
-  urlFailureCount.set(url, entry)
-  return entry.count >= URL_FAILURE_THRESHOLD
-}
-
-function clearUrlFailure(url: string) {
-  urlFailureCount.delete(url)
-}
-
-async function fetchMediaInfo(url: string, signal?: AbortSignal): Promise<{ width?: number; height?: number; duration?: number } | null> {
-  signal?.throwIfAborted()
-  if (mediaInfoCache.has(url)) {
-    return mediaInfoCache.get(url)!
-  }
-  const lastFail = mediaInfoFailCache.get(url)
-  if (lastFail && Date.now() - lastFail < MEDIA_INFO_FAIL_TTL_MS) {
-    return null
-  }
-
-  try {
-    const mediaInfo = await MediaInfoFactory({
-      format: 'JSON',
-      locateFile: () => browser.runtime.getURL('MediaInfoModule.wasm' as any)
-    })
-
-    const getSize = async () => {
-      // HEAD 可能被服务器拒绝或被 CORS 拦截，绝不能让它抛错导致整个分析失败
-      try {
-        const headResp = await fetch(url, { method: 'HEAD', signal })
-        const cl = headResp.headers.get('Content-Length')
-        if (cl) {
-          const n = parseInt(cl, 10)
-          if (!Number.isNaN(n) && n > 0) return n
-        }
-      } catch { /* 落到下面的 Range 探测 */ }
-
-      // HEAD 不可用：用 Range 探测总大小（很多 CDN 在 206 响应的 Content-Range 里带总数）
-      try {
-        const probe = await fetch(url, { headers: { Range: 'bytes=0-0' }, signal })
-        const cr = probe.headers.get('Content-Range')
-        if (cr) {
-          const m = /\/\s*(\d+)\s*$/.exec(cr)
-          if (m) {
-            const n = parseInt(m[1], 10)
-            if (!Number.isNaN(n) && n > 0) return n
-          }
-        }
-      } catch { /* 忽略，返回 0 */ }
-
-      return 0
-    }
-
-    // 整文件缓存：当服务器不支持 Range（返回 200 而非 206）时，首次拉取整文件，
-    // 之后按 offset 切片返回；到达文件末尾返回空，避免 mediainfo 在 offset 越界后
-    // 仍反复请求、形成"后台一直拉取分片"的死循环，同时避免重复下载同一文件。
-    let fullBodyCache: Uint8Array | null = null
-    const readChunk = async (chunkSize: number, offset: number): Promise<Uint8Array> => {
-      // 已缓存整文件（服务器忽略 Range 的情况）：按 offset 切片，越界即返回空结束
-      if (fullBodyCache) {
-        if (offset >= fullBodyCache.length) return new Uint8Array(0)
-        return fullBodyCache.subarray(offset, offset + chunkSize)
-      }
-      const response = await fetch(url, {
-        headers: { Range: `bytes=${offset}-${offset + chunkSize - 1}` },
-        cache: 'no-store',
-        signal,
-      })
-      if (response.status === 416) {
-        return new Uint8Array(0)
-      }
-      // 服务器忽略 Range，返回整文件（常见于部分 CDN / 流媒体分片）：缓存后按 offset
-      // 切片，越界返回空数组让 mediainfo 正常结束，杜绝无限循环且不重复下载。
-      if (response.status === 200) {
-        const buf = new Uint8Array(await response.arrayBuffer())
-        fullBodyCache = buf
-        if (offset >= buf.length) return new Uint8Array(0)
-        return buf.subarray(offset, offset + chunkSize)
-      }
-      // 非预期状态码（403/401 等）：直接抛错，让 analyzeData 干净地 reject（被外层兜成 null），
-      // 而不是把错误响应体当媒体数据喂给 mediainfo 造成畸形 JSON
-      if (!response.ok && response.status !== 206) {
-        throw new Error(`readChunk HTTP ${response.status}`)
-      }
-      const buffer = await response.arrayBuffer()
-      return new Uint8Array(buffer)
-    }
-
-    const result = await mediaInfo.analyzeData(getSize, readChunk)
-    mediaInfo.close()
-
-    if (result) {
-      let parsed: any
-      try {
-        parsed = JSON.parse(result)
-      } catch {
-        // mediainfo 个别元数据会产出非严格 JSON，解析失败时放弃该 URL 的元数据，但不影响下载
-        mediaInfoFailCache.set(url, Date.now())
-        return null
-      }
-      const info: { width?: number; height?: number; duration?: number } = {}
-
-      const videoTrack = parsed.media?.track?.find((t: any) => t['@type'] === 'Video')
-      if (videoTrack) {
-        info.width = parseInt(videoTrack.Width, 10)
-        info.height = parseInt(videoTrack.Height, 10)
-      }
-
-      const audioTrack = parsed.media?.track?.find((t: any) => t['@type'] === 'Audio')
-      const generalTrack = parsed.media?.track?.find((t: any) => t['@type'] === 'General')
-
-      const durationStr = audioTrack?.Duration || generalTrack?.Duration
-      if (durationStr) {
-        info.duration = parseFloat(durationStr)
-      }
-
-      if (info.width || info.height || info.duration) {
-        mediaInfoCache.set(url, info)
-        return info
-      }
-    }
-  } catch (e) {
-    if (signal?.aborted || (e as Error)?.name === 'AbortError') return null
-    console.warn('[fetchMediaInfo] failed for', url, '-', (e as Error)?.message || e)
-    // 负缓存：60s 内同一 URL 不再重试，解决"任务一直下载 + 反复刷错"
-    mediaInfoFailCache.set(url, Date.now())
-  }
-  return null
-}
-
-async function fetchVideoDimensions(url: string): Promise<{ width: number; height: number } | null> {
-  const info = await fetchMediaInfo(url)
-  if (info?.width && info?.height) {
-    return { width: info.width, height: info.height }
-  }
-  return null
-}
 
 async function fetchContentLength(url: string, requestHeaders?: Record<string, string>, signal?: AbortSignal): Promise<{ ok: boolean; size: number | null; error?: string }> {
   const headers: Record<string, string> = {}
@@ -422,6 +243,16 @@ export default defineBackground(() => {
   // browser.runtime.setUninstallURL('https://github.com/1337-ops/m3u8-downloader-ext')
 
   const tabMap = new Map<number, Map<string, MediaEntry>>()
+  function removeLegacyTwitterVirtualGroups(mediaMap: Map<string, MediaEntry>): boolean {
+    let changed = false
+    for (const [url, entry] of mediaMap) {
+      if (url.startsWith('vid_grp_twitter_') || entry.groupMasterId?.startsWith('vid_grp_twitter_')) {
+        mediaMap.delete(url)
+        changed = true
+      }
+    }
+    return changed
+  }
   // Bilibili DASH URLs are handled by a virtual task; generic request sniffing
   // must not later turn its fMP4 tracks back into standalone cards.
   const bilibiliManagedUrls = new Map<number, Set<string>>()
@@ -669,7 +500,11 @@ export default defineBackground(() => {
 
   Promise.all([loadAllTabData().catch(() => new Map<number, Map<string, MediaEntry>>()), loadPageSessions().catch(() => [])]).then(([data, sessions]) => {
     data.forEach((mediaMap, tabId) => {
-      if (!pageSessions.epoch(tabId) && !tabMap.has(tabId)) tabMap.set(tabId, mediaMap)
+      const removedLegacyTwitterGroups = removeLegacyTwitterVirtualGroups(mediaMap)
+      if (!pageSessions.epoch(tabId) && !tabMap.has(tabId)) {
+        tabMap.set(tabId, mediaMap)
+        if (removedLegacyTwitterGroups) saveTabList(tabId, mediaMap).catch(() => {})
+      }
     })
     pageSessions.restore(sessions)
     for (const item of pageSessions.snapshot()) {
@@ -1176,7 +1011,7 @@ export default defineBackground(() => {
       void handleMessage(msg, sender, sendResponse)
       return true
     }
-    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
+    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
     if (asyncTypes.includes(msg.type)) {
       handleMessage(msg, sender, sendResponse)
       return true
@@ -1402,12 +1237,9 @@ export default defineBackground(() => {
 
       const browserLang = browser.i18n.getUILanguage()
       const langSuffix = languageMapping[browserLang]
-      // const targetUrl = langSuffix
-      //   ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
-      //   : `https://flowpick.net/${downloaderPage}`
       const targetUrl = langSuffix
-        ? `http://localhost:3001/${langSuffix}/${downloaderPage}`
-        : `http://localhost:3001/${downloaderPage}`
+        ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
+        : `https://flowpick.net/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl, requestHeaders: resolvedHeaders, audioUrl: msg.audioUrl as string | undefined })
@@ -1468,30 +1300,6 @@ export default defineBackground(() => {
       return true
     }
 
-    if (msg.type === 'GET_VIDEO_DIMENSIONS') {
-      const url = msg.url as string
-      fetchVideoDimensions(url).then(dimensions => {
-        sendResponse(dimensions)
-      })
-      return true
-    }
-
-    if (msg.type === 'GET_AUDIO_DURATION') {
-      const url = msg.url as string
-      fetchMediaInfo(url).then(info => {
-        sendResponse(info?.duration ? { duration: info.duration } : null)
-      })
-      return true
-    }
-
-    if (msg.type === 'GET_MEDIA_INFO') {
-      const url = msg.url as string
-      fetchMediaInfo(url).then(info => {
-        sendResponse(info)
-      })
-      return true
-    }
-
     if (msg.type === 'CANCEL_MEDIA_METADATA_BATCH') {
       const taskId = String(msg.taskId || '')
       metadataBatchControllers.get(taskId)?.abort()
@@ -1513,37 +1321,27 @@ export default defineBackground(() => {
         try {
           const results = await mapWithConcurrency<MetadataBatchItem, MetadataBatchResult>(items, 6, async item => {
             controller.signal.throwIfAborted()
-            // 黑名单中的 URL 直接跳过，不发起任何网络请求
-            if (isUrlBlacklisted(item.url)) {
-              return { key: item.key, url: item.url, removed: true, error: 'blacklisted' }
-            }
             try {
-              const [mediaInfo, sizeResult] = await Promise.all([
-                item.needMediaInfo ? fetchMediaInfo(item.url, controller.signal) : Promise.resolve(null),
-                item.needSize ? fetchContentLength(item.url, item.requestHeaders, controller.signal) : Promise.resolve(null),
-              ])
+              const sizeResult = item.needSize
+                ? await fetchContentLength(item.url, item.requestHeaders, controller.signal)
+                : null
               controller.signal.throwIfAborted()
-              // 成功拿到任一有效元数据：清空失败计数
-              const hasAnyMeta = !!(mediaInfo?.width || mediaInfo?.height || mediaInfo?.duration || (sizeResult?.ok && sizeResult.size))
-              if (hasAnyMeta) clearUrlFailure(item.url)
               return {
                 key: item.key,
                 url: item.url,
-                width: mediaInfo?.width,
-                height: mediaInfo?.height,
-                duration: mediaInfo?.duration,
                 size: sizeResult?.ok ? sizeResult.size : undefined,
                 removed: false,
               }
             } catch (error) {
               if (controller.signal.aborted) throw error
-              // 元数据请求异常：累计失败次数；达到阈值标记 removed 让 popup 剔除
-              const shouldRemove = recordUrlFailure(item.url)
+              // Metadata is optional. A CDN can reject HEAD/Range probes while
+              // the original media remains playable and downloadable, so a
+              // probe failure must never delete the item.
               return {
                 key: item.key,
                 url: item.url,
                 error: (error as Error).message,
-                removed: shouldRemove,
+                removed: false,
               }
             }
           })
@@ -1559,9 +1357,9 @@ export default defineBackground(() => {
               if (!entry) continue
               const format = entry.format.toLowerCase()
 
-              // 失败累计达标 / 已在黑名单：从 mediaMap 删除并拉黑
+              // `removed` is reserved for an explicit, authoritative removal
+              // result. Optional metadata probe failures never set it.
               if (result.removed) {
-                if (!isUrlBlacklisted(result.url)) blacklistUrl(result.url)
                 mediaMap.delete(result.url)
                 changed = true
                 removedAny = true
@@ -1581,12 +1379,9 @@ export default defineBackground(() => {
               }
               const nextEntry = {
                 ...entry,
-                width: typeof result.width === 'number' ? result.width : entry.width,
-                height: typeof result.height === 'number' ? result.height : entry.height,
-                duration: typeof result.duration === 'number' ? result.duration : entry.duration,
                 size: typeof result.size === 'number' ? result.size : entry.size,
               }
-              if (nextEntry.width !== entry.width || nextEntry.height !== entry.height || nextEntry.duration !== entry.duration || nextEntry.size !== entry.size) {
+              if (nextEntry.size !== entry.size) {
                 mediaMap.set(result.url, nextEntry)
                 changed = true
               }
@@ -1874,12 +1669,6 @@ export default defineBackground(() => {
     }
     if (url.startsWith('blob:') || url.startsWith('data:')) return
     if (bilibiliManagedUrls.get(tabId)?.has(url) || platformManagedUrls.get(tabId)?.has(url)) return
-    // 坏 URL 黑名单：跳过，避免反复嗅探→请求→失败的循环
-    // 流媒体（m3u8/mpd/mse）不拦，它们失败由 manifest 解析单独处理，且多是临时网络抖动
-    // data: URL 本地内嵌，不会失败，也不应进黑名单
-    const fmtLower = format.toLowerCase()
-    if (fmtLower !== 'm3u8' && fmtLower !== 'mpd' && fmtLower !== 'mse'
-        && !url.startsWith('data:') && isUrlBlacklisted(url)) return
     if (!tabMap.has(tabId)) {
       tabMap.set(tabId, new Map())
     }
@@ -2528,6 +2317,9 @@ export default defineBackground(() => {
     }
     try {
       const u = new URL(url)
+      // Twitter/X places the encoded dimensions in the video track path.
+      const twitterDimensions = /(?:^|\/)(\d{2,5})x(\d{2,5})(?:\/|$)/i.exec(u.pathname)
+      if (twitterDimensions) return `${twitterDimensions[2]}p`
       const itag = u.searchParams.get('itag') ?? u.searchParams.get('itagid')
       if (itag && itagMap[itag]) return itagMap[itag]!
       const quality = u.searchParams.get('quality_label') ?? u.searchParams.get('quality') ?? u.searchParams.get('qlt')
@@ -2543,6 +2335,15 @@ export default defineBackground(() => {
 
   // 尝试将新加入的 URL 与同 tab 内已有的 video/audio 条目配对
   const VIDEO_AUDIO_GROUP_WINDOW_MS = 8000
+
+  function isTwitterVideoCdnUrl(value: string): boolean {
+    try {
+      const url = new URL(value)
+      return /(^|\.)video\.twimg\.com$/i.test(url.hostname)
+    } catch {
+      return false
+    }
+  }
 
   // 对 application/octet-stream 的已知媒体 CDN URL，用 URL 特征判断 video-only / audio-only
   // 抖音/字节系 CDN 返回 octet-stream 且无 codecs，常规 content-type 判断失效
@@ -2568,6 +2369,10 @@ export default defineBackground(() => {
   }
 
   function tryGroupVideoAudio(newUrl: string, tabId: number, contentType: string, newSize?: number) {
+    // X/Twitter exposes a complete HLS master playlist. Pairing its underlying
+    // track requests again creates a duplicate synthetic "Separated stream".
+    if (isTwitterVideoCdnUrl(newUrl)) return
+
     // 标准 content-type 识别（B站/YouTube：有明确 codecs）
     let isVideo = isVideoOnlyContentType(contentType)
     let isAudio = isAudioOnlyContentType(contentType)
@@ -2677,7 +2482,7 @@ export default defineBackground(() => {
         mediaMap.set(groupId, {
           format: videoEntry.format,
           detectedAt: Math.min(videoEntry.detectedAt ?? now, audioEntry.detectedAt ?? now),
-          category: 'media',
+          category: 'stream',
           requestHeaders: videoEntry.requestHeaders,
           groupId,
           groupRole: 'master',
@@ -2793,6 +2598,13 @@ export default defineBackground(() => {
 
       const groupId = masterUrl
 
+      // Direct audio/video requests can arrive before the master playlist has
+      // finished parsing. Remove that temporary Twitter group now so the real
+      // manifest group below becomes the single source shown in the sidebar.
+      if (isTwitterVideoCdnUrl(masterUrl)) {
+        removeLegacyTwitterVirtualGroups(mediaMap)
+      }
+
       // 用最高码率 variant + 时长估算总大小（bandwidth bps / 8 * duration = bytes）
       // 若没有 bandwidth，则使用 stream-parser 抽样 segment 估算的大小
       const topBandwidth = parsed.variants.reduce((max, v) => Math.max(max, v.bandwidth ?? 0), 0)
@@ -2826,18 +2638,22 @@ export default defineBackground(() => {
           groupMasterId: masterUrl,
           variantBandwidth: variant.bandwidth,
           audioUrl: variant.audioUri,
+          duration: parsed.duration,
         })
 
-        if (variant.audioUri && !mediaMap.has(variant.audioUri)) {
+        if (variant.audioUri) {
+          const existingAudio = mediaMap.get(variant.audioUri)
           mediaMap.set(variant.audioUri, {
+            ...existingAudio,
             format: 'm3u8',
-            detectedAt: Date.now(),
-            category: 'media',
-            requestHeaders: requestHeaders ?? masterEntry.requestHeaders,
-            sourceFrameIds: masterEntry.sourceFrameIds,
+            detectedAt: existingAudio?.detectedAt ?? Date.now(),
+            category: 'stream',
+            requestHeaders: existingAudio?.requestHeaders ?? requestHeaders ?? masterEntry.requestHeaders,
+            sourceFrameIds: existingAudio?.sourceFrameIds ?? masterEntry.sourceFrameIds,
             groupId,
             groupRole: 'audio',
             groupMasterId: masterUrl,
+            duration: existingAudio?.duration ?? parsed.duration,
           })
         }
       }
