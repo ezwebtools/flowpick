@@ -1,192 +1,45 @@
-import { detectMediaFromUrl, detectMedia, detectDoc, type MediaCategory } from '../utils/detect'
+import { detectMediaFromUrl, detectMediaFromContentType, detectMedia, detectDoc, type MediaCategory } from '../utils/detect'
 import { loadAllTabData, saveTabList, deleteTabList, loadPageSessions, savePageSessions, type MediaEntry } from '../utils/storage'
 import { loadSettings, saveSettings, isFormatAllowed, isSizeAllowed, isDomainExcluded, getFormatGroup, type Settings, createDefaultSettings } from '../utils/settings'
 import { parseM3U8Manifest, parseDashManifest } from '../utils/stream-parser'
-import MediaInfoFactory from 'mediainfo.js'
 import type { MetadataBatchItem, MetadataBatchRequest, MetadataBatchResult } from './popup/types'
 import type { PlatformMediaTask } from '../utils/platform-media'
 import { PageSessions, pageIdentity, type PageContext } from '../utils/page-session'
 import { openResourceDownload, removeResourceDownloads } from '../utils/download-job'
 import { waitForNativeDownload } from '../utils/native-download'
+import { isFirefoxFamily } from '../utils/recording-support'
+import { createRecordingSessionStore } from '../utils/recording-session-store'
+import { SITE_ORIGIN } from '../utils/site'
 
-const mediaInfoCache = new Map<string, { width?: number; height?: number; duration?: number }>()
-// 失败负缓存：同一 URL 在 TTL 内不再重试 analyzeData，避免反复拉取分片（表现为"任务一直下载"）且刷屏报错
-const mediaInfoFailCache = new Map<string, number>()
-const MEDIA_INFO_FAIL_TTL_MS = 60_000
 const metadataBatchControllers = new Map<string, AbortController>()
 
-// ── 资源健康度跟踪 ──────────────────────────────────────────────────
-// 元数据批量请求失败的资源会累计失败次数；连续失败且未拿到任何有效元数据时
-// 自动从 mediaMap 剔除，并加入坏 URL 黑名单，避免反复嗅探→请求→失败的循环。
-// 黑名单带 TTL（默认 10 分钟），到期后允许重新嗅探（资源可能已恢复）。
-const urlFailureCount = new Map<string, { count: number; lastFail: number }>()
-const badUrlBlacklist = new Map<string, number>() // url → 加入黑名单的时间戳
-const URL_FAILURE_THRESHOLD = 2       // 连续失败次数阈值，达到则剔除并拉黑
-const BAD_URL_TTL_MS = 10 * 60_000   // 黑名单有效期 10 分钟
-const BAD_URL_MAX = 2000             // 黑名单上限，超限淘汰最旧
+// Signed stream URLs are refreshed frequently while still identifying the
+// same manifest. Keep stable query parameters (quality, language, etc.) but
+// ignore authentication material so an expired URL cannot remain as a second
+// card beside its refreshed replacement.
+const VOLATILE_STREAM_QUERY_KEYS = new Set([
+  'authkey', 'token', 'accesstoken', 'hdnts', 'hdnea',
+  'expires', 'expire', 'expiration', 'exp',
+  'signature', 'sig', 'sign', 'wssecret', 'wstime',
+  'txsecret', 'txtime', 'policy', 'keypairid', 'gda',
+])
 
-function isUrlBlacklisted(url: string): boolean {
-  const ts = badUrlBlacklist.get(url)
-  if (!ts) return false
-  if (Date.now() - ts > BAD_URL_TTL_MS) {
-    badUrlBlacklist.delete(url)
-    return false
-  }
-  return true
-}
-
-function blacklistUrl(url: string) {
-  badUrlBlacklist.set(url, Date.now())
-  urlFailureCount.delete(url)
-  // LRU 淘汰：超阈值时删除最旧的一批
-  if (badUrlBlacklist.size > BAD_URL_MAX) {
-    const sorted = [...badUrlBlacklist.entries()].sort((a, b) => a[1] - b[1])
-    const evict = Math.min(200, sorted.length)
-    for (let i = 0; i < evict; i++) {
-      const [u] = sorted[i]!
-      badUrlBlacklist.delete(u)
-    }
-  }
-}
-
-function recordUrlFailure(url: string): boolean {
-  const entry = urlFailureCount.get(url) ?? { count: 0, lastFail: 0 }
-  entry.count += 1
-  entry.lastFail = Date.now()
-  urlFailureCount.set(url, entry)
-  return entry.count >= URL_FAILURE_THRESHOLD
-}
-
-function clearUrlFailure(url: string) {
-  urlFailureCount.delete(url)
-}
-
-async function fetchMediaInfo(url: string, signal?: AbortSignal): Promise<{ width?: number; height?: number; duration?: number } | null> {
-  signal?.throwIfAborted()
-  if (mediaInfoCache.has(url)) {
-    return mediaInfoCache.get(url)!
-  }
-  const lastFail = mediaInfoFailCache.get(url)
-  if (lastFail && Date.now() - lastFail < MEDIA_INFO_FAIL_TTL_MS) {
+function getStreamResourceIdentity(url: string, format: string): string | null {
+  const normalizedFormat = format.toLowerCase()
+  if (normalizedFormat !== 'm3u8' && normalizedFormat !== 'mpd') return null
+  try {
+    const parsed = new URL(url)
+    parsed.hash = ''
+    const volatileNames = [...parsed.searchParams.keys()].filter((name) => {
+      const normalized = name.toLowerCase().replace(/[-_]/g, '')
+      return VOLATILE_STREAM_QUERY_KEYS.has(normalized) || normalized.startsWith('xamz')
+    })
+    for (const name of volatileNames) parsed.searchParams.delete(name)
+    parsed.searchParams.sort()
+    return `${normalizedFormat}:${parsed.toString()}`
+  } catch {
     return null
   }
-
-  try {
-    const mediaInfo = await MediaInfoFactory({
-      format: 'JSON',
-      locateFile: () => browser.runtime.getURL('MediaInfoModule.wasm' as any)
-    })
-
-    const getSize = async () => {
-      // HEAD 可能被服务器拒绝或被 CORS 拦截，绝不能让它抛错导致整个分析失败
-      try {
-        const headResp = await fetch(url, { method: 'HEAD', signal })
-        const cl = headResp.headers.get('Content-Length')
-        if (cl) {
-          const n = parseInt(cl, 10)
-          if (!Number.isNaN(n) && n > 0) return n
-        }
-      } catch { /* 落到下面的 Range 探测 */ }
-
-      // HEAD 不可用：用 Range 探测总大小（很多 CDN 在 206 响应的 Content-Range 里带总数）
-      try {
-        const probe = await fetch(url, { headers: { Range: 'bytes=0-0' }, signal })
-        const cr = probe.headers.get('Content-Range')
-        if (cr) {
-          const m = /\/\s*(\d+)\s*$/.exec(cr)
-          if (m) {
-            const n = parseInt(m[1], 10)
-            if (!Number.isNaN(n) && n > 0) return n
-          }
-        }
-      } catch { /* 忽略，返回 0 */ }
-
-      return 0
-    }
-
-    // 整文件缓存：当服务器不支持 Range（返回 200 而非 206）时，首次拉取整文件，
-    // 之后按 offset 切片返回；到达文件末尾返回空，避免 mediainfo 在 offset 越界后
-    // 仍反复请求、形成"后台一直拉取分片"的死循环，同时避免重复下载同一文件。
-    let fullBodyCache: Uint8Array | null = null
-    const readChunk = async (chunkSize: number, offset: number): Promise<Uint8Array> => {
-      // 已缓存整文件（服务器忽略 Range 的情况）：按 offset 切片，越界即返回空结束
-      if (fullBodyCache) {
-        if (offset >= fullBodyCache.length) return new Uint8Array(0)
-        return fullBodyCache.subarray(offset, offset + chunkSize)
-      }
-      const response = await fetch(url, {
-        headers: { Range: `bytes=${offset}-${offset + chunkSize - 1}` },
-        cache: 'no-store',
-        signal,
-      })
-      if (response.status === 416) {
-        return new Uint8Array(0)
-      }
-      // 服务器忽略 Range，返回整文件（常见于部分 CDN / 流媒体分片）：缓存后按 offset
-      // 切片，越界返回空数组让 mediainfo 正常结束，杜绝无限循环且不重复下载。
-      if (response.status === 200) {
-        const buf = new Uint8Array(await response.arrayBuffer())
-        fullBodyCache = buf
-        if (offset >= buf.length) return new Uint8Array(0)
-        return buf.subarray(offset, offset + chunkSize)
-      }
-      // 非预期状态码（403/401 等）：直接抛错，让 analyzeData 干净地 reject（被外层兜成 null），
-      // 而不是把错误响应体当媒体数据喂给 mediainfo 造成畸形 JSON
-      if (!response.ok && response.status !== 206) {
-        throw new Error(`readChunk HTTP ${response.status}`)
-      }
-      const buffer = await response.arrayBuffer()
-      return new Uint8Array(buffer)
-    }
-
-    const result = await mediaInfo.analyzeData(getSize, readChunk)
-    mediaInfo.close()
-
-    if (result) {
-      let parsed: any
-      try {
-        parsed = JSON.parse(result)
-      } catch {
-        // mediainfo 个别元数据会产出非严格 JSON，解析失败时放弃该 URL 的元数据，但不影响下载
-        mediaInfoFailCache.set(url, Date.now())
-        return null
-      }
-      const info: { width?: number; height?: number; duration?: number } = {}
-
-      const videoTrack = parsed.media?.track?.find((t: any) => t['@type'] === 'Video')
-      if (videoTrack) {
-        info.width = parseInt(videoTrack.Width, 10)
-        info.height = parseInt(videoTrack.Height, 10)
-      }
-
-      const audioTrack = parsed.media?.track?.find((t: any) => t['@type'] === 'Audio')
-      const generalTrack = parsed.media?.track?.find((t: any) => t['@type'] === 'General')
-
-      const durationStr = audioTrack?.Duration || generalTrack?.Duration
-      if (durationStr) {
-        info.duration = parseFloat(durationStr)
-      }
-
-      if (info.width || info.height || info.duration) {
-        mediaInfoCache.set(url, info)
-        return info
-      }
-    }
-  } catch (e) {
-    if (signal?.aborted || (e as Error)?.name === 'AbortError') return null
-    console.warn('[fetchMediaInfo] failed for', url, '-', (e as Error)?.message || e)
-    // 负缓存：60s 内同一 URL 不再重试，解决"任务一直下载 + 反复刷错"
-    mediaInfoFailCache.set(url, Date.now())
-  }
-  return null
-}
-
-async function fetchVideoDimensions(url: string): Promise<{ width: number; height: number } | null> {
-  const info = await fetchMediaInfo(url)
-  if (info?.width && info?.height) {
-    return { width: info.width, height: info.height }
-  }
-  return null
 }
 
 async function fetchContentLength(url: string, requestHeaders?: Record<string, string>, signal?: AbortSignal): Promise<{ ok: boolean; size: number | null; error?: string }> {
@@ -422,6 +275,16 @@ export default defineBackground(() => {
   // browser.runtime.setUninstallURL('https://github.com/1337-ops/m3u8-downloader-ext')
 
   const tabMap = new Map<number, Map<string, MediaEntry>>()
+  function removeLegacyTwitterVirtualGroups(mediaMap: Map<string, MediaEntry>): boolean {
+    let changed = false
+    for (const [url, entry] of mediaMap) {
+      if (url.startsWith('vid_grp_twitter_') || entry.groupMasterId?.startsWith('vid_grp_twitter_')) {
+        mediaMap.delete(url)
+        changed = true
+      }
+    }
+    return changed
+  }
   // Bilibili DASH URLs are handled by a virtual task; generic request sniffing
   // must not later turn its fMP4 tracks back into standalone cards.
   const bilibiliManagedUrls = new Map<number, Set<string>>()
@@ -515,6 +378,170 @@ export default defineBackground(() => {
     audioUrl?: string
   }
   const pendingDownloads = new Map<number, DownloadSession>()
+  type RecordingMode = 'mse' | 'msr'
+  interface RecordingSession {
+    id: string
+    mode: RecordingMode
+    sourceTabId: number
+    targetTabId: number
+    sourceTitle: string
+    createdAt: number
+    active: boolean
+    cancelled: boolean
+    playingFrames: Set<number>
+    playbackPlaying: boolean
+    captureRegion?: {
+      x: number
+      y: number
+      width: number
+      height: number
+      viewportWidth: number
+      viewportHeight: number
+      devicePixelRatio: number
+      kind: 'video' | 'iframe'
+    }
+    preparePromise?: Promise<{ ok: boolean, error?: string }>
+    sourcePrepared?: boolean
+  }
+  const recordingSessionsByTarget = new Map<number, RecordingSession>()
+  const recordingTargetBySource = new Map<number, number>()
+  const recordingStore = createRecordingSessionStore(recordingSessionsByTarget, recordingTargetBySource,
+    browser.storage.session, async session => {
+      const source = await browser.tabs.get(session.sourceTabId).catch(() => undefined)
+      const target = await browser.tabs.get(session.targetTabId).catch(() => undefined)
+      if (!source || !target) return false
+      // Never restore ownership onto an unrelated tab after navigation.
+      try {
+        const url = new URL(target.url || '')
+        return ['flowpick.net', 'localhost', '127.0.0.1'].includes(url.hostname)
+          && /^\/(?:[^/]+\/)?recording\/?$/.test(url.pathname)
+          && url.searchParams.get('session') === session.id
+      } catch { return false }
+    })
+
+  function getMsrTabStreamId(sourceTabId: number, targetTabId: number): Promise<string | undefined> {
+    const tabCapture = (globalThis as any).chrome?.tabCapture
+    if (!tabCapture?.getMediaStreamId) return Promise.resolve(undefined)
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (streamId?: string) => {
+        if (settled) return
+        settled = true
+        resolve(typeof streamId === 'string' && streamId ? streamId : undefined)
+      }
+      try {
+        const maybePromise = tabCapture.getMediaStreamId({
+          targetTabId: sourceTabId,
+          consumerTabId: targetTabId,
+        }, (streamId?: string) => {
+          const lastError = (globalThis as any).chrome?.runtime?.lastError
+          if (lastError) {
+            console.warn('[FlowPick] MSR tab capture unavailable:', lastError.message)
+            finish()
+          } else {
+            finish(streamId)
+          }
+        })
+        if (maybePromise?.then) {
+          maybePromise.then((streamId: string) => finish(streamId)).catch((error: unknown) => {
+            console.warn('[FlowPick] MSR tab capture unavailable:', error)
+            finish()
+          })
+        }
+      } catch (error) {
+        console.warn('[FlowPick] MSR tab capture unavailable:', error)
+        finish()
+      }
+    })
+  }
+
+  function reloadRecordingSource(tabId: number): Promise<{ ok: boolean, error?: string }> {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (result: { ok: boolean, error?: string }) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        browser.tabs.onUpdated.removeListener(onUpdated)
+        resolve(result)
+      }
+      const onUpdated = (updatedTabId: number, changeInfo: { status?: string }) => {
+        if (updatedTabId === tabId && changeInfo.status === 'complete') finish({ ok: true })
+      }
+      const timeout = setTimeout(() => finish({ ok: false, error: 'source-reload-timeout' }), 20_000)
+      browser.tabs.onUpdated.addListener(onUpdated)
+      browser.tabs.reload(tabId).then(async () => {
+        const tab = await browser.tabs.get(tabId).catch(() => undefined)
+        if (tab?.status === 'complete') finish({ ok: true })
+      }).catch(error => finish({ ok: false, error: String(error) }))
+    })
+  }
+
+  async function prepareRecordingSession(session: RecordingSession): Promise<{ ok: boolean, error?: string }> {
+    try {
+      await browser.tabs.update(session.sourceTabId, { active: true }).catch(() => undefined)
+      const reloaded = await reloadRecordingSource(session.sourceTabId)
+      if (!reloaded.ok) return reloaded
+      if (session.cancelled) return { ok: false, error: 'recording-session-closed' }
+
+      if (session.mode === 'mse') {
+        // Accept the first media append while the new content script enables
+        // the page-world hook; otherwise an immediate autoplay can win the race.
+        session.active = true
+        const result = await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSE_CAPTURE_SET',
+          enabled: true,
+        }).catch(error => ({ ok: false, error: String(error) })) as any
+        if (!result?.ok) {
+          session.active = false
+          return { ok: false, error: result?.error || 'mse-capture-start-failed' }
+        }
+      }
+
+      if (session.cancelled) {
+        if (session.mode === 'mse' && session.active) {
+          await browser.tabs.sendMessage(session.sourceTabId, {
+            type: 'FLOWPICK_MSE_CAPTURE_SET',
+            enabled: false,
+          }).catch(() => undefined)
+          session.active = false
+        }
+        return { ok: false, error: 'recording-session-closed' }
+      }
+
+      await browser.tabs.sendMessage(session.sourceTabId, {
+        type: 'FLOWPICK_MEDIA_AUTOPLAY',
+      }).catch(() => undefined)
+      return { ok: true }
+    } finally {
+      // The recorder is created in the background so the refreshed source tab
+      // keeps the user activation needed by stricter autoplay policies.
+      await browser.tabs.update(session.targetTabId, { active: true }).catch(() => undefined)
+    }
+  }
+
+  async function closeRecordingSession(session: RecordingSession, notifyTarget = true) {
+    session.cancelled = true
+    recordingSessionsByTarget.delete(session.targetTabId)
+    if (recordingTargetBySource.get(session.sourceTabId) === session.targetTabId) {
+      recordingTargetBySource.delete(session.sourceTabId)
+    }
+    if (session.mode === 'mse' && session.active) {
+      await browser.tabs.sendMessage(session.sourceTabId, {
+        type: 'FLOWPICK_MSE_CAPTURE_SET',
+        enabled: false,
+      }).catch(() => undefined)
+    }
+    session.active = false
+    await recordingStore.save()
+    if (notifyTarget) {
+      await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_SESSION_STATE',
+        state: 'closed',
+        sessionId: session.id,
+      }).catch(() => undefined)
+    }
+  }
   // 跟踪后台正在进行的 PROXY_FETCH 代理拉取，便于在标签页关闭或页面主动取消时中止，
   // 避免"页面已关但分片仍在后台继续请求"的资源泄漏
   const pendingProxyFetches = new Map<string, { controller: AbortController, tabId?: number }>()
@@ -538,7 +565,6 @@ export default defineBackground(() => {
             if (tab.id) {
               browser.tabs.sendMessage(tab.id, {
                 type: 'FLOWPICK_SETTINGS_CHANGED',
-                enableMseCapture: s.enableMseCapture,
                 captureDataImages: s.captureDataImages,
                 dataImageMinSizeKB: s.dataImageMinSizeKB,
               }).catch(() => {})
@@ -669,7 +695,17 @@ export default defineBackground(() => {
 
   Promise.all([loadAllTabData().catch(() => new Map<number, Map<string, MediaEntry>>()), loadPageSessions().catch(() => [])]).then(([data, sessions]) => {
     data.forEach((mediaMap, tabId) => {
-      if (!pageSessions.epoch(tabId) && !tabMap.has(tabId)) tabMap.set(tabId, mediaMap)
+      let cleanedPersistedMedia = removeLegacyTwitterVirtualGroups(mediaMap)
+      for (const [url, entry] of mediaMap) {
+        if (entry.captureId || entry.format === 'mse' || url.startsWith('mse://')) {
+          mediaMap.delete(url)
+          cleanedPersistedMedia = true
+        }
+      }
+      if (!pageSessions.epoch(tabId) && !tabMap.has(tabId)) {
+        tabMap.set(tabId, mediaMap)
+        if (cleanedPersistedMedia) saveTabList(tabId, mediaMap).catch(() => {})
+      }
     })
     pageSessions.restore(sessions)
     for (const item of pageSessions.snapshot()) {
@@ -1176,9 +1212,11 @@ export default defineBackground(() => {
       void handleMessage(msg, sender, sendResponse)
       return true
     }
-    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_VIDEO_DIMENSIONS', 'GET_AUDIO_DURATION', 'GET_MEDIA_INFO', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
-    if (asyncTypes.includes(msg.type)) {
-      handleMessage(msg, sender, sendResponse)
+    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'OPEN_RECORDING_PAGE', 'FLOWPICK_RECORDING_PAGE_READY', 'FLOWPICK_RECORDING_SOURCE_READY', 'FLOWPICK_RECORDING_PLAYBACK_STATE', 'FLOWPICK_RECORDING_CAPTURE_REGION', 'FLOWPICK_RECORDING_STREAM_DATA', 'FLOWPICK_RECORDING_PAGE_COMMAND', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
+    if (asyncTypes.includes(msg.type) || msg.type === 'FLOWPICK_MSR_SOURCE_START') {
+      void handleMessage(msg, sender, sendResponse).catch(error => {
+        sendResponse({ ok: false, sessionId: msg.sessionId, error: String(error) })
+      })
       return true
     }
     if (!isDataLoaded) {
@@ -1190,6 +1228,12 @@ export default defineBackground(() => {
   })
 
   async function handleMessage(msg: any, sender: any, sendResponse: (response?: any) => void) {
+    if (msg.type === 'OPEN_RECORDING_PAGE' || String(msg.type).startsWith('FLOWPICK_RECORDING_') || msg.type === 'FLOWPICK_MSR_SOURCE_START') {
+      try { await recordingStore.ready } catch (error) {
+        sendResponse({ ok: false, sessionId: msg.sessionId, error: `recording-session-restore-failed: ${String(error)}` })
+        return
+      }
+    }
     if (msg.type === 'OPEN_RESOURCE_DOWNLOAD') {
       try {
         const sourceTab = typeof msg.sourceTabId === 'number' ? await browser.tabs.get(msg.sourceTabId) : sender.tab
@@ -1299,22 +1343,9 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'MSE_STREAM_UPDATE') {
-      const tabId = sender.tab?.id
-      if (tabId === undefined) { sendResponse({ ok: false }); return }
-      const captureId: string = msg.captureId
-      const pseudoUrl = `mse://${captureId}`
-      addMedia(
-        pseudoUrl,
-        tabId,
-        'mse',
-        msg.totalBytes,
-        'media',
-        undefined,
-        { captureId, frameId: sender.frameId ?? 0, trackCount: msg.trackCount, mseComplete: msg.complete },
-        undefined,
-        sender.tab?.title,
-      )
-      sendResponse({ ok: true })
+      // Compatibility with an already-injected older content script: accept
+      // the message but never retain or display an MSE recording artifact.
+      sendResponse({ ok: true, ignored: true })
       return
     }
 
@@ -1356,6 +1387,320 @@ export default defineBackground(() => {
       } catch (error) {
         sendResponse({ ok: false, errorCode: 'msePageConnectionFailed', errorDetail: String(error) })
       }
+      return
+    }
+
+    if (msg.type === 'OPEN_RECORDING_PAGE') {
+      if (import.meta.env.FIREFOX || isFirefoxFamily(navigator.userAgent)) {
+        sendResponse({ ok: false, error: 'Recording is not supported in Firefox. Please use the latest Microsoft Edge or Google Chrome.' })
+        return
+      }
+      const sourceTabId = Number(msg.sourceTabId)
+      const mode: RecordingMode = msg.mode === 'msr' ? 'msr' : 'mse'
+      if (!Number.isSafeInteger(sourceTabId) || sourceTabId <= 0) {
+        sendResponse({ ok: false, error: 'invalid-source-tab' })
+        return
+      }
+      const previousTarget = recordingTargetBySource.get(sourceTabId)
+      const previousSession = previousTarget !== undefined ? recordingSessionsByTarget.get(previousTarget) : undefined
+      if (previousSession) await closeRecordingSession(previousSession)
+
+      const languageMapping: Record<string, string> = {
+        'zh-CN': 'zh-Hans', 'zh-SG': 'zh-Hans', 'zh-TW': 'zh-Hant', 'zh-HK': 'zh-Hant',
+        'ja': 'ja', 'ko': 'ko', 'fr': 'fr',
+      }
+      const langSuffix = languageMapping[browser.i18n.getUILanguage()]
+      // 开发环境（wxt dev）指向本地 dev server，生产构建指向 flowpick.net
+      const recordingPageUrl = langSuffix
+        ? `${SITE_ORIGIN}/${langSuffix}/recording`
+        : `${SITE_ORIGIN}/recording`
+      const sessionId = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `recording-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const targetUrl = `${recordingPageUrl}?session=${encodeURIComponent(sessionId)}`
+      let createdTargetId: number | undefined
+      try {
+        const [sourceTab, targetTab] = await Promise.all([
+          browser.tabs.get(sourceTabId),
+          // Register and persist ownership before any page can send READY.
+          browser.tabs.create({ url: 'about:blank', active: false }),
+        ])
+        if (targetTab.id === undefined) throw new Error('recording-tab-not-created')
+        createdTargetId = targetTab.id
+        const session: RecordingSession = {
+          id: sessionId,
+          mode,
+          sourceTabId,
+          targetTabId: targetTab.id,
+          sourceTitle: sourceTab.title || 'Recording',
+          createdAt: Date.now(),
+          active: false,
+          cancelled: false,
+          playingFrames: new Set(),
+          playbackPlaying: false,
+        }
+        recordingSessionsByTarget.set(targetTab.id, session)
+        recordingTargetBySource.set(sourceTabId, targetTab.id)
+        await recordingStore.save()
+        await browser.tabs.update(targetTab.id, { url: targetUrl })
+        sendResponse({ ok: true, sessionId: session.id, targetTabId: targetTab.id })
+      } catch (error) {
+        if (createdTargetId !== undefined) {
+          const failed = recordingSessionsByTarget.get(createdTargetId)
+          if (failed) await closeRecordingSession(failed, false).catch(() => undefined)
+          await browser.tabs.remove(createdTargetId).catch(() => undefined)
+        }
+        sendResponse({ ok: false, error: String(error) })
+      }
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_PAGE_READY') {
+      const targetTabId = sender.tab?.id
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || msg.sessionId !== session.id) {
+        sendResponse({ ok: false, sessionId: msg.sessionId, error: 'recording-session-not-found' })
+        return
+      }
+      if (session.mode === 'mse') {
+        // Do not refresh the source until the recorder page has installed its
+        // data listener. The first READY owns one shared preparation promise.
+        session.preparePromise ??= session.sourcePrepared
+          ? Promise.resolve({ ok: true }) : prepareRecordingSession(session)
+        const prepared = await session.preparePromise
+        if (!prepared?.ok) {
+          sendResponse({
+            ok: false,
+            sessionId: session.id,
+            error: prepared?.error || 'recording-source-prepare-failed',
+          })
+          await closeRecordingSession(session, false)
+          return
+        }
+        session.sourcePrepared = true
+        await recordingStore.save()
+      } else {
+        const regionResult = await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSR_REGION_TRACKING_START',
+          sessionId: session.id,
+        }, { frameId: 0 }).catch(() => undefined) as any
+        if (regionResult?.ok && regionResult.region) session.captureRegion = regionResult.region
+        // MSR stays idle while the user adjusts the source player. Request
+        // a fresh, single-use stream ID only after the manual Start command.
+        // Keep the source player in front: MSR can now be started there.
+      }
+      sendResponse({
+        ok: true,
+        sessionId: session.id,
+        mode: session.mode,
+        sourceTitle: session.sourceTitle,
+        createdAt: session.createdAt,
+        playing: session.playbackPlaying,
+        captureRegion: session.captureRegion,
+      })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_SOURCE_READY') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled) {
+        sendResponse({ ok: false, capture: false })
+        return
+      }
+      if ((sender.frameId ?? 0) === 0) {
+        session.playingFrames.clear()
+        session.playbackPlaying = false
+      }
+      if (session.mode === 'mse') session.active = true
+      await recordingStore.save()
+      sendResponse({ ok: true, capture: session.mode === 'mse', mode: session.mode })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_CAPTURE_REGION') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || session.mode !== 'msr') {
+        sendResponse({ ok: false, error: 'recording-session-not-active' })
+        return
+      }
+      const value = msg.region
+      const keys = ['x', 'y', 'width', 'height', 'viewportWidth', 'viewportHeight', 'devicePixelRatio'] as const
+      const valid = value === undefined || value === null || (
+        typeof value === 'object'
+        && keys.every(key => Number.isFinite(value[key]))
+        && value.width > 0
+        && value.height > 0
+        && value.viewportWidth > 0
+        && value.viewportHeight > 0
+        && (value.kind === 'video' || value.kind === 'iframe')
+      )
+      if (!valid) {
+        sendResponse({ ok: false, error: 'invalid-capture-region' })
+        return
+      }
+      session.captureRegion = value || undefined
+      await recordingStore.save()
+      await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_CAPTURE_REGION',
+        sessionId: session.id,
+        region: session.captureRegion,
+      }).catch(() => undefined)
+      sendResponse({ ok: true })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_PLAYBACK_STATE') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || (!session.active && session.mode !== 'msr')) {
+        sendResponse({ ok: false, error: 'recording-session-not-active' })
+        return
+      }
+      const frameId = sender.frameId ?? 0
+      if (msg.playing === true) session.playingFrames.add(frameId)
+      else session.playingFrames.delete(frameId)
+      const playing = session.playingFrames.size > 0
+      if (playing !== session.playbackPlaying) {
+        session.playbackPlaying = playing
+        await recordingStore.save()
+        await browser.tabs.sendMessage(session.targetTabId, {
+          type: 'FLOWPICK_RECORDING_PLAYBACK_STATE',
+          playing,
+          sessionId: session.id,
+        }).catch(() => undefined)
+        if (session.mode === 'mse') {
+          // Also update the top-level source indicator when playback happens
+          // in a child frame, where the outer document cannot inspect video.
+          await browser.tabs.sendMessage(session.sourceTabId, {
+            type: 'FLOWPICK_RECORDING_PLAYBACK_STATE', playing, sessionId: session.id,
+          }, { frameId: 0 }).catch(() => undefined)
+        }
+      }
+      sendResponse({ ok: true, playing })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_STREAM_DATA') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      const payload = msg.payload
+      if (!session || session.mode !== 'mse' || !session.active || !payload || typeof payload !== 'object') {
+        sendResponse({ ok: false, error: 'recording-session-not-active' })
+        return
+      }
+      if (!['start', 'chunk', 'complete'].includes(payload.event)) {
+        sendResponse({ ok: false, error: 'invalid-recording-event' })
+        return
+      }
+      if (payload.event === 'chunk' && typeof payload.dataBase64 !== 'string') {
+        sendResponse({ ok: false, error: 'recording-chunk-missing' })
+        return
+      }
+      if (typeof payload.dataBase64 === 'string' && payload.dataBase64.length > 1024 * 1024) {
+        sendResponse({ ok: false, error: 'recording-chunk-too-large' })
+        return
+      }
+      try {
+        await browser.tabs.sendMessage(session.targetTabId, {
+          type: 'FLOWPICK_RECORDING_DELIVER',
+          payload: { ...payload, sessionId: session.id },
+        })
+        sendResponse({ ok: true })
+      } catch (error) {
+        await closeRecordingSession(session, false)
+        sendResponse({ ok: false, error: String(error) })
+      }
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_MSR_SOURCE_START') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || session.mode !== 'msr' || session.id !== msg.sessionId || session.active || (sender.frameId ?? 0) !== 0) {
+        sendResponse({ ok: false, error: 'recording-session-not-ready' })
+        return
+      }
+      const result = await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_SOURCE_START', sessionId: session.id,
+      }, { frameId: 0 }).catch(error => ({ ok: false, error: String(error) }))
+      sendResponse(result || { ok: false, error: 'recording-page-not-ready' })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_PAGE_COMMAND') {
+      const targetTabId = sender.tab?.id
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || msg.sessionId !== session.id) {
+        sendResponse({ ok: false, error: 'recording-session-not-found' })
+        return
+      }
+      if (msg.command === 'msr-state') {
+        if (session.mode !== 'msr' || !['ready', 'starting', 'waiting', 'recording', 'error', 'picker'].includes(msg.state)) {
+          sendResponse({ ok: false, error: 'invalid-msr-state' })
+          return
+        }
+        await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSR_CONTROL_STATE', sessionId: session.id, state: msg.state,
+          label: typeof msg.label === 'string' ? msg.label.slice(0, 100) : undefined,
+        }, { frameId: 0 }).catch(() => undefined)
+        // getDisplayMedia cannot inherit the source page's user gesture. If
+        // native tab capture is unavailable, keep the permission fallback on
+        // the recorder page rather than silently failing in the background.
+        if (msg.state === 'picker') {
+          await browser.tabs.update(session.targetTabId, { active: true }).catch(() => undefined)
+        }
+        sendResponse({ ok: true })
+        return
+      }
+      if (msg.command === 'start') {
+        if (session.mode !== 'msr') {
+          sendResponse({ ok: false, error: 'unsupported-recording-command' })
+          return
+        }
+        // Do not reload or autoplay: preserve the user's quality, position,
+        // playback speed and player size selected before manual recording.
+        session.active = true
+        await recordingStore.save()
+        await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSR_CONTROL_STATE', sessionId: session.id, state: 'starting',
+        }, { frameId: 0 }).catch(() => undefined)
+        await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_RECORDING_PLAYBACK_SYNC',
+        }).catch(() => undefined)
+        const msrStreamId = await getMsrTabStreamId(session.sourceTabId, session.targetTabId)
+        sendResponse({ ok: true, msrStreamId, playing: session.playbackPlaying, captureRegion: session.captureRegion })
+        return
+      }
+      if (msg.command !== 'stop') {
+        sendResponse({ ok: false, error: 'unsupported-recording-command' })
+        return
+      }
+      if (session.mode === 'mse' && session.active) {
+        const result = await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSE_CAPTURE_SET',
+          enabled: false,
+        }).catch(error => ({ ok: false, error: String(error) })) as any
+        if (!result?.ok) {
+          sendResponse({ ok: false, error: result?.error || 'mse-capture-stop-failed' })
+          return
+        }
+      }
+      session.active = false
+      recordingTargetBySource.delete(session.sourceTabId)
+      await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_SESSION_STATE',
+        state: 'stopped',
+        sessionId: session.id,
+      }).catch(() => undefined)
+      await closeRecordingSession(session, false)
+      sendResponse({ ok: true })
       return
     }
 
@@ -1402,9 +1747,10 @@ export default defineBackground(() => {
 
       const browserLang = browser.i18n.getUILanguage()
       const langSuffix = languageMapping[browserLang]
+      // 开发环境（wxt dev）指向本地 dev server，生产构建指向 flowpick.net
       const targetUrl = langSuffix
-        ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
-        : `https://flowpick.net/${downloaderPage}`
+        ? `${SITE_ORIGIN}/${langSuffix}/${downloaderPage}`
+        : `${SITE_ORIGIN}/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl, requestHeaders: resolvedHeaders, audioUrl: msg.audioUrl as string | undefined })
@@ -1465,30 +1811,6 @@ export default defineBackground(() => {
       return true
     }
 
-    if (msg.type === 'GET_VIDEO_DIMENSIONS') {
-      const url = msg.url as string
-      fetchVideoDimensions(url).then(dimensions => {
-        sendResponse(dimensions)
-      })
-      return true
-    }
-
-    if (msg.type === 'GET_AUDIO_DURATION') {
-      const url = msg.url as string
-      fetchMediaInfo(url).then(info => {
-        sendResponse(info?.duration ? { duration: info.duration } : null)
-      })
-      return true
-    }
-
-    if (msg.type === 'GET_MEDIA_INFO') {
-      const url = msg.url as string
-      fetchMediaInfo(url).then(info => {
-        sendResponse(info)
-      })
-      return true
-    }
-
     if (msg.type === 'CANCEL_MEDIA_METADATA_BATCH') {
       const taskId = String(msg.taskId || '')
       metadataBatchControllers.get(taskId)?.abort()
@@ -1510,37 +1832,27 @@ export default defineBackground(() => {
         try {
           const results = await mapWithConcurrency<MetadataBatchItem, MetadataBatchResult>(items, 6, async item => {
             controller.signal.throwIfAborted()
-            // 黑名单中的 URL 直接跳过，不发起任何网络请求
-            if (isUrlBlacklisted(item.url)) {
-              return { key: item.key, url: item.url, removed: true, error: 'blacklisted' }
-            }
             try {
-              const [mediaInfo, sizeResult] = await Promise.all([
-                item.needMediaInfo ? fetchMediaInfo(item.url, controller.signal) : Promise.resolve(null),
-                item.needSize ? fetchContentLength(item.url, item.requestHeaders, controller.signal) : Promise.resolve(null),
-              ])
+              const sizeResult = item.needSize
+                ? await fetchContentLength(item.url, item.requestHeaders, controller.signal)
+                : null
               controller.signal.throwIfAborted()
-              // 成功拿到任一有效元数据：清空失败计数
-              const hasAnyMeta = !!(mediaInfo?.width || mediaInfo?.height || mediaInfo?.duration || (sizeResult?.ok && sizeResult.size))
-              if (hasAnyMeta) clearUrlFailure(item.url)
               return {
                 key: item.key,
                 url: item.url,
-                width: mediaInfo?.width,
-                height: mediaInfo?.height,
-                duration: mediaInfo?.duration,
                 size: sizeResult?.ok ? sizeResult.size : undefined,
                 removed: false,
               }
             } catch (error) {
               if (controller.signal.aborted) throw error
-              // 元数据请求异常：累计失败次数；达到阈值标记 removed 让 popup 剔除
-              const shouldRemove = recordUrlFailure(item.url)
+              // Metadata is optional. A CDN can reject HEAD/Range probes while
+              // the original media remains playable and downloadable, so a
+              // probe failure must never delete the item.
               return {
                 key: item.key,
                 url: item.url,
                 error: (error as Error).message,
-                removed: shouldRemove,
+                removed: false,
               }
             }
           })
@@ -1556,9 +1868,9 @@ export default defineBackground(() => {
               if (!entry) continue
               const format = entry.format.toLowerCase()
 
-              // 失败累计达标 / 已在黑名单：从 mediaMap 删除并拉黑
+              // `removed` is reserved for an explicit, authoritative removal
+              // result. Optional metadata probe failures never set it.
               if (result.removed) {
-                if (!isUrlBlacklisted(result.url)) blacklistUrl(result.url)
                 mediaMap.delete(result.url)
                 changed = true
                 removedAny = true
@@ -1578,12 +1890,9 @@ export default defineBackground(() => {
               }
               const nextEntry = {
                 ...entry,
-                width: typeof result.width === 'number' ? result.width : entry.width,
-                height: typeof result.height === 'number' ? result.height : entry.height,
-                duration: typeof result.duration === 'number' ? result.duration : entry.duration,
                 size: typeof result.size === 'number' ? result.size : entry.size,
               }
-              if (nextEntry.width !== entry.width || nextEntry.height !== entry.height || nextEntry.duration !== entry.duration || nextEntry.size !== entry.size) {
+              if (nextEntry.size !== entry.size) {
                 mediaMap.set(result.url, nextEntry)
                 changed = true
               }
@@ -1871,18 +2180,58 @@ export default defineBackground(() => {
     }
     if (url.startsWith('blob:') || url.startsWith('data:')) return
     if (bilibiliManagedUrls.get(tabId)?.has(url) || platformManagedUrls.get(tabId)?.has(url)) return
-    // 坏 URL 黑名单：跳过，避免反复嗅探→请求→失败的循环
-    // 流媒体（m3u8/mpd/mse）不拦，它们失败由 manifest 解析单独处理，且多是临时网络抖动
-    // data: URL 本地内嵌，不会失败，也不应进黑名单
-    const fmtLower = format.toLowerCase()
-    if (fmtLower !== 'm3u8' && fmtLower !== 'mpd' && fmtLower !== 'mse'
-        && !url.startsWith('data:') && isUrlBlacklisted(url)) return
     if (!tabMap.has(tabId)) {
       tabMap.set(tabId, new Map())
     }
     const mediaMap = tabMap.get(tabId)!
+    let equivalentStreamEntry: MediaEntry | undefined
+    let collapsedStreamAliases = false
+    const streamIdentity = getStreamResourceIdentity(url, format)
+    if (streamIdentity) {
+      const aliases: Array<[string, MediaEntry]> = []
+      for (const [candidateUrl, candidateEntry] of mediaMap) {
+        if (candidateUrl === url) continue
+        if (candidateEntry.groupRole === 'variant' || candidateEntry.groupRole === 'audio' || candidateEntry.groupRole === 'subtitle' || candidateEntry.groupRole === 'segment') continue
+        if (getStreamResourceIdentity(candidateUrl, candidateEntry.format) === streamIdentity) {
+          aliases.push([candidateUrl, candidateEntry])
+        }
+      }
+      if (aliases.length) {
+        // Prefer the newest alias as the metadata base, then fill any fields it
+        // lacks from older parses (most importantly duration/estimated size).
+        aliases.sort((a, b) => (b[1].detectedAt ?? 0) - (a[1].detectedAt ?? 0))
+        equivalentStreamEntry = { ...aliases[0]![1] }
+        for (const [, entry] of aliases.slice(1)) {
+          equivalentStreamEntry.duration ??= entry.duration
+          equivalentStreamEntry.size ??= entry.size
+          equivalentStreamEntry.width ??= entry.width
+          equivalentStreamEntry.height ??= entry.height
+          equivalentStreamEntry.coverUrl ??= entry.coverUrl
+          equivalentStreamEntry.tabTitle ??= entry.tabTitle
+          equivalentStreamEntry.contentType ??= entry.contentType
+          equivalentStreamEntry.requestHeaders = mergeCapturedRequestHeaders(entry.requestHeaders, equivalentStreamEntry.requestHeaders)
+          equivalentStreamEntry.sourceFrameIds = [...new Set([
+            ...(equivalentStreamEntry.sourceFrameIds ?? []),
+            ...(entry.sourceFrameIds ?? []),
+          ])]
+        }
+
+        const aliasUrls = new Set(aliases.map(([aliasUrl]) => aliasUrl))
+        for (const [candidateUrl, candidateEntry] of mediaMap) {
+          if (aliasUrls.has(candidateUrl) || (candidateEntry.groupMasterId && aliasUrls.has(candidateEntry.groupMasterId))) {
+            mediaMap.delete(candidateUrl)
+          }
+        }
+        collapsedStreamAliases = true
+        bumpTabVersion(tabId)
+      }
+    }
     const sourceFrame = extra?.frameId ?? 0
-    const sourceFrameIds = [...new Set([...(mediaMap.get(url)?.sourceFrameIds ?? []), sourceFrame])]
+    const sourceFrameIds = [...new Set([
+      ...(mediaMap.get(url)?.sourceFrameIds ?? []),
+      ...(equivalentStreamEntry?.sourceFrameIds ?? []),
+      sourceFrame,
+    ])]
     // 资源嗅探时刻的网页标题（优先用传入的 tabTitle，否则从缓存 Map 取）
     const effectiveTabTitle = tabTitle ?? tabPageTitles.get(tabId)
 
@@ -1919,32 +2268,70 @@ export default defineBackground(() => {
       }
     }
 
-    const existing = mediaMap.get(url)
-    if (existing && format !== 'mse') {
+    let exactExisting = mediaMap.get(url)
+    if (exactExisting && equivalentStreamEntry) {
+      exactExisting = {
+        ...equivalentStreamEntry,
+        ...exactExisting,
+        duration: exactExisting.duration ?? equivalentStreamEntry.duration,
+        size: exactExisting.size ?? equivalentStreamEntry.size,
+        width: exactExisting.width ?? equivalentStreamEntry.width,
+        height: exactExisting.height ?? equivalentStreamEntry.height,
+        coverUrl: exactExisting.coverUrl ?? equivalentStreamEntry.coverUrl,
+        tabTitle: exactExisting.tabTitle ?? equivalentStreamEntry.tabTitle,
+        contentType: exactExisting.contentType ?? equivalentStreamEntry.contentType,
+        requestHeaders: mergeCapturedRequestHeaders(equivalentStreamEntry.requestHeaders, exactExisting.requestHeaders),
+        sourceFrameIds,
+        groupId: exactExisting.groupRole === 'master' || equivalentStreamEntry.groupRole === 'master'
+          ? url
+          : exactExisting.groupId ?? equivalentStreamEntry.groupId,
+        groupRole: exactExisting.groupRole ?? equivalentStreamEntry.groupRole,
+        groupMasterId: undefined,
+      }
+      mediaMap.set(url, exactExisting)
+    }
+    if (exactExisting && format !== 'mse') {
       // 页面世界的 fetch/XHR hook 会比响应头更早上报同一个 URL。不要直接
       // 丢弃响应头里的认证信息和媒体类型；这也是分离流无法被配对的根因。
-      const upgradedContentType = existing.contentType ?? contentType
-      const upgradedHeaders = mergeCapturedRequestHeaders(existing.requestHeaders, requestHeaders)
-      const upgradedSize = existing.size ?? size
-      const upgradedTitle = existing.tabTitle ?? effectiveTabTitle
-      if (upgradedContentType !== existing.contentType
-        || upgradedHeaders !== existing.requestHeaders
-        || upgradedSize !== existing.size
-        || upgradedTitle !== existing.tabTitle || !existing.sourceFrameIds?.includes(sourceFrame)) {
+      // Content-Type 是比 URL 后缀更强的证据：例如动态 HLS 入口可以以 .mp4 结尾。
+      const responseFormat = contentType ? detectMediaFromContentType(contentType) : null
+      const upgradedFormat = responseFormat ?? exactExisting.format
+      const upgradedContentType = contentType ?? exactExisting.contentType
+      const upgradedHeaders = mergeCapturedRequestHeaders(exactExisting.requestHeaders, requestHeaders)
+      const upgradedSize = upgradedFormat === 'm3u8' || upgradedFormat === 'mpd'
+        ? exactExisting.size
+        : exactExisting.size ?? size
+      const upgradedTitle = exactExisting.tabTitle ?? effectiveTabTitle
+      const formatChanged = upgradedFormat !== exactExisting.format
+      if (collapsedStreamAliases || formatChanged
+        || upgradedContentType !== exactExisting.contentType
+        || upgradedHeaders !== exactExisting.requestHeaders
+        || upgradedSize !== exactExisting.size
+        || upgradedTitle !== exactExisting.tabTitle || !exactExisting.sourceFrameIds?.includes(sourceFrame)) {
         mediaMap.set(url, {
-          ...existing,
+          ...exactExisting,
+          format: upgradedFormat,
           contentType: upgradedContentType,
           requestHeaders: upgradedHeaders,
           size: upgradedSize,
           tabTitle: upgradedTitle,
           sourceFrameIds,
         })
+        if ((collapsedStreamAliases || formatChanged) && (exactExisting.format === 'm3u8' || exactExisting.format === 'mpd'
+          || upgradedFormat === 'm3u8' || upgradedFormat === 'mpd')) bumpTabVersion(tabId)
         if (upgradedContentType) tryGroupVideoAudio(url, tabId, upgradedContentType, upgradedSize)
         saveTabList(tabId, mediaMap).catch(() => {})
         broadcastDebounced(tabId)
       }
+      // Re-run grouping for restored/persisted manifests as well. The
+      // per-page manifest cache keeps this cheap, while allowing newly added
+      // child roles (such as subtitle renditions) to migrate old entries.
+      if (upgradedFormat === 'm3u8' || upgradedFormat === 'mpd') {
+        parseAndGroupManifest(url, tabId, upgradedFormat, upgradedHeaders).catch(() => {})
+      }
       return
     }
+    const existing = equivalentStreamEntry
     if (mediaMap.size >= (currentSettings.maxItems ?? 1000)) {
       const oldestKey = mediaMap.keys().next().value
       if (oldestKey !== undefined) {
@@ -1953,17 +2340,18 @@ export default defineBackground(() => {
       }
     }
     // m3u8/mpd 的 Content-Length 是 manifest 文本文件大小（几 KB），不是视频总大小，不存
-    const effectiveSize = (format === 'm3u8' || format === 'mpd') ? undefined : (size ?? existing?.size)
+    const effectiveSize = (format === 'm3u8' || format === 'mpd') ? existing?.size : (size ?? existing?.size)
     // FLV/MPEG-TS 无 Content-Length 视为直播流（HTTP-FLV 直播的典型特征）
     const isLiveStream = (format === 'flv' || format === 'ts')
       ? (effectiveSize === undefined && !existing?.size)
       : existing?.isLiveStream
     mediaMap.set(url, {
+      ...existing,
       format,
       size: effectiveSize,
       detectedAt: existing?.detectedAt ?? Date.now(),
-      category,
-      requestHeaders,
+      category: existing?.category ?? category,
+      requestHeaders: mergeCapturedRequestHeaders(existing?.requestHeaders, requestHeaders),
       captureId: extra?.captureId ?? existing?.captureId,
       frameId: extra?.frameId ?? existing?.frameId,
       sourceFrameIds,
@@ -1972,6 +2360,8 @@ export default defineBackground(() => {
       contentType: contentType ?? existing?.contentType,
       tabTitle: effectiveTabTitle ?? existing?.tabTitle,
       isLiveStream,
+      groupId: existing?.groupRole === 'master' ? url : existing?.groupId,
+      groupMasterId: undefined,
     })
     // m3u8/mpd 是潜在 master，bump 版本使前缀索引在下次分片查找时重建
     if (format === 'm3u8' || format === 'mpd') bumpTabVersion(tabId)
@@ -1997,6 +2387,26 @@ export default defineBackground(() => {
   }
 
   function purgeTabState(tabId: number) {
+    // A close event can arrive while the worker is restoring its metadata.
+    void recordingStore.ready.then(async () => {
+      const targetSession = recordingSessionsByTarget.get(tabId)
+      if (targetSession) await closeRecordingSession(targetSession, false)
+      const recordingTarget = recordingTargetBySource.get(tabId)
+      if (recordingTarget !== undefined) {
+        const sourceSession = recordingSessionsByTarget.get(recordingTarget)
+        recordingTargetBySource.delete(tabId)
+        if (sourceSession) {
+          sourceSession.active = false
+          recordingSessionsByTarget.delete(recordingTarget)
+          browser.tabs.sendMessage(recordingTarget, {
+            type: 'FLOWPICK_RECORDING_SESSION_STATE',
+            state: 'source-closed',
+            sessionId: sourceSession.id,
+          }).catch(() => undefined)
+        }
+      }
+      await recordingStore.save()
+    }).catch(error => console.warn('[FlowPick] Recording session cleanup failed:', error))
     const badgeTimer = badgeUpdateTimers.get(tabId)
     if (badgeTimer) clearTimeout(badgeTimer)
     badgeUpdateTimers.delete(tabId)
@@ -2093,13 +2503,11 @@ export default defineBackground(() => {
       // Popup counters represent user-facing cards. Variants, separated audio
       // and segments are children of one master card and must never inflate the
       // toolbar badge, even when legacy data is missing its group id.
-      if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') return
+      if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'subtitle' || entry.groupRole === 'segment') return
 
       const format = entry.format.toLowerCase()
       const group = getFormatGroup(format)
       if (group && currentSettings.sniffingRules[group]?.enabled === false) return
-      if (format === 'mse' && !currentSettings.enableMseCapture) return
-
       // Match useMediaFilters' persistent minimum-size filter. Temporary UI
       // filters (search, resolution, manual size range) intentionally do not
       // change the extension badge.
@@ -2512,6 +2920,9 @@ export default defineBackground(() => {
     }
     try {
       const u = new URL(url)
+      // Twitter/X places the encoded dimensions in the video track path.
+      const twitterDimensions = /(?:^|\/)(\d{2,5})x(\d{2,5})(?:\/|$)/i.exec(u.pathname)
+      if (twitterDimensions) return `${twitterDimensions[2]}p`
       const itag = u.searchParams.get('itag') ?? u.searchParams.get('itagid')
       if (itag && itagMap[itag]) return itagMap[itag]!
       const quality = u.searchParams.get('quality_label') ?? u.searchParams.get('quality') ?? u.searchParams.get('qlt')
@@ -2527,6 +2938,15 @@ export default defineBackground(() => {
 
   // 尝试将新加入的 URL 与同 tab 内已有的 video/audio 条目配对
   const VIDEO_AUDIO_GROUP_WINDOW_MS = 8000
+
+  function isTwitterVideoCdnUrl(value: string): boolean {
+    try {
+      const url = new URL(value)
+      return /(^|\.)video\.twimg\.com$/i.test(url.hostname)
+    } catch {
+      return false
+    }
+  }
 
   // 对 application/octet-stream 的已知媒体 CDN URL，用 URL 特征判断 video-only / audio-only
   // 抖音/字节系 CDN 返回 octet-stream 且无 codecs，常规 content-type 判断失效
@@ -2552,6 +2972,10 @@ export default defineBackground(() => {
   }
 
   function tryGroupVideoAudio(newUrl: string, tabId: number, contentType: string, newSize?: number) {
+    // X/Twitter exposes a complete HLS master playlist. Pairing its underlying
+    // track requests again creates a duplicate synthetic "Separated stream".
+    if (isTwitterVideoCdnUrl(newUrl)) return
+
     // 标准 content-type 识别（B站/YouTube：有明确 codecs）
     let isVideo = isVideoOnlyContentType(contentType)
     let isAudio = isAudioOnlyContentType(contentType)
@@ -2661,7 +3085,7 @@ export default defineBackground(() => {
         mediaMap.set(groupId, {
           format: videoEntry.format,
           detectedAt: Math.min(videoEntry.detectedAt ?? now, audioEntry.detectedAt ?? now),
-          category: 'media',
+          category: 'stream',
           requestHeaders: videoEntry.requestHeaders,
           groupId,
           groupRole: 'master',
@@ -2777,6 +3201,13 @@ export default defineBackground(() => {
 
       const groupId = masterUrl
 
+      // Direct audio/video requests can arrive before the master playlist has
+      // finished parsing. Remove that temporary Twitter group now so the real
+      // manifest group below becomes the single source shown in the sidebar.
+      if (isTwitterVideoCdnUrl(masterUrl)) {
+        removeLegacyTwitterVirtualGroups(mediaMap)
+      }
+
       // 用最高码率 variant + 时长估算总大小（bandwidth bps / 8 * duration = bytes）
       // 若没有 bandwidth，则使用 stream-parser 抽样 segment 估算的大小
       const topBandwidth = parsed.variants.reduce((max, v) => Math.max(max, v.bandwidth ?? 0), 0)
@@ -2792,6 +3223,24 @@ export default defineBackground(() => {
         duration: parsed.duration ?? masterEntry.duration,
         size: estimatedSize ?? masterEntry.size,
       })
+
+      // Subtitle renditions are HLS playlists too, but they contain WebVTT
+      // cues rather than playable audio/video. Keep them as hidden children of
+      // the master so a later native request cannot recreate a standalone card.
+      for (const subtitleUri of parsed.subtitleUris ?? []) {
+        const existingSubtitle = mediaMap.get(subtitleUri)
+        mediaMap.set(subtitleUri, {
+          ...existingSubtitle,
+          format: 'm3u8',
+          detectedAt: existingSubtitle?.detectedAt ?? Date.now(),
+          category: 'stream',
+          requestHeaders: existingSubtitle?.requestHeaders ?? requestHeaders ?? masterEntry.requestHeaders,
+          sourceFrameIds: existingSubtitle?.sourceFrameIds ?? masterEntry.sourceFrameIds,
+          groupId,
+          groupRole: 'subtitle',
+          groupMasterId: masterUrl,
+        })
+      }
 
       for (const variant of parsed.variants) {
         const existing = mediaMap.get(variant.uri)
@@ -2810,18 +3259,22 @@ export default defineBackground(() => {
           groupMasterId: masterUrl,
           variantBandwidth: variant.bandwidth,
           audioUrl: variant.audioUri,
+          duration: parsed.duration,
         })
 
-        if (variant.audioUri && !mediaMap.has(variant.audioUri)) {
+        if (variant.audioUri) {
+          const existingAudio = mediaMap.get(variant.audioUri)
           mediaMap.set(variant.audioUri, {
+            ...existingAudio,
             format: 'm3u8',
-            detectedAt: Date.now(),
-            category: 'media',
-            requestHeaders: requestHeaders ?? masterEntry.requestHeaders,
-            sourceFrameIds: masterEntry.sourceFrameIds,
+            detectedAt: existingAudio?.detectedAt ?? Date.now(),
+            category: 'stream',
+            requestHeaders: existingAudio?.requestHeaders ?? requestHeaders ?? masterEntry.requestHeaders,
+            sourceFrameIds: existingAudio?.sourceFrameIds ?? masterEntry.sourceFrameIds,
             groupId,
             groupRole: 'audio',
             groupMasterId: masterUrl,
+            duration: existingAudio?.duration ?? parsed.duration,
           })
         }
       }

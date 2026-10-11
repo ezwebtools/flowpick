@@ -11,7 +11,6 @@ export interface Settings {
   sniffingRules: SniffingRules
   excludeDomains: string[]
   maxItems: number
-  enableMseCapture: boolean
   /** 隐藏 HLS/DASH 的分片（如 .ts/.m4s），只显示父级播放列表（m3u8/mpd） */
   hideStreamSegments: boolean
   /** 捕获 data: URL 内嵌图片（只扫 <img src="data:image/...">），默认关闭 */
@@ -42,7 +41,6 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   excludeDomains: [],
   maxItems: DEFAULT_MAX_ITEMS,
-  enableMseCapture: false,
   hideStreamSegments: true,
   captureDataImages: false,
   dataImageMinSizeKB: 50,
@@ -61,7 +59,6 @@ export function createDefaultSettings(): Settings {
     },
     excludeDomains: [...DEFAULT_SETTINGS.excludeDomains],
     maxItems: DEFAULT_SETTINGS.maxItems,
-    enableMseCapture: DEFAULT_SETTINGS.enableMseCapture,
     hideStreamSegments: DEFAULT_SETTINGS.hideStreamSegments,
     captureDataImages: DEFAULT_SETTINGS.captureDataImages,
     dataImageMinSizeKB: DEFAULT_SETTINGS.dataImageMinSizeKB,
@@ -81,7 +78,6 @@ export function cloneSettings(settings: Settings): Settings {
     },
     excludeDomains: Array.from(settings.excludeDomains),
     maxItems: settings.maxItems,
-    enableMseCapture: settings.enableMseCapture,
     hideStreamSegments: settings.hideStreamSegments,
     captureDataImages: settings.captureDataImages,
     dataImageMinSizeKB: settings.dataImageMinSizeKB,
@@ -128,7 +124,6 @@ export async function loadSettings(): Promise<Settings> {
     sniffingRules: parseSniffingRules(stored.sniffingRules ?? stored.sniffingGroups),
     excludeDomains: toStringArray(stored.excludeDomains),
     maxItems,
-    enableMseCapture: typeof stored.enableMseCapture === 'boolean' ? stored.enableMseCapture : false,
     hideStreamSegments: typeof stored.hideStreamSegments === 'boolean' ? stored.hideStreamSegments : true,
     captureDataImages: typeof stored.captureDataImages === 'boolean' ? stored.captureDataImages : false,
     dataImageMinSizeKB: typeof stored.dataImageMinSizeKB === 'number' ? stored.dataImageMinSizeKB : 50,
@@ -142,7 +137,6 @@ export async function saveSettings(settings: Settings): Promise<void> {
       sniffingRules: plainSettings.sniffingRules,
       excludeDomains: plainSettings.excludeDomains,
       maxItems: plainSettings.maxItems,
-      enableMseCapture: plainSettings.enableMseCapture,
       hideStreamSegments: plainSettings.hideStreamSegments,
       captureDataImages: plainSettings.captureDataImages,
       dataImageMinSizeKB: plainSettings.dataImageMinSizeKB,

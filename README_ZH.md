@@ -42,6 +42,7 @@
 - **HLS 代理加载器** — 通过后台代理 fetch 拉取分片，携带鉴权头与 Referer，突破跨域与防盗链限制
 - **DRM 检测** — 自动检测 Widevine / PlayReady 等 DRM 保护内容，提示无法预览
 - **直播流录制** — HTTP-FLV / MPEG-TS 直播流可边播边录，达到 500MB 上限自动停止
+- **页面录制** — 支持 MSE / MediaRecorder 两种模式录制当前标签页视频，在专用录制页中完成；录制会话持久化，后台 Service Worker 重启后自动恢复
 - **音频频谱** — 实时音频频谱可视化，Web Audio API 驱动
 - **图片预览** — 全屏灯箱预览，自动识别图片尺寸
 
@@ -68,7 +69,7 @@
 - **data: 图片捕获** — 检测 `<img src="data:image/...">` 内嵌的 base64 图片，可配置最小大小过滤 1×1 跟踪像素
 - **每标签页条目上限** — 可配置 10–5000 条，超出后自动淘汰最旧条目，避免内存膨胀
 
-### � 流媒体清单解析
+### 📊 流媒体清单解析
 
 深入解析 M3U8 / MPD 清单，提取完整元数据：
 
@@ -77,7 +78,7 @@
 - **总时长估算** — 累加 EXTINF 或解析 MPD 的 mediaPresentationDuration
 - **总大小估算** — 优先 byterange 求和，否则多点抽样分片取平均 × 片数（HEAD + Range 探测，省流量）
 
-### � 批量操作
+### 📋 批量操作
 
 - **一键全选** — 快速选中所有媒体项
 - **批量下载** — 批量下载选中的媒体文件
@@ -88,7 +89,7 @@
 自动获取并展示：
 
 - **文件大小** — 实时显示媒体文件体积
-- **视频分辨率** — 通过 MediaInfo 解析视频宽高与分辨率标签
+- **视频分辨率** — 通过原生媒体元数据与流媒体清单解析宽高和分辨率标签
 - **音频时长** — 自动获取音频文件时长
 - **图片尺寸** — 自动识别图片宽高像素
 - **流媒体时长/大小** — 通过清单解析估算 VOD 流的总时长与总大小
@@ -154,7 +155,15 @@ npm run dev
 
 # Firefox（热重载）
 npm run dev:firefox
+
+# 类型检查
+npm run compile
+
+# 单元测试（Node.js 内置测试运行器）
+node --test tests/
 ```
+
+> **环境自动切换的站点地址**：托管在官网上的页面（录制页、m3u8 / dash / 音频 / 视频下载器）的源地址由 `utils/site.ts` 统一管理 — `wxt dev` 时指向 `https://localhost:3001`，生产构建（`wxt build` / `wxt zip`）时自动指向 `https://flowpick.net`，无需手动切换。开发时请先在本地 3001 端口启动官网 dev server，以保证完整功能可测。
 
 ---
 
@@ -184,7 +193,6 @@ npm run dev:firefox
 | [mpegts.js](https://github.com/xqq/mpegts.js) | HTTP-FLV / MPEG-TS 直播流播放与录制 |
 | [m3u8-parser](https://github.com/videojs/m3u8-parser) | M3U8 清单解析 |
 | [mpd-parser](https://github.com/videojs/mpd-parser) | MPD 清单解析 |
-| [mediainfo.js](https://github.com/buzz/mediainfo.js) | 媒体元数据解析 |
 | [Vite](https://vitejs.dev/) | 构建工具 |
 
 ---
@@ -198,8 +206,8 @@ flowpick/
 │   ├── content.ts         # 内容脚本：页面注入、消息中转、MSE 流捕获
 │   ├── douyin.content.ts  # 抖音平台适配：解析页面 JSON 提取多码率候选
 │   ├── injected.ts        # 注入脚本：Fetch/XHR 拦截、MSE 拦截
-│   ├── popup/             # 弹出面板 UI
-│   │   ├── App.vue        # 主组件：列表、播放、设置（同时驱动侧边栏）
+│   ├── popup/             # 弹出面板 UI（同时驱动侧边栏）
+│   │   ├── App.vue        # 主组件：列表、播放、设置、录制对话框
 │   │   ├── components/
 │   │   │   └── SettingsView.vue  # 设置面板组件
 │   │   ├── composables/
@@ -209,27 +217,31 @@ flowpick/
 │   │   │   └── useStreamThumbnails.ts  # 流媒体首帧缩略图
 │   │   ├── utils/
 │   │   │   └── hlsProxyLoader.ts       # HLS 后台代理加载器
+│   │   ├── types.ts       # 面板共享类型
 │   │   ├── main.ts        # 入口
 │   │   └── style.css      # 样式
 │   ├── sidepanel/         # 侧边栏入口（Chrome Side Panel / Firefox Sidebar）
-│   ├── welcome/           # 欢迎引导页：教程 + FAQ
-│   ├── download/          # 下载页面
-│   │   ├── App.vue        # 下载进度组件
-│   │   └── index.html     # 下载页入口
-│   └── options/           # 选项页
-│       └── App.vue        # 设置组件
+│   └── welcome/           # 欢迎引导页：教程 + FAQ
 ├── utils/
 │   ├── detect.ts          # 媒体格式检测（Content-Type + URL 模式）
 │   ├── settings.ts        # 设置管理（嗅探规则、域名排除、捕获开关）
 │   ├── storage.ts         # 存储管理（标签页数据持久化）
 │   ├── stream-parser.ts   # M3U8/MPD 清单解析（多码率/时长/大小估算）
 │   ├── platform-media.ts  # 平台适配通用接口（PlatformMediaTask）
+│   ├── download-job.ts    # 资源下载任务（图片/文档/音频/直播，经下载页执行）
+│   ├── native-download.ts # 等待 downloads.download 终态并校验字节数
+│   ├── page-session.ts    # 页面身份（站点 + 路径）跨导航跟踪
+│   ├── page-reporter.ts   # 内容脚本到后台的有序确认式媒体事件上报
+│   ├── recording-bridge.ts        # 录制页与注入脚本间的消息桥接
+│   ├── recording-session-store.ts # 录制会话持久化与 Service Worker 重启恢复
+│   ├── recording-support.ts       # 录制能力检测（Firefox 不支持）
 │   ├── useM3u8Ext.ts      # 外部 M3U8 下载扩展联动
+│   ├── site.ts            # 站点源地址：开发指向 localhost:3001，构建指向 flowpick.net
 │   └── i18n.ts            # 国际化与主题/密度管理（7 种语言）
+├── tests/                 # 单元测试（Node.js 内置测试运行器）
 ├── public/
 │   ├── _locales/          # 国际化（en / zh_CN / zh_TW / ja / de / es / ko）
-│   ├── icon/              # 扩展图标
-│   └── MediaInfoModule.wasm  # MediaInfo WASM 模块
+│   └── icon/              # 扩展图标
 ├── wxt.config.ts          # WXT 配置（权限、Side Panel、Sidebar）
 └── package.json           # 项目依赖
 ```
@@ -273,5 +285,4 @@ MIT License - 详见 [LICENSE](LICENSE)
 - [dash.js](https://dashif.org/) — DASH 流媒体播放支持
 - [mpegts.js](https://github.com/xqq/mpegts.js) — HTTP-FLV / MPEG-TS 直播流支持
 - [m3u8-parser](https://github.com/videojs/m3u8-parser) / [mpd-parser](https://github.com/videojs/mpd-parser) — 流媒体清单解析
-- [mediainfo.js](https://github.com/buzz/mediainfo.js) — 媒体元数据解析
 - [Tailwind CSS](https://tailwindcss.com/) — 原子化 CSS 框架

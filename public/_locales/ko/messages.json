@@ -332,9 +332,6 @@
     "changelogTitle":{
         "message": "새로운 기능"
     },
-    "changelogVersion":{
-        "message": "v1.1.4"
-    },
     "changelogFeaturesTitle":{
         "message": "새 기능"
     },

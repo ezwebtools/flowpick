@@ -26,7 +26,7 @@ export interface MediaEntry {
   mseComplete?: boolean
   contentType?: string
   groupId?: string
-  groupRole?: 'master' | 'variant' | 'audio' | 'segment'
+  groupRole?: 'master' | 'variant' | 'audio' | 'subtitle' | 'segment'
   groupLabel?: string
   groupMasterId?: string
   variantBandwidth?: number

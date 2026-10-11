@@ -60,10 +60,10 @@
         "message": "Kliknij, aby odtworzyć"
     },
     "unplayable": {
-        "message": "Your browser does not support video playback."
+        "message": "Twoja przeglądarka nie obsługuje odtwarzania wideo."
     },
     "playError": {
-        "message": "Play error: "
+        "message": "Błąd odtwarzania: "
     },
     "stopPlay": {
         "message": "Zatrzymaj odtwarzanie"
@@ -123,10 +123,10 @@
         "message": "Maksymalna liczba elementów"
     },
     "maxItemsDesc": {
-        "message": "Max media items captured per tab (10–5000). Oldest items are replaced when the limit is reached."
+        "message": "Maksymalna liczba przechwyconych elementów multimedialnych na kartę (10–5000). Po osiągnięciu limitu najstarsze elementy są zastępowane."
     },
     "excludeDomainsDesc": {
-        "message": "Sniffing will be disabled on these domains. One per line (e.g. twitter.com)"
+        "message": "Na tych domenach wykrywanie zostanie wyłączone. Po jednej w wierszu (np. twitter.com)"
     },
     "excludeDomainsPlaceholder": {
         "message": "twitter.com\nfacebook.com\ninstagram.com"
@@ -135,124 +135,124 @@
         "message": "Skróty klawiaturowe"
     },
     "keyboardShortcutsDesc": {
-        "message": "Configure shortcuts to open the extension panel"
+        "message": "Skonfiguruj skróty otwierania panelu rozszerzenia"
     },
     "manageShortcuts": {
-        "message": "Manage keyboard shortcuts in Chrome's extension settings"
+        "message": "Zarządzaj skrótami klawiaturowymi w ustawieniach rozszerzeń Chrome"
     },
     "openShortcuts": {
-        "message": "Open Shortcuts"
+        "message": "Otwórz skróty"
     },
     "resetToDefaults": {
         "message": "Przywróć domyślne"
     },
     "resetConfirm": {
-        "message": "Click again to confirm reset"
+        "message": "Kliknij ponownie, aby potwierdzić reset"
     },
     "welcomeSubtitle": {
-        "message": "Smart Media Sniffer & Downloader"
+        "message": "Inteligentny wykrywacz i pobieracz multimediów"
     },
     "tutorialTitle": {
-        "message": "Getting Started"
+        "message": "Pierwsze kroki"
     },
     "step1Title": {
-        "message": "Install the Extension"
+        "message": "Zainstaluj rozszerzenie"
     },
     "step1Desc": {
-        "message": "After installation, the FlowPick icon will appear in your browser toolbar. Click the icon to open the extension popup."
+        "message": "Po instalacji ikona FlowPick pojawi się na pasku narzędzi przeglądarki. Kliknij ikonę, aby otworzyć panel rozszerzenia."
     },
     "step2Title": {
-        "message": "Open a Video Page"
+        "message": "Otwórz stronę z wideo"
     },
     "step2Desc": {
-        "message": "Visit a webpage containing video or audio, and FlowPick will automatically detect media resources. When resources are detected, the extension icon will show the count."
+        "message": "Odwiedź stronę internetową zawierającą wideo lub audio, a FlowPick automatycznie wykryje zasoby multimedialne. Po wykryciu zasobów ikona rozszerzenia pokaże licznik."
     },
     "step3Title": {
-        "message": "Play Video to Trigger Detection"
+        "message": "Odtwórz wideo, aby wywołać wykrywanie"
     },
     "step3Desc": {
-        "message": "Some videos need to be played first before the extension can capture the streaming URL. If no count appears on the icon, try playing the video."
+        "message": "Niektóre wideo trzeba najpierw odtworzyć, aby rozszerzenie mogło przechwycić adres URL strumienia. Jeśli na ikonie nie pojawia się liczba, spróbuj odtworzyć wideo."
     },
     "step4Title": {
-        "message": "View Detected Resources"
+        "message": "Przejrzyj wykryte zasoby"
     },
     "step4Desc": {
-        "message": "Click the extension icon to see all detected media resources in the popup. You can filter by type (streaming, video, audio, image) and use format or size filters for precise searching."
+        "message": "Kliknij ikonę rozszerzenia, aby zobaczyć wszystkie wykryte zasoby multimedialne w panelu. Możesz filtrować według typu (streaming, wideo, audio, obraz) i używać filtrów formatu lub rozmiaru, aby dokładnie wyszukiwać."
     },
     "step5Title": {
-        "message": "Download or Copy"
+        "message": "Pobierz lub skopiuj"
     },
     "step5Desc": {
-        "message": "In the resource list, click the download button to download a file, or click the copy button to copy the resource URL. You can also select multiple files for batch download."
+        "message": "Na liście zasobów kliknij przycisk pobierania, aby pobrać plik, lub przycisk kopiowania, aby skopiować adres URL zasobu. Możesz też wybrać wiele plików do pobrania zbiorczego."
     },
     "step6Title": {
-        "message": "Customize Settings"
+        "message": "Dostosuj ustawienia"
     },
     "step6Desc": {
-        "message": "Click the settings icon in the popup to toggle sniffing by type, set minimum capture size, exclude specific domains, and configure keyboard shortcuts."
+        "message": "Kliknij ikonę ustawień w panelu, aby włączyć/wyłączyć wykrywanie według typu, ustawić minimalny rozmiar przechwytywania, wykluczyć określone domeny i skonfigurować skróty klawiaturowe."
     },
     "faqTitle": {
         "message": "FAQ"
     },
     "faq1Q": {
-        "message": "Why can't some videos be detected?"
+        "message": "Dlaczego niektóre wideo nie są wykrywane?"
     },
     "faq1A": {
-        "message": "Some websites use special encryption or dynamic loading techniques (such as DRM protection), which prevents the extension from capturing video streams. Additionally, certain streaming URLs are not triggered until the video starts playing. We recommend playing the video first and waiting for a number to appear on the extension icon."
+        "message": "Niektóre strony używają specjalnego szyfrowania lub technik dynamicznego ładowania (np. ochrony DRM), co uniemożliwia rozszerzeniu przechwytywanie strumieni wideo. Ponadto niektóre adresy URL strumieni są uruchamiane dopiero po rozpoczęciu odtwarzania. Zalecamy najpierw odtworzyć wideo i poczekać, aż na ikonie rozszerzenia pojawi się liczba."
     },
     "faq2Q": {
-        "message": "What should I do if the downloaded M3U8 file won't play?"
+        "message": "Co zrobić, jeśli pobrany plik M3U8 się nie odtwarza?"
     },
     "faq2A": {
-        "message": "M3U8 is an index file, not the video itself. You need to use an HLS-compatible player (such as VLC) to play it, or use a dedicated tool to convert M3U8 to MP4 format. The extension will attempt to provide a direct download option when an M3U8 stream is detected."
+        "message": "M3U8 to plik indeksu, a nie samo wideo. Do odtworzenia potrzebny jest odtwarzacz zgodny z HLS (np. VLC) lub dedykowane narzędzie do konwersji M3U8 na MP4. Rozszerzenie spróbuje udostępnić opcję bezpośredniego pobierania po wykryciu strumienia M3U8."
     },
     "faq3Q": {
-        "message": "Does the extension collect my private data?"
+        "message": "Czy rozszerzenie zbiera moje prywatne dane?"
     },
     "faq3A": {
-        "message": "No. This extension runs entirely locally and does not send any data to external servers. All detection and download operations are completed in your browser."
+        "message": "Nie. To rozszerzenie działa w całości lokalnie i nie wysyła żadnych danych do zewnętrznych serwerów. Wszystkie operacje wykrywania i pobierania są wykonywane w Twojej przeglądarce."
     },
     "faq4Q": {
-        "message": "Why doesn't the icon show the detection count?"
+        "message": "Dlaczego ikona nie pokazuje licznika wykryć?"
     },
     "faq4A": {
-        "message": "The extension only shows a count on the icon when media resources are detected on the current tab. Please make sure: 1) You have opened a webpage with video; 2) The video has started playing; 3) The website is not in the excluded domains list."
+        "message": "Rozszerzenie pokazuje licznik na ikonie tylko wtedy, gdy w bieżącej karcie wykryto zasoby multimedialne. Upewnij się, że: 1) otworzyłeś stronę z wideo; 2) wideo zaczęło się odtwarzać; 3) strona nie znajduje się na liście wykluczonych domen."
     },
     "faq5Q": {
-        "message": "How do I exclude unwanted domains?"
+        "message": "Jak wykluczyć niechciane domeny?"
     },
     "faq5A": {
-        "message": "Click the settings icon in the extension popup, enter the domains you want to exclude in the \"Exclude Domains\" section (one per line), e.g. twitter.com. After saving, media sniffing will be disabled on those domains."
+        "message": "Kliknij ikonę ustawień w panelu rozszerzenia, wprowadź domeny do wykluczenia w sekcji \"Wykluczone domeny\" (po jednej w wierszu), np. twitter.com. Po zapisaniu wykrywanie multimediów zostanie wyłączone na tych domenach."
     },
     "faq6Q": {
-        "message": "Why is the download speed slow?"
+        "message": "Dlaczego prędkość pobierania jest niska?"
     },
     "faq6A": {
-        "message": "Download speed depends on the video source server's bandwidth and your network environment. The extension uses the browser's native download function, so the speed is the same as downloading files directly in the browser. If the speed is consistently slow, the source server may be throttling downloads."
+        "message": "Prędkość pobierania zależy od przepustowości serwera źródłowego i środowiska sieciowego. Rozszerzenie korzysta z natywnej funkcji pobierania przeglądarki, więc prędkość jest taka sama jak przy bezpośrednim pobieraniu plików w przeglądarce. Jeśli prędkość stale jest niska, serwer źródłowy może ograniczać pobieranie."
     },
     "faq7Q": {
-        "message": "How do I set up keyboard shortcuts?"
+        "message": "Jak skonfigurować skróty klawiaturowe?"
     },
     "faq7A": {
-        "message": "In the extension popup's settings page, find the \"Keyboard Shortcuts\" section and click the \"Open Shortcuts\" button to jump to the browser's shortcut management page for configuration."
+        "message": "Na stronie ustawień panelu rozszerzenia znajdź sekcję \"Skróty klawiaturowe\" i kliknij przycisk \"Otwórz skróty\", aby przejść do strony zarządzania skrótami przeglądarki."
     },
     "faq8Q": {
-        "message": "Why does Firefox show a different layout than Chrome?"
+        "message": "Dlaczego Firefox wyświetla inny układ niż Chrome?"
     },
     "faq8A": {
-        "message": "Firefox and Chrome have some differences in CSS flexbox and grid layout rendering. FlowPick has been optimized to maintain consistent UI across both browsers. If you notice any display issues, please report them on GitHub."
+        "message": "Firefox i Chrome różnią się nieco w renderowaniu układów CSS flexbox i grid. FlowPick został zoptymalizowany, aby zachować spójny interfejs w obu przeglądarkach. Jeśli zauważysz problemy z wyświetlaniem, zgłoś je na GitHubie."
     },
     "faq9Q": {
-        "message": "Why can't I find videos on certain pages?"
+        "message": "Dlaczego nie mogę znaleźć wideo na niektórych stronach?"
     },
     "faq9A": {
-        "message": "Some websites use special encryption, DRM protection, or obfuscated loading techniques that prevent media URL capture. Videos may also be served from embedded iframes with cross-origin restrictions. Try refreshing the page and playing the video first to trigger detection."
+        "message": "Niektóre strony używają specjalnego szyfrowania, ochrony DRM lub zaciemnionych technik ładowania, które uniemożliwiają przechwycenie adresu URL multimediów. Wideo mogą być też dostarczane z osadzonych iframe z ograniczeniami cross-origin. Spróbuj odświeżyć stronę i najpierw odtworzyć wideo, aby wywołać wykrywanie."
     },
     "needMoreHelp": {
-        "message": "Need more help?"
+        "message": "Potrzebujesz więcej pomocy?"
     },
     "needMoreHelpDesc": {
-        "message": "If the above content didn't solve your problem, feel free to get support through the following"
+        "message": "Jeśli powyższa treść nie rozwiązała Twojego problemu, skorzystaj ze wsparcia przez poniższe kanały"
     },
     "subtitle": {
         "message": "Wykrywaj i pobieraj multimedia z bieżącej strony."
@@ -312,13 +312,13 @@
         "message": "Resetuj"
     },
     "sortByTime": {
-        "message": "Sort by time (click to enable)"
+        "message": "Sortuj według czasu (kliknij, aby włączyć)"
     },
     "sortDesc": {
-        "message": "Newest first (click for oldest first)"
+        "message": "Najnowsze najpierw (kliknij dla najstarszych)"
     },
     "sortAsc": {
-        "message": "Oldest first (click to disable)"
+        "message": "Najstarsze najpierw (kliknij, aby wyłączyć)"
     },
     "preview": {
         "message": "Podgląd"
@@ -330,19 +330,16 @@
         "message": "Otwórz"
     },
     "changelogTitle": {
-        "message": "What’s New"
-    },
-    "changelogVersion": {
-        "message": "v1.1.4"
+        "message": "Co nowego"
     },
     "changelogFeaturesTitle": {
-        "message": "New Features"
+        "message": "Nowe funkcje"
     },
     "changelogFeatures": {
         "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
     },
     "changelogFixesTitle": {
-        "message": "Bug Fixes"
+        "message": "Poprawki błędów"
     },
     "changelogFixes": {
         "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."

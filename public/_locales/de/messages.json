@@ -332,9 +332,6 @@
     "changelogTitle":{
         "message": "Neu in dieser Version"
     },
-    "changelogVersion":{
-        "message": "v1.1.4"
-    },
     "changelogFeaturesTitle":{
         "message": "Neue Funktionen"
     },

@@ -188,6 +188,12 @@ export function detectMediaFromUrl(url: string): string | null {
   try {
     const parsed = new URL(url)
     const pathname = parsed.pathname.toLowerCase()
+
+    // 部分动态打包 CDN 用 /media=hls.../multi=.../_TPL_.mp4 作为
+    // HLS master playlist 入口。这里的 .mp4 是源文件模板名，不是响应格式。
+    const isPackagedHlsManifest = /(?:^|\/)media=hls[0-9a-z_-]*(?:\/|$)/i.test(pathname)
+      && /(?:^|\/)multi=[^/]+(?:\/|$)/i.test(pathname)
+    if (isPackagedHlsManifest) return 'm3u8'
     
     // 排除DASH/HLS片段格式
     if (isExcludedExtension(pathname)) {
@@ -215,29 +221,14 @@ export function detectMediaFromUrl(url: string): string | null {
       }
     }
     
-    // 检查是否是流媒体播放列表（m3u8/mpd通常在查询参数中指定）
-    const searchParams = parsed.searchParams
-    for (const [key, value] of searchParams) {
-      const lowerKey = key.toLowerCase()
-      const lowerValue = value.toLowerCase()
-      
-      // 检查常见的流媒体参数
-      if (lowerKey.includes('url') || lowerKey.includes('file') || 
-          lowerKey.includes('path') || lowerKey.includes('stream')) {
-        
-        // 检查值中是否包含流媒体扩展名
-        for (const [ext, format] of Object.entries(EXTENSION_MAP)) {
-          if (lowerValue.includes(ext) && (format === 'm3u8' || format === 'mpd')) {
-            return format
-          }
-        }
-      }
-    }
-    
+    // 不根据查询参数里的嵌套 URL 判断外层请求格式。
+    // 例如 /dplayer/?url=https://cdn.example/video.m3u8 是 HTML 播放页，
+    // 真正的 manifest 会由后续请求或响应 Content-Type 单独识别。
     return null
   } catch {
     // 如果URL解析失败，进行保守的检测
-    const lowerUrl = url.toLowerCase()
+    // 只检查外层 URL 的路径部分，避免匹配查询参数中的嵌套媒体 URL。
+    const lowerUrl = url.split(/[?#]/, 1)[0]!.toLowerCase()
     
     // 排除DASH/HLS片段格式
     if (isExcludedExtension(lowerUrl)) {

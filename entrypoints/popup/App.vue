@@ -1,5 +1,6 @@
 <script lang="ts" setup>
   import type HlsInstance from 'hls.js'
+  import { isFirefoxFamily } from '../../utils/recording-support'
   import type { MediaPlayerClass as DashPlayer } from 'dashjs'
   import type mpegts from 'mpegts.js'
   import { loadAppearance, saveAppearance, applyTheme, currentLocale, currentTheme, currentDensity, t } from '../../utils/i18n'
@@ -14,6 +15,7 @@
 
   const props = withDefaults(defineProps<{ mode?: 'popup' | 'sidepanel' }>(), { mode: 'popup' })
   const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  const recordingUnsupported = import.meta.env.FIREFOX || isFirefoxFamily(navigator.userAgent)
   const mobileCapabilityTip = computed(() => t('mobileCapabilityTip'))
 
   const rootContainerClass = computed(() => {
@@ -190,6 +192,11 @@
   const previewImageUrl = ref('')
   const previewImageIndex = ref(-1)
   const showFilter = ref(false)
+  type RecordingMode = 'mse' | 'msr'
+  const RECORDING_PREFERENCE_KEY = 'flowpick_recording_preference'
+  const showRecordingDialog = ref(false)
+  const recordingMode = ref<RecordingMode>('mse')
+  const rememberRecordingMode = ref(false)
 
   const videoDimensionCache = ref<Map<string, { width: number; height: number }>>(new Map())
   const audioDurationCache = ref<Map<string, number>>(new Map())
@@ -361,7 +368,7 @@
       // A grouped child may still be an MP4 and therefore classify as video
       // in the All tab. Its role, not only its category, decides whether it
       // belongs in the flat list.
-      if (item.groupRole === 'variant' || item.groupRole === 'audio' || item.groupRole === 'segment') return false
+      if (item.groupRole === 'variant' || item.groupRole === 'audio' || item.groupRole === 'subtitle' || item.groupRole === 'segment') return false
       // Older generic A/V grouping created a virtual master under category
       // "media". It has no standalone payload and must not become a second
       // card next to the provider-managed stream group.
@@ -541,7 +548,7 @@
     const ungrouped: MediaItem[] = []
 
     for (const item of streamItems) {
-      if (item.groupRole === 'segment' || item.groupRole === 'audio') continue
+      if (item.groupRole === 'segment' || item.groupRole === 'audio' || item.groupRole === 'subtitle') continue
 
       if (item.groupRole === 'master') {
         const isVirtual = item.url.startsWith('vid_grp_')
@@ -578,7 +585,7 @@
     // Video tab by format. Attach them to their visible virtual stream master
     // here instead of exposing video/audio/CDN URLs as unrelated cards.
     for (const item of supportItems) {
-      if (item.groupRole !== 'variant' || !item.groupMasterId || !item.audioOptions) continue
+      if (item.groupRole !== 'variant' || !item.groupMasterId || (!item.audioUrl && !item.audioOptions?.length)) continue
       const group = groups.get(item.groupMasterId)
       if (!group || group.variants.some(variant => variant.item.url === item.url)) continue
       const audioItem = item.audioUrl ? supportItems.find(candidate => candidate.url === item.audioUrl) : undefined
@@ -622,6 +629,12 @@
     if (activeTab.value === 'stream') {
       return groupedStreamList.value.map(group => group.masterItem)
     }
+    if (activeTab.value === 'all') {
+      return [
+        ...groupedStreamList.value.map(group => group.masterItem),
+        ...flatMediaList.value,
+      ]
+    }
     return flatMediaList.value
   })
 
@@ -630,6 +643,15 @@
       return groupedStreamList.value
         .filter(group => selectedKeys.value.has(getMediaKey(group.masterItem)))
         .map(group => group.isVirtual ? getPreferredStreamItem(group) : group.masterItem)
+    }
+    if (activeTab.value === 'all') {
+      const selectedStreams = groupedStreamList.value
+        .filter(group => selectedKeys.value.has(getMediaKey(group.masterItem)))
+        .map(group => group.isVirtual ? getPreferredStreamItem(group) : group.masterItem)
+      return [
+        ...selectedStreams,
+        ...flatMediaList.value.filter(item => selectedKeys.value.has(getMediaKey(item))),
+      ]
     }
     return flatMediaList.value.filter(item => selectedKeys.value.has(getMediaKey(item)))
   })
@@ -677,6 +699,12 @@
 
   const getPreferredStreamItem = (group: StreamGroup): MediaItem =>
     group.variants[0]?.item ?? group.masterItem
+
+  // A real HLS/DASH master carries its own audio rendition mapping. Preview
+  // the master so the player loads both tracks; only synthetic direct-track
+  // groups need to preview their preferred video variant separately.
+  const getPreviewStreamItem = (group: StreamGroup): MediaItem =>
+    group.isVirtual ? getPreferredStreamItem(group) : group.masterItem
 
   const getRecommendedAudioUrl = (variant: StreamVariant): string | undefined =>
     variant.item.audioUrl || variant.audioItem?.url || variant.audioOptions?.[0]?.url
@@ -741,19 +769,10 @@
   // 当 tab 标题变化时（页面刷新、跳转、SPA 路由变化等），同步更新 currentTabTitle
   const onTabUpdated = (tabId: number, changeInfo: { title?: string; status?: string; url?: string }) => {
     if (tabId !== currentTabId) return
-    if (changeInfo.status === 'loading' || typeof changeInfo.url === 'string') {
-      // Clear locally as soon as navigation starts. The background also sends
-      // an empty snapshot, but this avoids waiting for that IPC round trip.
-      cancelMetadataBatch()
-      failedMetadataKeys.clear()
-      resetNativeMediaThumbnailState()
-      mediaSession++
-      clearMediaStore()
-      reconcileMediaState()
-      imageLoadStatus.value.clear()
-      videoDimensionCache.value.clear()
-      audioDurationCache.value.clear()
-    }
+    // Do not clear from the generic tab loading signal. Infinite-scroll sites
+    // can emit transient updates while staying on the same document. The
+    // background page-session state machine broadcasts an authoritative empty
+    // list when a real top-level navigation commits.
     if (typeof changeInfo.title === 'string' && changeInfo.title && changeInfo.title !== currentTabTitle.value) {
       currentTabTitle.value = changeInfo.title
     }
@@ -1321,25 +1340,15 @@
       if (isStreamSegment(item)) return []
       // 会话内已失败的资源跳过，不再发起元数据请求
       if (failedMetadataKeys.has(key)) return []
-      // Visible video/audio cards already load the native media element for
-      // the cover and duration. Avoid competing with that request by running
-      // the expensive MediaInfo/WASM parser for those formats here.
-      // Stream manifests keep the background fallback because their duration
-      // is not reliably exposed by a plain media element.
-      const needMediaInfo = (
-        !isVideoFormat(item.format)
-        && !isAudioFormat(item.format)
-        && ((item.format === 'm3u8' || item.format === 'mpd' || item.format === 'flv') && !item.duration)
-      )
       const needSize = !item.size
         && !isStreamFormat(item.format)
         && item.format !== 'mse'
         && !!item.url
         && !item.url.startsWith('blob:')
         && !item.url.startsWith('data:')
-      if ((!needMediaInfo && !needSize) || pendingBatchKeys.has(requestKey)) return []
+      if (!needSize || pendingBatchKeys.has(requestKey)) return []
       pendingBatchKeys.add(requestKey)
-      return [{ key, requestKey, url: item.url, format: item.format, requestHeaders: item.requestHeaders, needMediaInfo, needSize }]
+      return [{ key, requestKey, url: item.url, format: item.format, requestHeaders: item.requestHeaders, needSize }]
     })
     if (!requests.length) return
 
@@ -1362,21 +1371,18 @@
         for (const result of response.items) {
           if (result.removed) {
             removedKeys.add(result.key)
-            // background 端已剔除并拉黑：会话内不再重试
+            // 后台已根据明确的大小规则剔除：会话内不再重试
             failedMetadataKeys.add(result.key)
             continue
           }
           // 请求异常（未 removed 但有 error）：记入会话失败集合，避免反复重试
           // 注意：只有真正报错的才记，size 拿不到（size=undefined）不算失败
-          if (result.error && result.width === undefined && result.height === undefined && result.duration === undefined && result.size === undefined) {
+          if (result.error && result.size === undefined) {
             failedMetadataKeys.add(result.key)
             continue
           }
           if (!mediaIndexByKey.value.has(result.key)) continue
           const patch: Partial<MediaItem> = {}
-          if (typeof result.width === 'number') patch.width = result.width
-          if (typeof result.height === 'number') patch.height = result.height
-          if (typeof result.duration === 'number') patch.duration = result.duration
           if (typeof result.size === 'number') patch.size = result.size
           if (Object.keys(patch).length) metadataPatches.set(result.key, patch)
         }
@@ -1539,7 +1545,7 @@
     sizeFilter.value = { min: 0, max: 0 }
     dimensionFilter.value = { minWidth: 0, minHeight: 0 }
     resolutionFilter.value = 'any'
-    selectedKeys.value.clear()
+    selectedKeys.value = new Set()
   })
 
   watch(audioPlayingKey, async (newId, oldId) => {
@@ -2147,10 +2153,12 @@
         return
       }
       browser.runtime.sendMessage({ type: 'MSE_DOWNLOAD', captureId, tabId: currentTabId, frameId }).then((result: any) => {
+        if (!result?.ok) showRulesHint.value = true
         showToastMsg(result?.ok
           ? t('mseDownloadTriggered', String(result.downloadCount || 1))
           : getLocalizedActionError(result, 'mseDownloadFailed'))
       }).catch((error: unknown) => {
+        showRulesHint.value = true
         showToastMsg(t('mseDownloadFailedDetail', String(error)))
       })
       return
@@ -2159,7 +2167,12 @@
     if (isStreamFormat(format) || isVideoDownloadFormat(format) || isAudioFormat(format)) {
       // Video and audio stay on the external downloader workflow, which can
       // handle manifests, separate tracks, conversion, and media-specific UI.
-      browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders })
+      browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders }).then((result: any) => {
+        if (!result?.ok && !isAudioFormat(format)) showRulesHint.value = true
+      }).catch(() => {
+        if (!isAudioFormat(format)) showRulesHint.value = true
+        showToastMsg(t('docDownloadFailed'))
+      })
     } else if (isImageFormat(format)) {
       void downloadResourceDirectly(url, format, requestHeaders, getDownloadFilename(url, format), 'image')
     } else if (DOC_AND_SUB_FORMATS.includes(format.toLowerCase())) {
@@ -2201,7 +2214,14 @@
         if (item.captureId) browser.runtime.sendMessage({ type: 'MSE_DOWNLOAD', captureId: item.captureId, tabId: currentTabId, frameId: item.frameId })
       } else if (isStreamFormat(item.format) || isVideoDownloadFormat(item.format) || isAudioFormat(item.format)) {
         const filename = `${baseName}${suffix}`
-        browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url: item.url, format: item.format, filename, requestHeaders: item.requestHeaders })
+        browser.runtime.sendMessage({
+          type: 'OPEN_DOWNLOAD_PAGE',
+          url: item.url,
+          format: item.format,
+          filename,
+          requestHeaders: item.requestHeaders,
+          audioUrl: item.audioUrl || item.audioOptions?.[0]?.url,
+        })
       } else if (isImageFormat(item.format)) {
         const filename = getBatchDownloadFilename(item.url, item.format, subDir)
         void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'image')
@@ -2214,7 +2234,7 @@
       }
     })
     showToastMsg(t('batchDownloadStarted', items.length.toString()))
-    selectedKeys.value.clear()
+    selectedKeys.value = new Set()
   }
 
   const openFeedback = () => {
@@ -2235,7 +2255,7 @@
   async function triggerSave() {
     if (!settingsLoaded && !(await ensureSettingsLoaded())) {
       showToastMsg(t('settingsLoadBlocked'))
-      return
+      return false
     }
     const domains = parseExcludeDomains(excludeDomainsText.value)
     settings.value.excludeDomains = domains
@@ -2246,11 +2266,12 @@
     } catch (error) {
       console.warn('[FlowPick] settings save failed:', error)
       showToastMsg(t('settingsSaveFailed'))
-      return
+      return false
     }
     settingsSaved.value = true
     if (saveTimer) clearTimeout(saveTimer)
     saveTimer = setTimeout(() => { settingsSaved.value = false }, 2500)
+    return true
   }
 
   function triggerTextSave() {
@@ -2305,8 +2326,65 @@
   }
 
   async function loadRulesHintState() {
-    const result = await browser.storage.local.get(RULES_HINT_DISMISSED_KEY).catch(() => ({}))
+    const result: Record<string, unknown> = await browser.storage.local.get(RULES_HINT_DISMISSED_KEY).catch(() => ({}))
     if (result[RULES_HINT_DISMISSED_KEY] === true) showRulesHint.value = false
+  }
+
+  async function loadRecordingPreference() {
+    // Temporary selections should not become the next dialog's default.
+    recordingMode.value = 'mse'
+    rememberRecordingMode.value = false
+    const result: Record<string, unknown> = await browser.storage.local.get(RECORDING_PREFERENCE_KEY).catch(() => ({}))
+    const stored = result[RECORDING_PREFERENCE_KEY] as { mode?: RecordingMode } | undefined
+    if (stored?.mode === 'mse' || stored?.mode === 'msr') {
+      recordingMode.value = stored.mode
+      rememberRecordingMode.value = true
+    }
+  }
+
+  async function openRecordingDialog() {
+    if (!recordingUnsupported) await loadRecordingPreference()
+    showRecordingDialog.value = true
+  }
+
+  async function toggleRememberRecordingMode() {
+    rememberRecordingMode.value = !rememberRecordingMode.value
+    if (rememberRecordingMode.value) {
+      await browser.storage.local.set({ [RECORDING_PREFERENCE_KEY]: { mode: recordingMode.value } })
+    } else {
+      await browser.storage.local.remove(RECORDING_PREFERENCE_KEY)
+    }
+  }
+
+  function selectRecordingMode(mode: RecordingMode) {
+    recordingMode.value = mode
+    if (rememberRecordingMode.value) {
+      void browser.storage.local.set({ [RECORDING_PREFERENCE_KEY]: { mode } })
+    }
+  }
+
+  async function startSelectedRecording() {
+    if (recordingUnsupported) {
+      showRecordingDialog.value = true
+      return
+    }
+    if (rememberRecordingMode.value) {
+      await browser.storage.local.set({ [RECORDING_PREFERENCE_KEY]: { mode: recordingMode.value } })
+    }
+    if (currentTabId === undefined) {
+      showToastMsg(t('msePageConnectionFailed', 'No active tab'))
+      return
+    }
+    const result = await browser.runtime.sendMessage({
+      type: 'OPEN_RECORDING_PAGE',
+      mode: recordingMode.value,
+      sourceTabId: currentTabId,
+    }).catch(error => ({ ok: false, error: String(error) })) as { ok?: boolean, error?: string } | undefined
+    if (!result?.ok) {
+      showToastMsg(t('msePageConnectionFailed', result?.error || 'Unknown error'))
+      return
+    }
+    showRecordingDialog.value = false
   }
 
   async function backToList() {
@@ -2349,6 +2427,18 @@
             <div class="flex-1 min-w-0">
               <p>{{ t('rulesHint') }}</p>
               <button @click="openSettings" class="underline underline-offset-2 hover:text-blue-600 dark:hover:text-blue-100">{{ t('rulesHintAction') }}</button>
+              <div class="mt-2 border-t border-blue-200/70 pt-2 dark:border-blue-800/60">
+                <p>{{ t('recordingRecoveryHint') }}</p>
+                <button type="button" @click="openRecordingDialog"
+                  class="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus-visible:ring-offset-gray-900">
+                  <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
+                    <rect x="3" y="5" width="14" height="14" rx="2" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m17 10 4-2v8l-4-2" />
+                    <circle cx="10" cy="12" r="2.25" fill="currentColor" stroke="none" />
+                  </svg>
+                  {{ t('recordingRecoveryAction') }}
+                </button>
+              </div>
             </div>
             <button @click="dismissRulesHint" class="flex items-center justify-center w-5 h-5 -mr-1 -mt-0.5 rounded text-blue-500 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-900/60" title="关闭提示" aria-label="关闭提示">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
@@ -2377,23 +2467,25 @@
             </nav>
             
           </div>
-          <div v-if="selectableMediaList.length > 0" class="flex items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800">
-            <button @click="toggleSelectAll" class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all" :title="selectableMediaList.length > 0 && selectableMediaList.every(item => selectedKeys.has(getMediaKey(item))) ? t('deselectAll') : t('selectAll')">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <circle cx="12" cy="12" r="9" />
-                <path v-if="selectableMediaList.length > 0 && selectableMediaList.every(item => selectedKeys.has(getMediaKey(item)))" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
-              </svg>
-            </button>
-            <button @click="batchDownload" :disabled="selectedKeys.size === 0"
-              class="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-all disabled:cursor-not-allowed"
-              :class="selectedKeys.size > 0 ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-sm' : 'text-gray-400 dark:text-gray-600 bg-transparent'"
-              :title="t('downloadSelected')">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              <span v-if="selectedKeys.size > 0">{{ selectedKeys.size }}</span>
-            </button>
-            <div class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5 flex-shrink-0"></div>
+          <div class="flex flex-wrap items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800">
+            <template v-if="selectableMediaList.length > 0">
+              <button @click="toggleSelectAll" class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all" :title="selectableMediaList.every(item => selectedKeys.has(getMediaKey(item))) ? t('deselectAll') : t('selectAll')">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                  <circle cx="12" cy="12" r="9" />
+                  <path v-if="selectableMediaList.every(item => selectedKeys.has(getMediaKey(item)))" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
+                </svg>
+              </button>
+              <button @click="batchDownload" :disabled="selectedKeys.size === 0"
+                class="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-all disabled:cursor-not-allowed"
+                :class="selectedKeys.size > 0 ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-sm' : 'text-gray-400 dark:text-gray-600 bg-transparent'"
+                :title="t('downloadSelected')">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span v-if="selectedKeys.size > 0">{{ selectedKeys.size }}</span>
+              </button>
+              <div class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5 flex-shrink-0"></div>
+            </template>
             <button
               @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'"
               :title="sortOrder === 'asc' ? t('sortAsc') : t('sortDesc')"
@@ -2415,6 +2507,18 @@
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
               </svg>
+            </button>
+            <button @click="openRecordingDialog"
+              type="button"
+              :class="['inline-flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900', showRecordingDialog ? 'border-blue-500 bg-blue-600 text-white dark:border-blue-400 dark:bg-blue-500' : 'border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:border-blue-600 dark:hover:bg-blue-900/60']"
+              :title="t('recordingRecoveryHint')"
+              :aria-label="t('recordingMode')">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
+                <rect x="3" y="5" width="14" height="14" rx="2" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="m17 10 4-2v8l-4-2" />
+                <circle cx="10" cy="12" r="2.25" fill="currentColor" stroke="none" />
+              </svg>
+              <span>{{ t('recordingAction') }}</span>
             </button>
             <button @click="showFilter = !showFilter"
               :class="[
@@ -2614,7 +2718,12 @@
               <div v-for="{ group, index: groupIndex, top } in virtualStreamGroups" :key="group.id"
                 :ref="el => observeStreamGroup(el, group.id)"
                 :style="{ position: 'absolute', top: top + 'px', left: '8px', right: '8px' }"
-                class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                :class="[
+                  'rounded-lg border overflow-hidden shadow-sm transition-all',
+                  selectedKeys.has(getMediaKey(group.masterItem))
+                    ? 'ring-2 ring-blue-400 dark:ring-blue-500 border-blue-200 dark:border-blue-700'
+                    : 'border-gray-200 dark:border-gray-700'
+                ]">
 
                 <!-- 卡片主体：封面 + 信息 + 操作 -->
                 <div class="flex gap-2 px-2 bg-white dark:bg-gray-800"
@@ -2664,6 +2773,20 @@
                       class="absolute top-0.5 left-0.5 px-1 py-px text-[9px] font-bold bg-red-500 text-white rounded animate-pulse leading-none">
                       LIVE
                     </span>
+                    <button
+                      @click.stop="toggleSelect(getMediaKey(group.masterItem))"
+                      :aria-label="selectedKeys.has(getMediaKey(group.masterItem)) ? t('deselectAll') : t('selectAll')"
+                      :style="{ top: getStreamThumbItem(group).isLiveStream ? '1.25rem' : '0.125rem' }"
+                      :class="[
+                        'absolute left-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-150 cursor-pointer backdrop-blur-sm',
+                        selectedKeys.has(getMediaKey(group.masterItem))
+                          ? 'bg-blue-500 border-blue-500'
+                          : 'bg-white/70 dark:bg-gray-800/70 border-gray-300 dark:border-gray-500 hover:border-blue-400'
+                      ]">
+                      <svg v-if="selectedKeys.has(getMediaKey(group.masterItem))" class="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </button>
                   </div>
 
                   <!-- 信息区 -->
@@ -2723,11 +2846,11 @@
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                         </svg>
                       </button>
-                      <button @click="playUrl(getPreferredStreamItem(group).url, getPreferredStreamItem(group).format, getPreferredStreamItem(group))"
-                        :class="['p-1.5 rounded text-white transition-colors', isItemPlaying(getPreferredStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']"
-                        :title="isItemPlaying(getPreferredStreamItem(group)) ? t('stopPlay') : t('play')">
+                      <button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))"
+                        :class="['p-1.5 rounded text-white transition-colors', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']"
+                        :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <template v-if="isItemPlaying(getPreferredStreamItem(group))">
+                          <template v-if="isItemPlaying(getPreviewStreamItem(group))">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" />
                           </template>
@@ -2758,11 +2881,11 @@
 
                 <!-- 播放器必须挂载在 Stream 分组自身，不能借用 All 标签的同名媒体节点 -->
                 <div
-                  v-if="playingKey === getMediaKey(getPreferredStreamItem(group))"
+                  v-if="playingKey === getMediaKey(getPreviewStreamItem(group))"
                   class="border-t border-gray-100 dark:border-gray-700/60 bg-white dark:bg-gray-800 px-3 pb-3 pt-2">
                   <div class="bg-black rounded-lg overflow-hidden flex items-center justify-center aspect-video">
                     <video
-                      :id="'video-player-' + getMediaDomId(getPreferredStreamItem(group))"
+                      :id="'video-player-' + getMediaDomId(getPreviewStreamItem(group))"
                       class="w-full h-full object-contain bg-black block"
                       controls
                       preload="metadata" />
@@ -2823,7 +2946,12 @@
               <!-- Same StreamGroup card visual treatment, reused in All. -->
               <div v-if="activeTab === 'all' && groupedStreamList.length" :ref="observeAllStreamGroups" class="space-y-1.5 mb-2">
                 <div v-for="group in groupedStreamList" :key="'all-group-' + group.id"
-                  class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm">
+                  :class="[
+                    'rounded-lg border overflow-hidden shadow-sm transition-all',
+                    selectedKeys.has(getMediaKey(group.masterItem))
+                      ? 'ring-2 ring-blue-400 dark:ring-blue-500 border-blue-200 dark:border-blue-700'
+                      : 'border-gray-200 dark:border-gray-700'
+                  ]">
                   <div class="flex gap-2 px-2 bg-white dark:bg-gray-800 cursor-pointer"
                     :class="[group.variants.length ? '' : '', currentDensity === 'compact' ? 'py-2' : 'py-3']"
                     @click="group.variants.length && toggleGroupExpand(group.id)">
@@ -2838,13 +2966,27 @@
                       <div v-if="(!group.masterItem.coverUrl || imageLoadStatus.get(group.masterItem.coverUrl) === false) && !streamThumbCache.has(getStreamThumbItem(group).url) && (!isVideoFormat(getStreamThumbItem(group).format) || videoThumbFailed.has(getStreamThumbItem(group).url)) && ((getStreamThumbItem(group).format !== 'm3u8' && getStreamThumbItem(group).format !== 'mpd' && getStreamThumbItem(group).format !== 'flv') || streamThumbFailed.has(getStreamThumbItem(group).url))" class="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/30 text-orange-400"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.14 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg></div>
                       <span v-if="getStreamDuration(group)" class="absolute bottom-0.5 right-0.5 px-1 py-px text-[9px] font-semibold bg-black/70 text-white rounded tabular-nums leading-none">{{ formatDuration(getStreamDuration(group)!) }}</span>
                       <span v-if="getStreamThumbItem(group).isLiveStream" class="absolute top-0.5 left-0.5 px-1 py-px text-[9px] font-bold bg-red-500 text-white rounded animate-pulse leading-none">LIVE</span>
+                      <button
+                        @click.stop="toggleSelect(getMediaKey(group.masterItem))"
+                        :aria-label="selectedKeys.has(getMediaKey(group.masterItem)) ? t('deselectAll') : t('selectAll')"
+                        :style="{ top: getStreamThumbItem(group).isLiveStream ? '1.25rem' : '0.125rem' }"
+                        :class="[
+                          'absolute left-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-150 cursor-pointer backdrop-blur-sm',
+                          selectedKeys.has(getMediaKey(group.masterItem))
+                            ? 'bg-blue-500 border-blue-500'
+                            : 'bg-white/70 dark:bg-gray-800/70 border-gray-300 dark:border-gray-500 hover:border-blue-400'
+                        ]">
+                        <svg v-if="selectedKeys.has(getMediaKey(group.masterItem))" class="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </button>
                     </div>
                     <div class="flex-1 min-w-0 flex flex-col justify-center gap-1">
                       <div class="flex items-start gap-1 min-w-0"><input v-if="editingUrl === getGroupRenameUrl(group)" v-model="editingName" @click.stop @keyup.enter="saveRename" @keyup.escape="cancelRename" @blur="saveRename" class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 bg-blue-50 dark:bg-blue-900/30 border border-blue-400 dark:border-blue-500 rounded px-1 -mx-1 outline-none flex-1 min-w-0" /><p v-else class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors" :title="group.masterItem.tabTitle || currentTabTitle || group.masterItem.url" @click.stop="startRename(getGroupRenameUrl(group), getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)))">{{ getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)) }}</p><span v-if="group.masterItem.detectedAt" class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0 mt-0.5">{{ getRelativeTime(group.masterItem.detectedAt) }}</span></div>
                       <div class="flex items-center gap-1 min-w-0 overflow-hidden whitespace-nowrap"><span :class="getFormatColor(group.masterItem.format)" class="px-1.5 py-px rounded text-[10px] font-bold tracking-wide uppercase flex-shrink-0 leading-tight">{{ getFormatLabel(group.masterItem.format) }}</span><span v-if="group.isVirtual" class="text-[10px] text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-1.5 py-0.5 rounded-full flex-shrink-0 leading-tight">{{ t('separatedStream') }}</span><span v-if="getGroupEstimatedSize(group)" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400">{{ formatItemSize({ format: group.masterItem.format, size: getGroupEstimatedSize(group) } as MediaItem) }}</span></div>
                       <p class="text-[10px] text-gray-400 dark:text-gray-500 truncate">{{ getDomainLabel(getPreferredStreamItem(group).url) }}<span v-if="group.variants.length"> · {{ group.variants.length }} variants</span></p>
                     </div>
-                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreferredStreamItem(group).url, getPreferredStreamItem(group).format, getPreferredStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreferredStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="isItemPlaying(getPreferredStreamItem(group)) ? t('stopPlay') : t('play')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreferredStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
+                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreviewStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
                     <button v-if="group.isVirtual && group.variants.length" @click.stop="downloadStreamVariant(group.variants[0])" class="p-1.5 rounded text-white bg-green-600 hover:bg-green-500" :title="t('download')">
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                     </button>
@@ -2853,9 +2995,9 @@
                     </button>
                     </div></div>
                   </div>
-                  <div v-if="getPreferredStreamItem(group).format !== 'mse' && playingKey === getMediaKey(getPreferredStreamItem(group))" class="border-t border-gray-100 dark:border-gray-700/60 bg-white dark:bg-gray-800 px-3 pb-3 pt-2">
+                  <div v-if="getPreviewStreamItem(group).format !== 'mse' && playingKey === getMediaKey(getPreviewStreamItem(group))" class="border-t border-gray-100 dark:border-gray-700/60 bg-white dark:bg-gray-800 px-3 pb-3 pt-2">
                     <div class="bg-black rounded-lg overflow-hidden flex items-center justify-center aspect-video">
-                      <video :id="'video-player-' + getMediaDomId(getPreferredStreamItem(group))" class="w-full h-full object-contain bg-black block" controls preload="metadata" />
+                      <video :id="'video-player-' + getMediaDomId(getPreviewStreamItem(group))" class="w-full h-full object-contain bg-black block" controls preload="metadata" />
                     </div>
                   </div>
                   <div v-if="expandedGroups.has(group.id) && group.variants.length" class="border-t border-gray-100 dark:border-gray-700/60 bg-gray-50 dark:bg-gray-900/40">
@@ -3003,7 +3145,7 @@
                         </template>
 
                         <template v-else-if="mediaView(item).isStream">
-                          <span v-if="item.size" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400 flex-shrink-0 leading-tight" title="Estimated size">{{ formatItemSize(item) }}</span>
+                          <span v-if="item.size" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400 flex-shrink-0 leading-tight" :title="t('estimatedSize')">{{ formatItemSize(item) }}</span>
                         </template>
 
                         <template v-else-if="mediaView(item).isVideo">
@@ -3238,12 +3380,106 @@
       />
     </Transition>
 
+    <!-- ═══ RECORDING MODE DIALOG ════════════════════════════════════ -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition-opacity duration-150 ease-out"
+        enter-from-class="opacity-0"
+        enter-to-class="opacity-100"
+        leave-active-class="transition-opacity duration-100 ease-in"
+        leave-from-class="opacity-100"
+        leave-to-class="opacity-0">
+        <div v-if="showRecordingDialog"
+          class="fixed inset-0 z-[10020] flex items-center justify-center bg-gray-950/45 dark:bg-black/70 backdrop-blur-[2px] p-4"
+          role="presentation"
+          @click.self="showRecordingDialog = false">
+          <section
+            class="w-full max-w-[460px] overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            :aria-label="t('recordingMode')">
+            <header class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+              <div>
+                <h2 class="text-base font-semibold">{{ t('recordingMode') }}</h2>
+                <p v-if="!recordingUnsupported" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('recordingModeHint') }}</p>
+              </div>
+              <button
+                class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:text-gray-500 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+                :title="t('mseClose')"
+                :aria-label="t('mseClose')"
+                @click="showRecordingDialog = false">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </header>
+
+            <div v-if="recordingUnsupported" class="p-5">
+              <p role="status" class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{{ t('recordingFirefoxUnsupported') }}</p>
+              <div class="mt-5 flex justify-end">
+                <button type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500" @click="showRecordingDialog = false">{{ t('mseClose') }}</button>
+              </div>
+            </div>
+            <template v-else>
+            <div class="grid grid-cols-2 gap-3 p-4" role="radiogroup" :aria-label="t('recordingMode')">
+              <button
+                type="button"
+                role="radio"
+                :aria-checked="recordingMode === 'msr'"
+                :class="['relative min-h-28 rounded-xl border p-4 text-left transition-all', recordingMode === 'msr' ? 'border-blue-500 bg-blue-50/80 ring-2 ring-blue-500/15 dark:bg-blue-950/35' : 'border-gray-200 bg-gray-50/70 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/60 dark:hover:border-gray-600 dark:hover:bg-gray-800']"
+                @click="selectRecordingMode('msr')">
+                <span :class="['mb-3 flex h-5 w-5 items-center justify-center rounded-full border-2', recordingMode === 'msr' ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600']">
+                  <span v-if="recordingMode === 'msr'" class="h-2.5 w-2.5 rounded-full bg-blue-500"></span>
+                </span>
+                <span class="block pr-5 text-sm font-semibold leading-5">{{ t('msrMode') }}</span>
+                <span class="mt-1 block text-[11px] leading-4 text-gray-500 dark:text-gray-400">{{ t('msrModeDesc') }}</span>
+                <span class="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 text-[11px] font-semibold text-gray-500 dark:border-gray-600 dark:text-gray-400" :title="t('msrModeHelp')">?</span>
+              </button>
+
+              <button
+                type="button"
+                role="radio"
+                :aria-checked="recordingMode === 'mse'"
+                :class="['relative min-h-28 rounded-xl border p-4 text-left transition-all', recordingMode === 'mse' ? 'border-blue-500 bg-blue-50/80 ring-2 ring-blue-500/15 dark:bg-blue-950/35' : 'border-gray-200 bg-gray-50/70 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/60 dark:hover:border-gray-600 dark:hover:bg-gray-800']"
+                @click="selectRecordingMode('mse')">
+                <span class="absolute -top-2 right-3 whitespace-nowrap rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold leading-4 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-800">{{ t('recordingRecommended') }}</span>
+                <span :class="['mb-3 flex h-5 w-5 items-center justify-center rounded-full border-2', recordingMode === 'mse' ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600']">
+                  <span v-if="recordingMode === 'mse'" class="h-2.5 w-2.5 rounded-full bg-blue-500"></span>
+                </span>
+                <span class="block pr-5 text-sm font-semibold leading-5">{{ t('mseMode') }}</span>
+                <span class="mt-1 block text-[11px] leading-4 text-gray-500 dark:text-gray-400">{{ t('mseModeDesc') }}</span>
+                <span class="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 text-[11px] font-semibold text-gray-500 dark:border-gray-600 dark:text-gray-400" :title="t('mseModeHelp')">?</span>
+              </button>
+            </div>
+
+            <footer class="flex items-center justify-between gap-4 border-t border-gray-200 dark:border-gray-700 px-4 py-3.5">
+              <button type="button" role="switch" :aria-checked="rememberRecordingMode"
+                class="group flex min-w-0 items-center gap-2 text-left"
+                @click="toggleRememberRecordingMode">
+                <span :class="['relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors', rememberRecordingMode ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600']">
+                  <span :class="['absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform', rememberRecordingMode ? 'translate-x-[18px]' : 'translate-x-0.5']"></span>
+                </span>
+                <span class="truncate text-xs font-medium text-gray-700 dark:text-gray-300">{{ t('setDefaultRecordingMode') }}</span>
+              </button>
+              <button
+                type="button"
+                class="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 active:scale-[0.98] transition-all"
+                @click="startSelectedRecording">
+                {{ t('startRecording') }}
+              </button>
+            </footer>
+            </template>
+          </section>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- ═══ TOAST ══════════════════════════════════════════════════════ -->
     <Transition enter-active-class="transition ease-out duration-300" enter-from-class="opacity-0 translate-y-2"
       enter-to-class="opacity-100 translate-y-0" leave-active-class="transition ease-in duration-200"
       leave-from-class="opacity-100 translate-y-0" leave-to-class="opacity-0 translate-y-2">
       <div v-if="showToast"
-        class="absolute bottom-16 left-1/2 -translate-x-1/2 px-4 py-2 bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-800 rounded-lg shadow-lg text-sm flex items-center gap-2 z-50">
+        class="fixed bottom-16 left-1/2 -translate-x-1/2 px-4 py-2 bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-800 rounded-lg shadow-lg text-sm flex items-center gap-2 z-[10000] pointer-events-none">
         <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
         </svg>

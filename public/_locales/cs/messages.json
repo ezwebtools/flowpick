@@ -1,0 +1,128 @@
+{
+    "extName": {
+        "message": "FlowPick - Sniffer médií a stahovač"
+    },
+    "extDescription": {
+        "message": "Automaticky rozpoznávejte a stahujte M3U8/HLS streamy, videa, zvuk a obrázky. Vestavěný přehrávač. Hromadné stahování. 100% lokální a soukromé."
+    },
+    "welcomeSubtitle": {
+        "message": "Chytrý sniffer médií a stahovač"
+    },
+    "changelogTitle": {
+        "message": "Novinky"
+    },
+    "changelogFeaturesTitle": {
+        "message": "Nové funkce"
+    },
+    "changelogFeatures": {
+        "message": "• Vylepšeno zjišťování zdrojů a načítání metadat pro rychlejší první výsledek.\n• Vylepšeny aktualizace obálek a délky u video a stream zdrojů.\n• Přidána jasná připomínka, když pravidla zjišťování skrývají nalezené zdroje.\n• Hromadné stahování nyní vybírá pouze HLS master nejvyšší úrovně místo podřízených variant a segmentů."
+    },
+    "changelogFixesTitle": {
+        "message": "Opravy chyb"
+    },
+    "changelogFixes": {
+        "message": "• Opraveno: požadavky na metadata soutěžily s načítáním viditelných médií.\n• Opraveno: hromadné stahování zahrnovalo varianty HLS, zvukové stopy a segmenty.\n• Opraveno: miniatury videí v některých případech neaktualizovaly délku."
+    },
+    "tutorialTitle": {
+        "message": "Začínáme"
+    },
+    "step1Title": {
+        "message": "Nainstalujte rozšíření"
+    },
+    "step1Desc": {
+        "message": "Po instalaci se ikona FlowPick objeví na panelu nástrojů vašeho prohlížeče. Klikněte na ikonu a otevřete panel rozšíření."
+    },
+    "step2Title": {
+        "message": "Otevřete stránku s videem"
+    },
+    "step2Desc": {
+        "message": "Navštivte webovou stránku s videem nebo zvukem a FlowPick automaticky zjistí mediální zdroje. Když jsou zdroje zjištěny, ikona rozšíření zobrazí počet."
+    },
+    "step3Title": {
+        "message": "Přehrajte video pro spuštění zjišťování"
+    },
+    "step3Desc": {
+        "message": "Některá videa je třeba nejdříve přehrát, aby rozšíření mohlo zachytit URL streamu. Pokud se na ikoně nezobrazuje číslo, zkuste video přehrát."
+    },
+    "step4Title": {
+        "message": "Prohlédněte si zjištěné zdroje"
+    },
+    "step4Desc": {
+        "message": "Klikněte na ikonu rozšíření a zobrazte všechny zjištěné mediální zdroje v panelu. Můžete filtrovat podle typu (streaming, video, zvuk, obrázek) a používat filtry formátu či velikosti pro přesné hledání."
+    },
+    "step5Title": {
+        "message": "Stáhněte nebo zkopírujte"
+    },
+    "step5Desc": {
+        "message": "V seznamu zdrojů klikněte na tlačítko stahování pro stažení souboru, nebo na tlačítko kopírování pro zkopírování URL zdroje. Můžete také vybrat více souborů pro hromadné stahování."
+    },
+    "step6Title": {
+        "message": "Přizpůsobte nastavení"
+    },
+    "step6Desc": {
+        "message": "Klikněte na ikonu nastavení v panelu, abyste zapnuli/vypnuli zjišťování podle typu, nastavili minimální velikost zachycení, vyloučili konkrétní domény a nakonfigurovali klávesové zkratky."
+    },
+    "faqTitle": {
+        "message": "Časté otázky"
+    },
+    "faq1Q": {
+        "message": "Proč některá videa nelze zjistit?"
+    },
+    "faq1A": {
+        "message": "Některé weby používají speciální šifrování nebo dynamické načítání (např. ochranu DRM), což rozšíření brání v zachycení video streamů. Navíc některé URL streamů se spustí až po začátku přehrávání. Doporučujeme video nejdříve přehrát a počkat, až se na ikoně rozšíření objeví číslo."
+    },
+    "faq2Q": {
+        "message": "Co dělat, když stažený soubor M3U8 nejde přehrát?"
+    },
+    "faq2A": {
+        "message": "M3U8 je soubor indexu, nikoli samotné video. K přehrávání potřebujete přehrávač podporující HLS (např. VLC) nebo specializovaný nástroj pro převod M3U8 na MP4. Rozšíření se pokusí nabídnout přímé stažení, když zjistí M3U8 stream."
+    },
+    "faq3Q": {
+        "message": "Sbírá rozšíření moje soukromá data?"
+    },
+    "faq3A": {
+        "message": "Ne. Toto rozšíření běží zcela lokálně a neposílá žádná data na externí servery. Veškeré zjišťování i stahování probíhá ve vašem prohlížeči."
+    },
+    "faq4Q": {
+        "message": "Proč ikona nezobrazuje počet zjištění?"
+    },
+    "faq4A": {
+        "message": "Rozšíření zobrazuje na ikoně počet jen tehdy, když jsou na aktuální kartě zjištěny mediální zdroje. Ujistěte se, že: 1) máte otevřenou webovou stránku s videem; 2) video se začalo přehrávat; 3) web není v seznamu vyloučených domén."
+    },
+    "faq5Q": {
+        "message": "Jak vyloučit nechtěné domény?"
+    },
+    "faq5A": {
+        "message": "Klikněte na ikonu nastavení v panelu rozšíření, zadejte domény k vyloučení do sekce „Vyloučené domény“ (jednu na řádek), např. twitter.com. Po uložení bude na těchto doménách sniffování médií vypnuto."
+    },
+    "faq6Q": {
+        "message": "Proč je rychlost stahování nízká?"
+    },
+    "faq6A": {
+        "message": "Rychlost stahování závisí na šířce pásma zdrojového serveru a na vaší síti. Rozšíření používá nativní funkci stahování prohlížeče, takže rychlost je stejná jako při přímém stahování v prohlížeči. Pokud je rychlost trvale nízká, zdrojový server možná stahování omezuje."
+    },
+    "faq7Q": {
+        "message": "Jak nastavím klávesové zkratky?"
+    },
+    "faq7A": {
+        "message": "Na stránce nastavení panelu rozšíření najděte sekci „Klávesové zkratky“ a klikněte na tlačítko „Otevřít zkratky“, které vás přesune na stránku správy zkratek prohlížeče."
+    },
+    "faq8Q": {
+        "message": "Proč Firefox zobrazuje jiné rozvržení než Chrome?"
+    },
+    "faq8A": {
+        "message": "Firefox a Chrome se poněkud liší při vykreslování rozvržení CSS flexbox a grid. FlowPick je optimalizováno pro konzistentní rozhraní v obou prohlížečích. Pokud si všimnete problémů se zobrazením, nahlaste je na GitHubu."
+    },
+    "faq9Q": {
+        "message": "Proč na některých stránkách nemohu najít videa?"
+    },
+    "faq9A": {
+        "message": "Některé weby používají speciální šifrování, ochranu DRM nebo skryté techniky načítání, které ztěžují zachycení URL médií. Videa mohou být také poskytována z vložených iframe s omezeními cross-origin. Zkuste stránku obnovit a video nejdříve přehrát."
+    },
+    "needMoreHelp": {
+        "message": "Potřebujete další pomoc?"
+    },
+    "needMoreHelpDesc": {
+        "message": "Pokud vám výše uvedený obsah nevyřešil problém, neváhejte získat podporu prostřednictvím následujících kanálů"
+    }
+}

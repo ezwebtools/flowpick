@@ -60,10 +60,10 @@
         "message": "Nhấp để phát"
     },
     "unplayable": {
-        "message": "Your browser does not support video playback."
+        "message": "Trình duyệt của bạn không hỗ trợ phát video."
     },
     "playError": {
-        "message": "Play error: "
+        "message": "Lỗi phát: "
     },
     "stopPlay": {
         "message": "Dừng phát"
@@ -123,10 +123,10 @@
         "message": "Số mục tối đa"
     },
     "maxItemsDesc": {
-        "message": "Max media items captured per tab (10–5000). Oldest items are replaced when the limit is reached."
+        "message": "Số mục phương tiện tối đa được ghi lại mỗi thẻ (10–5000). Các mục cũ nhất sẽ bị thay thế khi đạt giới hạn."
     },
     "excludeDomainsDesc": {
-        "message": "Sniffing will be disabled on these domains. One per line (e.g. twitter.com)"
+        "message": "Phát hiện sẽ bị tắt trên các tên miền này. Mỗi dòng một tên miền (vd. twitter.com)"
     },
     "excludeDomainsPlaceholder": {
         "message": "twitter.com\nfacebook.com\ninstagram.com"
@@ -135,124 +135,124 @@
         "message": "Phím tắt"
     },
     "keyboardShortcutsDesc": {
-        "message": "Configure shortcuts to open the extension panel"
+        "message": "Cấu hình phím tắt để mở bảng điều khiển tiện ích mở rộng"
     },
     "manageShortcuts": {
-        "message": "Manage keyboard shortcuts in Chrome's extension settings"
+        "message": "Quản lý phím tắt trong cài đặt tiện ích mở rộng của Chrome"
     },
     "openShortcuts": {
-        "message": "Open Shortcuts"
+        "message": "Mở phím tắt"
     },
     "resetToDefaults": {
         "message": "Khôi phục mặc định"
     },
     "resetConfirm": {
-        "message": "Click again to confirm reset"
+        "message": "Nhấp lần nữa để xác nhận khôi phục"
     },
     "welcomeSubtitle": {
-        "message": "Smart Media Sniffer & Downloader"
+        "message": "Trình phát hiện và tải xuống đa phương tiện thông minh"
     },
     "tutorialTitle": {
-        "message": "Getting Started"
+        "message": "Bắt đầu"
     },
     "step1Title": {
-        "message": "Install the Extension"
+        "message": "Cài đặt tiện ích mở rộng"
     },
     "step1Desc": {
-        "message": "After installation, the FlowPick icon will appear in your browser toolbar. Click the icon to open the extension popup."
+        "message": "Sau khi cài đặt, biểu tượng FlowPick sẽ xuất hiện trên thanh công cụ trình duyệt. Nhấp vào biểu tượng để mở bảng điều khiển tiện ích."
     },
     "step2Title": {
-        "message": "Open a Video Page"
+        "message": "Mở trang video"
     },
     "step2Desc": {
-        "message": "Visit a webpage containing video or audio, and FlowPick will automatically detect media resources. When resources are detected, the extension icon will show the count."
+        "message": "Truy cập trang web có chứa video hoặc âm thanh, FlowPick sẽ tự động phát hiện tài nguyên phương tiện. Khi phát hiện thấy tài nguyên, biểu tượng tiện ích sẽ hiển thị số lượng."
     },
     "step3Title": {
-        "message": "Play Video to Trigger Detection"
+        "message": "Phát video để kích hoạt phát hiện"
     },
     "step3Desc": {
-        "message": "Some videos need to be played first before the extension can capture the streaming URL. If no count appears on the icon, try playing the video."
+        "message": "Một số video cần được phát trước rồi tiện ích mới có thể ghi nhận URL của luồng. Nếu không thấy số nào xuất hiện trên biểu tượng, hãy thử phát video."
     },
     "step4Title": {
-        "message": "View Detected Resources"
+        "message": "Xem tài nguyên đã phát hiện"
     },
     "step4Desc": {
-        "message": "Click the extension icon to see all detected media resources in the popup. You can filter by type (streaming, video, audio, image) and use format or size filters for precise searching."
+        "message": "Nhấp vào biểu tượng tiện ích để xem tất cả tài nguyên phương tiện đã phát hiện trong bảng điều khiển. Bạn có thể lọc theo loại (phát trực tuyến, video, âm thanh, hình ảnh) và dùng bộ lọc định dạng hoặc kích thước để tìm kiếm chính xác."
     },
     "step5Title": {
-        "message": "Download or Copy"
+        "message": "Tải xuống hoặc sao chép"
     },
     "step5Desc": {
-        "message": "In the resource list, click the download button to download a file, or click the copy button to copy the resource URL. You can also select multiple files for batch download."
+        "message": "Trong danh sách tài nguyên, nhấp nút tải xuống để tải tệp, hoặc nhấp nút sao chép để sao chép URL của tài nguyên. Bạn cũng có thể chọn nhiều tệp để tải xuống hàng loạt."
     },
     "step6Title": {
-        "message": "Customize Settings"
+        "message": "Tùy chỉnh cài đặt"
     },
     "step6Desc": {
-        "message": "Click the settings icon in the popup to toggle sniffing by type, set minimum capture size, exclude specific domains, and configure keyboard shortcuts."
+        "message": "Nhấp biểu tượng cài đặt trong bảng điều khiển để bật/tắt phát hiện theo loại, đặt kích thước ghi nhận tối thiểu, loại trừ tên miền cụ thể và cấu hình phím tắt."
     },
     "faqTitle": {
-        "message": "FAQ"
+        "message": "Câu hỏi thường gặp"
     },
     "faq1Q": {
-        "message": "Why can't some videos be detected?"
+        "message": "Tại sao một số video không được phát hiện?"
     },
     "faq1A": {
-        "message": "Some websites use special encryption or dynamic loading techniques (such as DRM protection), which prevents the extension from capturing video streams. Additionally, certain streaming URLs are not triggered until the video starts playing. We recommend playing the video first and waiting for a number to appear on the extension icon."
+        "message": "Một số trang web sử dụng mã hóa đặc biệt hoặc kỹ thuật tải động (như bảo vệ DRM), khiến tiện ích không thể ghi nhận luồng video. Ngoài ra, một số URL streaming chỉ được kích hoạt khi video bắt đầu phát. Chúng tôi khuyên bạn hãy phát video trước và đợi số xuất hiện trên biểu tượng tiện ích."
     },
     "faq2Q": {
-        "message": "What should I do if the downloaded M3U8 file won't play?"
+        "message": "Phải làm gì nếu tệp M3U8 đã tải xuống không phát được?"
     },
     "faq2A": {
-        "message": "M3U8 is an index file, not the video itself. You need to use an HLS-compatible player (such as VLC) to play it, or use a dedicated tool to convert M3U8 to MP4 format. The extension will attempt to provide a direct download option when an M3U8 stream is detected."
+        "message": "M3U8 là tệp chỉ mục, không phải bản thân video. Bạn cần dùng trình phát tương thích HLS (như VLC) để phát, hoặc dùng công cụ chuyên dụng để chuyển M3U8 sang định dạng MP4. Tiện ích sẽ cố gắng cung cấp tùy chọn tải xuống trực tiếp khi phát hiện luồng M3U8."
     },
     "faq3Q": {
-        "message": "Does the extension collect my private data?"
+        "message": "Tiện ích có thu thập dữ liệu riêng tư của tôi không?"
     },
     "faq3A": {
-        "message": "No. This extension runs entirely locally and does not send any data to external servers. All detection and download operations are completed in your browser."
+        "message": "Không. Tiện ích này hoạt động hoàn toàn cục bộ và không gửi bất kỳ dữ liệu nào đến máy chủ bên ngoài. Mọi thao tác phát hiện và tải xuống đều được hoàn tất trong trình duyệt của bạn."
     },
     "faq4Q": {
-        "message": "Why doesn't the icon show the detection count?"
+        "message": "Tại sao biểu tượng không hiển thị số lượng phát hiện?"
     },
     "faq4A": {
-        "message": "The extension only shows a count on the icon when media resources are detected on the current tab. Please make sure: 1) You have opened a webpage with video; 2) The video has started playing; 3) The website is not in the excluded domains list."
+        "message": "Tiện ích chỉ hiển thị số trên biểu tượng khi phát hiện thấy tài nguyên phương tiện trong thẻ hiện tại. Hãy đảm bảo: 1) Bạn đã mở trang web có video; 2) Video đã bắt đầu phát; 3) Trang web không nằm trong danh sách tên miền loại trừ."
     },
     "faq5Q": {
-        "message": "How do I exclude unwanted domains?"
+        "message": "Làm thế nào để loại trừ tên miền không mong muốn?"
     },
     "faq5A": {
-        "message": "Click the settings icon in the extension popup, enter the domains you want to exclude in the \"Exclude Domains\" section (one per line), e.g. twitter.com. After saving, media sniffing will be disabled on those domains."
+        "message": "Nhấp biểu tượng cài đặt trong bảng điều khiển tiện ích, nhập các tên miền muốn loại trừ vào phần \"Tên miền loại trừ\" (mỗi dòng một tên miền), vd. twitter.com. Sau khi lưu, việc phát hiện phương tiện sẽ bị tắt trên các tên miền đó."
     },
     "faq6Q": {
-        "message": "Why is the download speed slow?"
+        "message": "Tại sao tốc độ tải xuống chậm?"
     },
     "faq6A": {
-        "message": "Download speed depends on the video source server's bandwidth and your network environment. The extension uses the browser's native download function, so the speed is the same as downloading files directly in the browser. If the speed is consistently slow, the source server may be throttling downloads."
+        "message": "Tốc độ tải xuống phụ thuộc vào băng thông của máy chủ nguồn video và môi trường mạng của bạn. Tiện ích dùng chức năng tải xuống vốn có của trình duyệt, nên tốc độ giống như khi tải tệp trực tiếp trong trình duyệt. Nếu tốc độ luôn chậm, máy chủ nguồn có thể đang giới hạn tải xuống."
     },
     "faq7Q": {
-        "message": "How do I set up keyboard shortcuts?"
+        "message": "Làm thế nào để thiết lập phím tắt?"
     },
     "faq7A": {
-        "message": "In the extension popup's settings page, find the \"Keyboard Shortcuts\" section and click the \"Open Shortcuts\" button to jump to the browser's shortcut management page for configuration."
+        "message": "Trong trang cài đặt của bảng điều khiển tiện ích, tìm phần \"Phím tắt\" và nhấp nút \"Mở phím tắt\" để chuyển đến trang quản lý phím tắt của trình duyệt."
     },
     "faq8Q": {
-        "message": "Why does Firefox show a different layout than Chrome?"
+        "message": "Tại sao Firefox hiển thị bố cục khác với Chrome?"
     },
     "faq8A": {
-        "message": "Firefox and Chrome have some differences in CSS flexbox and grid layout rendering. FlowPick has been optimized to maintain consistent UI across both browsers. If you notice any display issues, please report them on GitHub."
+        "message": "Firefox và Chrome có một số khác biệt khi kết xuất bố cục CSS flexbox và grid. FlowPick đã được tối ưu để giữ giao diện nhất quán trên cả hai trình duyệt. Nếu bạn thấy vấn đề hiển thị, vui lòng báo cáo trên GitHub."
     },
     "faq9Q": {
-        "message": "Why can't I find videos on certain pages?"
+        "message": "Tại sao tôi không tìm thấy video trên một số trang?"
     },
     "faq9A": {
-        "message": "Some websites use special encryption, DRM protection, or obfuscated loading techniques that prevent media URL capture. Videos may also be served from embedded iframes with cross-origin restrictions. Try refreshing the page and playing the video first to trigger detection."
+        "message": "Một số trang web dùng mã hóa đặc biệt, bảo vệ DRM hoặc kỹ thuật tải che giấu khiến không thể ghi nhận URL phương tiện. Video cũng có thể được phân phối từ iframe nhúng với hạn chế cross-origin. Hãy thử tải lại trang và phát video trước để kích hoạt phát hiện."
     },
     "needMoreHelp": {
-        "message": "Need more help?"
+        "message": "Cần thêm trợ giúp?"
     },
     "needMoreHelpDesc": {
-        "message": "If the above content didn't solve your problem, feel free to get support through the following"
+        "message": "Nếu nội dung trên chưa giải quyết được vấn đề của bạn, đừng ngần ngại tìm hỗ trợ qua các kênh sau"
     },
     "subtitle": {
         "message": "Phát hiện và tải xuống nội dung đa phương tiện từ trang hiện tại."
@@ -312,13 +312,13 @@
         "message": "Đặt lại"
     },
     "sortByTime": {
-        "message": "Sort by time (click to enable)"
+        "message": "Sắp xếp theo thời gian (nhấp để bật)"
     },
     "sortDesc": {
-        "message": "Newest first (click for oldest first)"
+        "message": "Mới nhất trước (nhấp để cũ nhất trước)"
     },
     "sortAsc": {
-        "message": "Oldest first (click to disable)"
+        "message": "Cũ nhất trước (nhấp để tắt)"
     },
     "preview": {
         "message": "Xem trước"
@@ -330,19 +330,16 @@
         "message": "Mở"
     },
     "changelogTitle": {
-        "message": "What’s New"
-    },
-    "changelogVersion": {
-        "message": "v1.1.4"
+        "message": "Có gì mới"
     },
     "changelogFeaturesTitle": {
-        "message": "New Features"
+        "message": "Tính năng mới"
     },
     "changelogFeatures": {
         "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
     },
     "changelogFixesTitle": {
-        "message": "Bug Fixes"
+        "message": "Sửa lỗi"
     },
     "changelogFixes": {
         "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."
