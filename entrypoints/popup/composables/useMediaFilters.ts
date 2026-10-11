@@ -39,7 +39,6 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
       if (options.settings.value.hideStreamSegments && options.isSegment(item)) continue
       const ruleGroup = getFormatGroup(item.format)
       if (ruleGroup && options.settings.value.sniffingRules[ruleGroup]?.enabled === false) continue
-      if (item.format.toLowerCase() === 'mse' && !options.settings.value.enableMseCapture) continue
       if (!options.isStream(item.format) && item.format !== 'mse' && item.size != null) {
         const minKB = ruleGroup ? options.settings.value.sniffingRules[ruleGroup]?.minSizeKB ?? 0 : 0
         if (minKB > 0 && item.size < minKB * 1024) continue
@@ -52,7 +51,7 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
       // expanding that master card.
       // Provider groups can use direct MP4 variants, which classify as video
       // rather than stream. Count their children only through the master.
-      const isGroupChild = item.groupRole === 'variant' || item.groupRole === 'audio' || item.groupRole === 'segment'
+      const isGroupChild = item.groupRole === 'variant' || item.groupRole === 'audio' || item.groupRole === 'subtitle' || item.groupRole === 'segment'
       if (!isGroupChild) counts.all++
       if (type === 'stream') {
         if (!isGroupChild) counts.stream++

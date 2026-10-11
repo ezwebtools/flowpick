@@ -7,8 +7,40 @@ import type { PlatformMediaTask } from '../utils/platform-media'
 import { PageSessions, pageIdentity, type PageContext } from '../utils/page-session'
 import { openResourceDownload, removeResourceDownloads } from '../utils/download-job'
 import { waitForNativeDownload } from '../utils/native-download'
+import { isFirefoxFamily } from '../utils/recording-support'
+import { createRecordingSessionStore } from '../utils/recording-session-store'
+import { SITE_ORIGIN } from '../utils/site'
 
 const metadataBatchControllers = new Map<string, AbortController>()
+
+// Signed stream URLs are refreshed frequently while still identifying the
+// same manifest. Keep stable query parameters (quality, language, etc.) but
+// ignore authentication material so an expired URL cannot remain as a second
+// card beside its refreshed replacement.
+const VOLATILE_STREAM_QUERY_KEYS = new Set([
+  'authkey', 'token', 'accesstoken', 'hdnts', 'hdnea',
+  'expires', 'expire', 'expiration', 'exp',
+  'signature', 'sig', 'sign', 'wssecret', 'wstime',
+  'txsecret', 'txtime', 'policy', 'keypairid', 'gda',
+])
+
+function getStreamResourceIdentity(url: string, format: string): string | null {
+  const normalizedFormat = format.toLowerCase()
+  if (normalizedFormat !== 'm3u8' && normalizedFormat !== 'mpd') return null
+  try {
+    const parsed = new URL(url)
+    parsed.hash = ''
+    const volatileNames = [...parsed.searchParams.keys()].filter((name) => {
+      const normalized = name.toLowerCase().replace(/[-_]/g, '')
+      return VOLATILE_STREAM_QUERY_KEYS.has(normalized) || normalized.startsWith('xamz')
+    })
+    for (const name of volatileNames) parsed.searchParams.delete(name)
+    parsed.searchParams.sort()
+    return `${normalizedFormat}:${parsed.toString()}`
+  } catch {
+    return null
+  }
+}
 
 async function fetchContentLength(url: string, requestHeaders?: Record<string, string>, signal?: AbortSignal): Promise<{ ok: boolean; size: number | null; error?: string }> {
   const headers: Record<string, string> = {}
@@ -346,6 +378,170 @@ export default defineBackground(() => {
     audioUrl?: string
   }
   const pendingDownloads = new Map<number, DownloadSession>()
+  type RecordingMode = 'mse' | 'msr'
+  interface RecordingSession {
+    id: string
+    mode: RecordingMode
+    sourceTabId: number
+    targetTabId: number
+    sourceTitle: string
+    createdAt: number
+    active: boolean
+    cancelled: boolean
+    playingFrames: Set<number>
+    playbackPlaying: boolean
+    captureRegion?: {
+      x: number
+      y: number
+      width: number
+      height: number
+      viewportWidth: number
+      viewportHeight: number
+      devicePixelRatio: number
+      kind: 'video' | 'iframe'
+    }
+    preparePromise?: Promise<{ ok: boolean, error?: string }>
+    sourcePrepared?: boolean
+  }
+  const recordingSessionsByTarget = new Map<number, RecordingSession>()
+  const recordingTargetBySource = new Map<number, number>()
+  const recordingStore = createRecordingSessionStore(recordingSessionsByTarget, recordingTargetBySource,
+    browser.storage.session, async session => {
+      const source = await browser.tabs.get(session.sourceTabId).catch(() => undefined)
+      const target = await browser.tabs.get(session.targetTabId).catch(() => undefined)
+      if (!source || !target) return false
+      // Never restore ownership onto an unrelated tab after navigation.
+      try {
+        const url = new URL(target.url || '')
+        return ['flowpick.net', 'localhost', '127.0.0.1'].includes(url.hostname)
+          && /^\/(?:[^/]+\/)?recording\/?$/.test(url.pathname)
+          && url.searchParams.get('session') === session.id
+      } catch { return false }
+    })
+
+  function getMsrTabStreamId(sourceTabId: number, targetTabId: number): Promise<string | undefined> {
+    const tabCapture = (globalThis as any).chrome?.tabCapture
+    if (!tabCapture?.getMediaStreamId) return Promise.resolve(undefined)
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (streamId?: string) => {
+        if (settled) return
+        settled = true
+        resolve(typeof streamId === 'string' && streamId ? streamId : undefined)
+      }
+      try {
+        const maybePromise = tabCapture.getMediaStreamId({
+          targetTabId: sourceTabId,
+          consumerTabId: targetTabId,
+        }, (streamId?: string) => {
+          const lastError = (globalThis as any).chrome?.runtime?.lastError
+          if (lastError) {
+            console.warn('[FlowPick] MSR tab capture unavailable:', lastError.message)
+            finish()
+          } else {
+            finish(streamId)
+          }
+        })
+        if (maybePromise?.then) {
+          maybePromise.then((streamId: string) => finish(streamId)).catch((error: unknown) => {
+            console.warn('[FlowPick] MSR tab capture unavailable:', error)
+            finish()
+          })
+        }
+      } catch (error) {
+        console.warn('[FlowPick] MSR tab capture unavailable:', error)
+        finish()
+      }
+    })
+  }
+
+  function reloadRecordingSource(tabId: number): Promise<{ ok: boolean, error?: string }> {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (result: { ok: boolean, error?: string }) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timeout)
+        browser.tabs.onUpdated.removeListener(onUpdated)
+        resolve(result)
+      }
+      const onUpdated = (updatedTabId: number, changeInfo: { status?: string }) => {
+        if (updatedTabId === tabId && changeInfo.status === 'complete') finish({ ok: true })
+      }
+      const timeout = setTimeout(() => finish({ ok: false, error: 'source-reload-timeout' }), 20_000)
+      browser.tabs.onUpdated.addListener(onUpdated)
+      browser.tabs.reload(tabId).then(async () => {
+        const tab = await browser.tabs.get(tabId).catch(() => undefined)
+        if (tab?.status === 'complete') finish({ ok: true })
+      }).catch(error => finish({ ok: false, error: String(error) }))
+    })
+  }
+
+  async function prepareRecordingSession(session: RecordingSession): Promise<{ ok: boolean, error?: string }> {
+    try {
+      await browser.tabs.update(session.sourceTabId, { active: true }).catch(() => undefined)
+      const reloaded = await reloadRecordingSource(session.sourceTabId)
+      if (!reloaded.ok) return reloaded
+      if (session.cancelled) return { ok: false, error: 'recording-session-closed' }
+
+      if (session.mode === 'mse') {
+        // Accept the first media append while the new content script enables
+        // the page-world hook; otherwise an immediate autoplay can win the race.
+        session.active = true
+        const result = await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSE_CAPTURE_SET',
+          enabled: true,
+        }).catch(error => ({ ok: false, error: String(error) })) as any
+        if (!result?.ok) {
+          session.active = false
+          return { ok: false, error: result?.error || 'mse-capture-start-failed' }
+        }
+      }
+
+      if (session.cancelled) {
+        if (session.mode === 'mse' && session.active) {
+          await browser.tabs.sendMessage(session.sourceTabId, {
+            type: 'FLOWPICK_MSE_CAPTURE_SET',
+            enabled: false,
+          }).catch(() => undefined)
+          session.active = false
+        }
+        return { ok: false, error: 'recording-session-closed' }
+      }
+
+      await browser.tabs.sendMessage(session.sourceTabId, {
+        type: 'FLOWPICK_MEDIA_AUTOPLAY',
+      }).catch(() => undefined)
+      return { ok: true }
+    } finally {
+      // The recorder is created in the background so the refreshed source tab
+      // keeps the user activation needed by stricter autoplay policies.
+      await browser.tabs.update(session.targetTabId, { active: true }).catch(() => undefined)
+    }
+  }
+
+  async function closeRecordingSession(session: RecordingSession, notifyTarget = true) {
+    session.cancelled = true
+    recordingSessionsByTarget.delete(session.targetTabId)
+    if (recordingTargetBySource.get(session.sourceTabId) === session.targetTabId) {
+      recordingTargetBySource.delete(session.sourceTabId)
+    }
+    if (session.mode === 'mse' && session.active) {
+      await browser.tabs.sendMessage(session.sourceTabId, {
+        type: 'FLOWPICK_MSE_CAPTURE_SET',
+        enabled: false,
+      }).catch(() => undefined)
+    }
+    session.active = false
+    await recordingStore.save()
+    if (notifyTarget) {
+      await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_SESSION_STATE',
+        state: 'closed',
+        sessionId: session.id,
+      }).catch(() => undefined)
+    }
+  }
   // 跟踪后台正在进行的 PROXY_FETCH 代理拉取，便于在标签页关闭或页面主动取消时中止，
   // 避免"页面已关但分片仍在后台继续请求"的资源泄漏
   const pendingProxyFetches = new Map<string, { controller: AbortController, tabId?: number }>()
@@ -369,7 +565,6 @@ export default defineBackground(() => {
             if (tab.id) {
               browser.tabs.sendMessage(tab.id, {
                 type: 'FLOWPICK_SETTINGS_CHANGED',
-                enableMseCapture: s.enableMseCapture,
                 captureDataImages: s.captureDataImages,
                 dataImageMinSizeKB: s.dataImageMinSizeKB,
               }).catch(() => {})
@@ -500,10 +695,16 @@ export default defineBackground(() => {
 
   Promise.all([loadAllTabData().catch(() => new Map<number, Map<string, MediaEntry>>()), loadPageSessions().catch(() => [])]).then(([data, sessions]) => {
     data.forEach((mediaMap, tabId) => {
-      const removedLegacyTwitterGroups = removeLegacyTwitterVirtualGroups(mediaMap)
+      let cleanedPersistedMedia = removeLegacyTwitterVirtualGroups(mediaMap)
+      for (const [url, entry] of mediaMap) {
+        if (entry.captureId || entry.format === 'mse' || url.startsWith('mse://')) {
+          mediaMap.delete(url)
+          cleanedPersistedMedia = true
+        }
+      }
       if (!pageSessions.epoch(tabId) && !tabMap.has(tabId)) {
         tabMap.set(tabId, mediaMap)
-        if (removedLegacyTwitterGroups) saveTabList(tabId, mediaMap).catch(() => {})
+        if (cleanedPersistedMedia) saveTabList(tabId, mediaMap).catch(() => {})
       }
     })
     pageSessions.restore(sessions)
@@ -1011,9 +1212,11 @@ export default defineBackground(() => {
       void handleMessage(msg, sender, sendResponse)
       return true
     }
-    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
-    if (asyncTypes.includes(msg.type)) {
-      handleMessage(msg, sender, sendResponse)
+    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'OPEN_RECORDING_PAGE', 'FLOWPICK_RECORDING_PAGE_READY', 'FLOWPICK_RECORDING_SOURCE_READY', 'FLOWPICK_RECORDING_PLAYBACK_STATE', 'FLOWPICK_RECORDING_CAPTURE_REGION', 'FLOWPICK_RECORDING_STREAM_DATA', 'FLOWPICK_RECORDING_PAGE_COMMAND', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
+    if (asyncTypes.includes(msg.type) || msg.type === 'FLOWPICK_MSR_SOURCE_START') {
+      void handleMessage(msg, sender, sendResponse).catch(error => {
+        sendResponse({ ok: false, sessionId: msg.sessionId, error: String(error) })
+      })
       return true
     }
     if (!isDataLoaded) {
@@ -1025,6 +1228,12 @@ export default defineBackground(() => {
   })
 
   async function handleMessage(msg: any, sender: any, sendResponse: (response?: any) => void) {
+    if (msg.type === 'OPEN_RECORDING_PAGE' || String(msg.type).startsWith('FLOWPICK_RECORDING_') || msg.type === 'FLOWPICK_MSR_SOURCE_START') {
+      try { await recordingStore.ready } catch (error) {
+        sendResponse({ ok: false, sessionId: msg.sessionId, error: `recording-session-restore-failed: ${String(error)}` })
+        return
+      }
+    }
     if (msg.type === 'OPEN_RESOURCE_DOWNLOAD') {
       try {
         const sourceTab = typeof msg.sourceTabId === 'number' ? await browser.tabs.get(msg.sourceTabId) : sender.tab
@@ -1134,22 +1343,9 @@ export default defineBackground(() => {
     }
 
     if (msg.type === 'MSE_STREAM_UPDATE') {
-      const tabId = sender.tab?.id
-      if (tabId === undefined) { sendResponse({ ok: false }); return }
-      const captureId: string = msg.captureId
-      const pseudoUrl = `mse://${captureId}`
-      addMedia(
-        pseudoUrl,
-        tabId,
-        'mse',
-        msg.totalBytes,
-        'media',
-        undefined,
-        { captureId, frameId: sender.frameId ?? 0, trackCount: msg.trackCount, mseComplete: msg.complete },
-        undefined,
-        sender.tab?.title,
-      )
-      sendResponse({ ok: true })
+      // Compatibility with an already-injected older content script: accept
+      // the message but never retain or display an MSE recording artifact.
+      sendResponse({ ok: true, ignored: true })
       return
     }
 
@@ -1191,6 +1387,320 @@ export default defineBackground(() => {
       } catch (error) {
         sendResponse({ ok: false, errorCode: 'msePageConnectionFailed', errorDetail: String(error) })
       }
+      return
+    }
+
+    if (msg.type === 'OPEN_RECORDING_PAGE') {
+      if (import.meta.env.FIREFOX || isFirefoxFamily(navigator.userAgent)) {
+        sendResponse({ ok: false, error: 'Recording is not supported in Firefox. Please use the latest Microsoft Edge or Google Chrome.' })
+        return
+      }
+      const sourceTabId = Number(msg.sourceTabId)
+      const mode: RecordingMode = msg.mode === 'msr' ? 'msr' : 'mse'
+      if (!Number.isSafeInteger(sourceTabId) || sourceTabId <= 0) {
+        sendResponse({ ok: false, error: 'invalid-source-tab' })
+        return
+      }
+      const previousTarget = recordingTargetBySource.get(sourceTabId)
+      const previousSession = previousTarget !== undefined ? recordingSessionsByTarget.get(previousTarget) : undefined
+      if (previousSession) await closeRecordingSession(previousSession)
+
+      const languageMapping: Record<string, string> = {
+        'zh-CN': 'zh-Hans', 'zh-SG': 'zh-Hans', 'zh-TW': 'zh-Hant', 'zh-HK': 'zh-Hant',
+        'ja': 'ja', 'ko': 'ko', 'fr': 'fr',
+      }
+      const langSuffix = languageMapping[browser.i18n.getUILanguage()]
+      // 开发环境（wxt dev）指向本地 dev server，生产构建指向 flowpick.net
+      const recordingPageUrl = langSuffix
+        ? `${SITE_ORIGIN}/${langSuffix}/recording`
+        : `${SITE_ORIGIN}/recording`
+      const sessionId = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `recording-${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const targetUrl = `${recordingPageUrl}?session=${encodeURIComponent(sessionId)}`
+      let createdTargetId: number | undefined
+      try {
+        const [sourceTab, targetTab] = await Promise.all([
+          browser.tabs.get(sourceTabId),
+          // Register and persist ownership before any page can send READY.
+          browser.tabs.create({ url: 'about:blank', active: false }),
+        ])
+        if (targetTab.id === undefined) throw new Error('recording-tab-not-created')
+        createdTargetId = targetTab.id
+        const session: RecordingSession = {
+          id: sessionId,
+          mode,
+          sourceTabId,
+          targetTabId: targetTab.id,
+          sourceTitle: sourceTab.title || 'Recording',
+          createdAt: Date.now(),
+          active: false,
+          cancelled: false,
+          playingFrames: new Set(),
+          playbackPlaying: false,
+        }
+        recordingSessionsByTarget.set(targetTab.id, session)
+        recordingTargetBySource.set(sourceTabId, targetTab.id)
+        await recordingStore.save()
+        await browser.tabs.update(targetTab.id, { url: targetUrl })
+        sendResponse({ ok: true, sessionId: session.id, targetTabId: targetTab.id })
+      } catch (error) {
+        if (createdTargetId !== undefined) {
+          const failed = recordingSessionsByTarget.get(createdTargetId)
+          if (failed) await closeRecordingSession(failed, false).catch(() => undefined)
+          await browser.tabs.remove(createdTargetId).catch(() => undefined)
+        }
+        sendResponse({ ok: false, error: String(error) })
+      }
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_PAGE_READY') {
+      const targetTabId = sender.tab?.id
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || msg.sessionId !== session.id) {
+        sendResponse({ ok: false, sessionId: msg.sessionId, error: 'recording-session-not-found' })
+        return
+      }
+      if (session.mode === 'mse') {
+        // Do not refresh the source until the recorder page has installed its
+        // data listener. The first READY owns one shared preparation promise.
+        session.preparePromise ??= session.sourcePrepared
+          ? Promise.resolve({ ok: true }) : prepareRecordingSession(session)
+        const prepared = await session.preparePromise
+        if (!prepared?.ok) {
+          sendResponse({
+            ok: false,
+            sessionId: session.id,
+            error: prepared?.error || 'recording-source-prepare-failed',
+          })
+          await closeRecordingSession(session, false)
+          return
+        }
+        session.sourcePrepared = true
+        await recordingStore.save()
+      } else {
+        const regionResult = await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSR_REGION_TRACKING_START',
+          sessionId: session.id,
+        }, { frameId: 0 }).catch(() => undefined) as any
+        if (regionResult?.ok && regionResult.region) session.captureRegion = regionResult.region
+        // MSR stays idle while the user adjusts the source player. Request
+        // a fresh, single-use stream ID only after the manual Start command.
+        // Keep the source player in front: MSR can now be started there.
+      }
+      sendResponse({
+        ok: true,
+        sessionId: session.id,
+        mode: session.mode,
+        sourceTitle: session.sourceTitle,
+        createdAt: session.createdAt,
+        playing: session.playbackPlaying,
+        captureRegion: session.captureRegion,
+      })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_SOURCE_READY') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled) {
+        sendResponse({ ok: false, capture: false })
+        return
+      }
+      if ((sender.frameId ?? 0) === 0) {
+        session.playingFrames.clear()
+        session.playbackPlaying = false
+      }
+      if (session.mode === 'mse') session.active = true
+      await recordingStore.save()
+      sendResponse({ ok: true, capture: session.mode === 'mse', mode: session.mode })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_CAPTURE_REGION') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || session.mode !== 'msr') {
+        sendResponse({ ok: false, error: 'recording-session-not-active' })
+        return
+      }
+      const value = msg.region
+      const keys = ['x', 'y', 'width', 'height', 'viewportWidth', 'viewportHeight', 'devicePixelRatio'] as const
+      const valid = value === undefined || value === null || (
+        typeof value === 'object'
+        && keys.every(key => Number.isFinite(value[key]))
+        && value.width > 0
+        && value.height > 0
+        && value.viewportWidth > 0
+        && value.viewportHeight > 0
+        && (value.kind === 'video' || value.kind === 'iframe')
+      )
+      if (!valid) {
+        sendResponse({ ok: false, error: 'invalid-capture-region' })
+        return
+      }
+      session.captureRegion = value || undefined
+      await recordingStore.save()
+      await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_CAPTURE_REGION',
+        sessionId: session.id,
+        region: session.captureRegion,
+      }).catch(() => undefined)
+      sendResponse({ ok: true })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_PLAYBACK_STATE') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || (!session.active && session.mode !== 'msr')) {
+        sendResponse({ ok: false, error: 'recording-session-not-active' })
+        return
+      }
+      const frameId = sender.frameId ?? 0
+      if (msg.playing === true) session.playingFrames.add(frameId)
+      else session.playingFrames.delete(frameId)
+      const playing = session.playingFrames.size > 0
+      if (playing !== session.playbackPlaying) {
+        session.playbackPlaying = playing
+        await recordingStore.save()
+        await browser.tabs.sendMessage(session.targetTabId, {
+          type: 'FLOWPICK_RECORDING_PLAYBACK_STATE',
+          playing,
+          sessionId: session.id,
+        }).catch(() => undefined)
+        if (session.mode === 'mse') {
+          // Also update the top-level source indicator when playback happens
+          // in a child frame, where the outer document cannot inspect video.
+          await browser.tabs.sendMessage(session.sourceTabId, {
+            type: 'FLOWPICK_RECORDING_PLAYBACK_STATE', playing, sessionId: session.id,
+          }, { frameId: 0 }).catch(() => undefined)
+        }
+      }
+      sendResponse({ ok: true, playing })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_STREAM_DATA') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      const payload = msg.payload
+      if (!session || session.mode !== 'mse' || !session.active || !payload || typeof payload !== 'object') {
+        sendResponse({ ok: false, error: 'recording-session-not-active' })
+        return
+      }
+      if (!['start', 'chunk', 'complete'].includes(payload.event)) {
+        sendResponse({ ok: false, error: 'invalid-recording-event' })
+        return
+      }
+      if (payload.event === 'chunk' && typeof payload.dataBase64 !== 'string') {
+        sendResponse({ ok: false, error: 'recording-chunk-missing' })
+        return
+      }
+      if (typeof payload.dataBase64 === 'string' && payload.dataBase64.length > 1024 * 1024) {
+        sendResponse({ ok: false, error: 'recording-chunk-too-large' })
+        return
+      }
+      try {
+        await browser.tabs.sendMessage(session.targetTabId, {
+          type: 'FLOWPICK_RECORDING_DELIVER',
+          payload: { ...payload, sessionId: session.id },
+        })
+        sendResponse({ ok: true })
+      } catch (error) {
+        await closeRecordingSession(session, false)
+        sendResponse({ ok: false, error: String(error) })
+      }
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_MSR_SOURCE_START') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || session.mode !== 'msr' || session.id !== msg.sessionId || session.active || (sender.frameId ?? 0) !== 0) {
+        sendResponse({ ok: false, error: 'recording-session-not-ready' })
+        return
+      }
+      const result = await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_SOURCE_START', sessionId: session.id,
+      }, { frameId: 0 }).catch(error => ({ ok: false, error: String(error) }))
+      sendResponse(result || { ok: false, error: 'recording-page-not-ready' })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_PAGE_COMMAND') {
+      const targetTabId = sender.tab?.id
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      if (!session || session.cancelled || msg.sessionId !== session.id) {
+        sendResponse({ ok: false, error: 'recording-session-not-found' })
+        return
+      }
+      if (msg.command === 'msr-state') {
+        if (session.mode !== 'msr' || !['ready', 'starting', 'waiting', 'recording', 'error', 'picker'].includes(msg.state)) {
+          sendResponse({ ok: false, error: 'invalid-msr-state' })
+          return
+        }
+        await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSR_CONTROL_STATE', sessionId: session.id, state: msg.state,
+          label: typeof msg.label === 'string' ? msg.label.slice(0, 100) : undefined,
+        }, { frameId: 0 }).catch(() => undefined)
+        // getDisplayMedia cannot inherit the source page's user gesture. If
+        // native tab capture is unavailable, keep the permission fallback on
+        // the recorder page rather than silently failing in the background.
+        if (msg.state === 'picker') {
+          await browser.tabs.update(session.targetTabId, { active: true }).catch(() => undefined)
+        }
+        sendResponse({ ok: true })
+        return
+      }
+      if (msg.command === 'start') {
+        if (session.mode !== 'msr') {
+          sendResponse({ ok: false, error: 'unsupported-recording-command' })
+          return
+        }
+        // Do not reload or autoplay: preserve the user's quality, position,
+        // playback speed and player size selected before manual recording.
+        session.active = true
+        await recordingStore.save()
+        await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSR_CONTROL_STATE', sessionId: session.id, state: 'starting',
+        }, { frameId: 0 }).catch(() => undefined)
+        await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_RECORDING_PLAYBACK_SYNC',
+        }).catch(() => undefined)
+        const msrStreamId = await getMsrTabStreamId(session.sourceTabId, session.targetTabId)
+        sendResponse({ ok: true, msrStreamId, playing: session.playbackPlaying, captureRegion: session.captureRegion })
+        return
+      }
+      if (msg.command !== 'stop') {
+        sendResponse({ ok: false, error: 'unsupported-recording-command' })
+        return
+      }
+      if (session.mode === 'mse' && session.active) {
+        const result = await browser.tabs.sendMessage(session.sourceTabId, {
+          type: 'FLOWPICK_MSE_CAPTURE_SET',
+          enabled: false,
+        }).catch(error => ({ ok: false, error: String(error) })) as any
+        if (!result?.ok) {
+          sendResponse({ ok: false, error: result?.error || 'mse-capture-stop-failed' })
+          return
+        }
+      }
+      session.active = false
+      recordingTargetBySource.delete(session.sourceTabId)
+      await browser.tabs.sendMessage(session.targetTabId, {
+        type: 'FLOWPICK_RECORDING_SESSION_STATE',
+        state: 'stopped',
+        sessionId: session.id,
+      }).catch(() => undefined)
+      await closeRecordingSession(session, false)
+      sendResponse({ ok: true })
       return
     }
 
@@ -1237,9 +1747,10 @@ export default defineBackground(() => {
 
       const browserLang = browser.i18n.getUILanguage()
       const langSuffix = languageMapping[browserLang]
+      // 开发环境（wxt dev）指向本地 dev server，生产构建指向 flowpick.net
       const targetUrl = langSuffix
-        ? `https://flowpick.net/${langSuffix}/${downloaderPage}`
-        : `https://flowpick.net/${downloaderPage}`
+        ? `${SITE_ORIGIN}/${langSuffix}/${downloaderPage}`
+        : `${SITE_ORIGIN}/${downloaderPage}`
       const tab = await browser.tabs.create({ url: targetUrl })
       if (tab.id) {
         pendingDownloads.set(tab.id, { url, format, filename, sourceUrl, requestHeaders: resolvedHeaders, audioUrl: msg.audioUrl as string | undefined })
@@ -1673,8 +2184,54 @@ export default defineBackground(() => {
       tabMap.set(tabId, new Map())
     }
     const mediaMap = tabMap.get(tabId)!
+    let equivalentStreamEntry: MediaEntry | undefined
+    let collapsedStreamAliases = false
+    const streamIdentity = getStreamResourceIdentity(url, format)
+    if (streamIdentity) {
+      const aliases: Array<[string, MediaEntry]> = []
+      for (const [candidateUrl, candidateEntry] of mediaMap) {
+        if (candidateUrl === url) continue
+        if (candidateEntry.groupRole === 'variant' || candidateEntry.groupRole === 'audio' || candidateEntry.groupRole === 'subtitle' || candidateEntry.groupRole === 'segment') continue
+        if (getStreamResourceIdentity(candidateUrl, candidateEntry.format) === streamIdentity) {
+          aliases.push([candidateUrl, candidateEntry])
+        }
+      }
+      if (aliases.length) {
+        // Prefer the newest alias as the metadata base, then fill any fields it
+        // lacks from older parses (most importantly duration/estimated size).
+        aliases.sort((a, b) => (b[1].detectedAt ?? 0) - (a[1].detectedAt ?? 0))
+        equivalentStreamEntry = { ...aliases[0]![1] }
+        for (const [, entry] of aliases.slice(1)) {
+          equivalentStreamEntry.duration ??= entry.duration
+          equivalentStreamEntry.size ??= entry.size
+          equivalentStreamEntry.width ??= entry.width
+          equivalentStreamEntry.height ??= entry.height
+          equivalentStreamEntry.coverUrl ??= entry.coverUrl
+          equivalentStreamEntry.tabTitle ??= entry.tabTitle
+          equivalentStreamEntry.contentType ??= entry.contentType
+          equivalentStreamEntry.requestHeaders = mergeCapturedRequestHeaders(entry.requestHeaders, equivalentStreamEntry.requestHeaders)
+          equivalentStreamEntry.sourceFrameIds = [...new Set([
+            ...(equivalentStreamEntry.sourceFrameIds ?? []),
+            ...(entry.sourceFrameIds ?? []),
+          ])]
+        }
+
+        const aliasUrls = new Set(aliases.map(([aliasUrl]) => aliasUrl))
+        for (const [candidateUrl, candidateEntry] of mediaMap) {
+          if (aliasUrls.has(candidateUrl) || (candidateEntry.groupMasterId && aliasUrls.has(candidateEntry.groupMasterId))) {
+            mediaMap.delete(candidateUrl)
+          }
+        }
+        collapsedStreamAliases = true
+        bumpTabVersion(tabId)
+      }
+    }
     const sourceFrame = extra?.frameId ?? 0
-    const sourceFrameIds = [...new Set([...(mediaMap.get(url)?.sourceFrameIds ?? []), sourceFrame])]
+    const sourceFrameIds = [...new Set([
+      ...(mediaMap.get(url)?.sourceFrameIds ?? []),
+      ...(equivalentStreamEntry?.sourceFrameIds ?? []),
+      sourceFrame,
+    ])]
     // 资源嗅探时刻的网页标题（优先用传入的 tabTitle，否则从缓存 Map 取）
     const effectiveTabTitle = tabTitle ?? tabPageTitles.get(tabId)
 
@@ -1711,27 +2268,48 @@ export default defineBackground(() => {
       }
     }
 
-    const existing = mediaMap.get(url)
-    if (existing && format !== 'mse') {
+    let exactExisting = mediaMap.get(url)
+    if (exactExisting && equivalentStreamEntry) {
+      exactExisting = {
+        ...equivalentStreamEntry,
+        ...exactExisting,
+        duration: exactExisting.duration ?? equivalentStreamEntry.duration,
+        size: exactExisting.size ?? equivalentStreamEntry.size,
+        width: exactExisting.width ?? equivalentStreamEntry.width,
+        height: exactExisting.height ?? equivalentStreamEntry.height,
+        coverUrl: exactExisting.coverUrl ?? equivalentStreamEntry.coverUrl,
+        tabTitle: exactExisting.tabTitle ?? equivalentStreamEntry.tabTitle,
+        contentType: exactExisting.contentType ?? equivalentStreamEntry.contentType,
+        requestHeaders: mergeCapturedRequestHeaders(equivalentStreamEntry.requestHeaders, exactExisting.requestHeaders),
+        sourceFrameIds,
+        groupId: exactExisting.groupRole === 'master' || equivalentStreamEntry.groupRole === 'master'
+          ? url
+          : exactExisting.groupId ?? equivalentStreamEntry.groupId,
+        groupRole: exactExisting.groupRole ?? equivalentStreamEntry.groupRole,
+        groupMasterId: undefined,
+      }
+      mediaMap.set(url, exactExisting)
+    }
+    if (exactExisting && format !== 'mse') {
       // 页面世界的 fetch/XHR hook 会比响应头更早上报同一个 URL。不要直接
       // 丢弃响应头里的认证信息和媒体类型；这也是分离流无法被配对的根因。
       // Content-Type 是比 URL 后缀更强的证据：例如动态 HLS 入口可以以 .mp4 结尾。
       const responseFormat = contentType ? detectMediaFromContentType(contentType) : null
-      const upgradedFormat = responseFormat ?? existing.format
-      const upgradedContentType = contentType ?? existing.contentType
-      const upgradedHeaders = mergeCapturedRequestHeaders(existing.requestHeaders, requestHeaders)
+      const upgradedFormat = responseFormat ?? exactExisting.format
+      const upgradedContentType = contentType ?? exactExisting.contentType
+      const upgradedHeaders = mergeCapturedRequestHeaders(exactExisting.requestHeaders, requestHeaders)
       const upgradedSize = upgradedFormat === 'm3u8' || upgradedFormat === 'mpd'
-        ? undefined
-        : existing.size ?? size
-      const upgradedTitle = existing.tabTitle ?? effectiveTabTitle
-      const formatChanged = upgradedFormat !== existing.format
-      if (formatChanged
-        || upgradedContentType !== existing.contentType
-        || upgradedHeaders !== existing.requestHeaders
-        || upgradedSize !== existing.size
-        || upgradedTitle !== existing.tabTitle || !existing.sourceFrameIds?.includes(sourceFrame)) {
+        ? exactExisting.size
+        : exactExisting.size ?? size
+      const upgradedTitle = exactExisting.tabTitle ?? effectiveTabTitle
+      const formatChanged = upgradedFormat !== exactExisting.format
+      if (collapsedStreamAliases || formatChanged
+        || upgradedContentType !== exactExisting.contentType
+        || upgradedHeaders !== exactExisting.requestHeaders
+        || upgradedSize !== exactExisting.size
+        || upgradedTitle !== exactExisting.tabTitle || !exactExisting.sourceFrameIds?.includes(sourceFrame)) {
         mediaMap.set(url, {
-          ...existing,
+          ...exactExisting,
           format: upgradedFormat,
           contentType: upgradedContentType,
           requestHeaders: upgradedHeaders,
@@ -1739,17 +2317,21 @@ export default defineBackground(() => {
           tabTitle: upgradedTitle,
           sourceFrameIds,
         })
-        if (formatChanged && (existing.format === 'm3u8' || existing.format === 'mpd'
+        if ((collapsedStreamAliases || formatChanged) && (exactExisting.format === 'm3u8' || exactExisting.format === 'mpd'
           || upgradedFormat === 'm3u8' || upgradedFormat === 'mpd')) bumpTabVersion(tabId)
         if (upgradedContentType) tryGroupVideoAudio(url, tabId, upgradedContentType, upgradedSize)
         saveTabList(tabId, mediaMap).catch(() => {})
         broadcastDebounced(tabId)
-        if (formatChanged && (upgradedFormat === 'm3u8' || upgradedFormat === 'mpd')) {
-          parseAndGroupManifest(url, tabId, upgradedFormat, upgradedHeaders).catch(() => {})
-        }
+      }
+      // Re-run grouping for restored/persisted manifests as well. The
+      // per-page manifest cache keeps this cheap, while allowing newly added
+      // child roles (such as subtitle renditions) to migrate old entries.
+      if (upgradedFormat === 'm3u8' || upgradedFormat === 'mpd') {
+        parseAndGroupManifest(url, tabId, upgradedFormat, upgradedHeaders).catch(() => {})
       }
       return
     }
+    const existing = equivalentStreamEntry
     if (mediaMap.size >= (currentSettings.maxItems ?? 1000)) {
       const oldestKey = mediaMap.keys().next().value
       if (oldestKey !== undefined) {
@@ -1758,17 +2340,18 @@ export default defineBackground(() => {
       }
     }
     // m3u8/mpd 的 Content-Length 是 manifest 文本文件大小（几 KB），不是视频总大小，不存
-    const effectiveSize = (format === 'm3u8' || format === 'mpd') ? undefined : (size ?? existing?.size)
+    const effectiveSize = (format === 'm3u8' || format === 'mpd') ? existing?.size : (size ?? existing?.size)
     // FLV/MPEG-TS 无 Content-Length 视为直播流（HTTP-FLV 直播的典型特征）
     const isLiveStream = (format === 'flv' || format === 'ts')
       ? (effectiveSize === undefined && !existing?.size)
       : existing?.isLiveStream
     mediaMap.set(url, {
+      ...existing,
       format,
       size: effectiveSize,
       detectedAt: existing?.detectedAt ?? Date.now(),
-      category,
-      requestHeaders,
+      category: existing?.category ?? category,
+      requestHeaders: mergeCapturedRequestHeaders(existing?.requestHeaders, requestHeaders),
       captureId: extra?.captureId ?? existing?.captureId,
       frameId: extra?.frameId ?? existing?.frameId,
       sourceFrameIds,
@@ -1777,6 +2360,8 @@ export default defineBackground(() => {
       contentType: contentType ?? existing?.contentType,
       tabTitle: effectiveTabTitle ?? existing?.tabTitle,
       isLiveStream,
+      groupId: existing?.groupRole === 'master' ? url : existing?.groupId,
+      groupMasterId: undefined,
     })
     // m3u8/mpd 是潜在 master，bump 版本使前缀索引在下次分片查找时重建
     if (format === 'm3u8' || format === 'mpd') bumpTabVersion(tabId)
@@ -1802,6 +2387,26 @@ export default defineBackground(() => {
   }
 
   function purgeTabState(tabId: number) {
+    // A close event can arrive while the worker is restoring its metadata.
+    void recordingStore.ready.then(async () => {
+      const targetSession = recordingSessionsByTarget.get(tabId)
+      if (targetSession) await closeRecordingSession(targetSession, false)
+      const recordingTarget = recordingTargetBySource.get(tabId)
+      if (recordingTarget !== undefined) {
+        const sourceSession = recordingSessionsByTarget.get(recordingTarget)
+        recordingTargetBySource.delete(tabId)
+        if (sourceSession) {
+          sourceSession.active = false
+          recordingSessionsByTarget.delete(recordingTarget)
+          browser.tabs.sendMessage(recordingTarget, {
+            type: 'FLOWPICK_RECORDING_SESSION_STATE',
+            state: 'source-closed',
+            sessionId: sourceSession.id,
+          }).catch(() => undefined)
+        }
+      }
+      await recordingStore.save()
+    }).catch(error => console.warn('[FlowPick] Recording session cleanup failed:', error))
     const badgeTimer = badgeUpdateTimers.get(tabId)
     if (badgeTimer) clearTimeout(badgeTimer)
     badgeUpdateTimers.delete(tabId)
@@ -1898,13 +2503,11 @@ export default defineBackground(() => {
       // Popup counters represent user-facing cards. Variants, separated audio
       // and segments are children of one master card and must never inflate the
       // toolbar badge, even when legacy data is missing its group id.
-      if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'segment') return
+      if (entry.groupRole === 'variant' || entry.groupRole === 'audio' || entry.groupRole === 'subtitle' || entry.groupRole === 'segment') return
 
       const format = entry.format.toLowerCase()
       const group = getFormatGroup(format)
       if (group && currentSettings.sniffingRules[group]?.enabled === false) return
-      if (format === 'mse' && !currentSettings.enableMseCapture) return
-
       // Match useMediaFilters' persistent minimum-size filter. Temporary UI
       // filters (search, resolution, manual size range) intentionally do not
       // change the extension badge.
@@ -2620,6 +3223,24 @@ export default defineBackground(() => {
         duration: parsed.duration ?? masterEntry.duration,
         size: estimatedSize ?? masterEntry.size,
       })
+
+      // Subtitle renditions are HLS playlists too, but they contain WebVTT
+      // cues rather than playable audio/video. Keep them as hidden children of
+      // the master so a later native request cannot recreate a standalone card.
+      for (const subtitleUri of parsed.subtitleUris ?? []) {
+        const existingSubtitle = mediaMap.get(subtitleUri)
+        mediaMap.set(subtitleUri, {
+          ...existingSubtitle,
+          format: 'm3u8',
+          detectedAt: existingSubtitle?.detectedAt ?? Date.now(),
+          category: 'stream',
+          requestHeaders: existingSubtitle?.requestHeaders ?? requestHeaders ?? masterEntry.requestHeaders,
+          sourceFrameIds: existingSubtitle?.sourceFrameIds ?? masterEntry.sourceFrameIds,
+          groupId,
+          groupRole: 'subtitle',
+          groupMasterId: masterUrl,
+        })
+      }
 
       for (const variant of parsed.variants) {
         const existing = mediaMap.get(variant.uri)

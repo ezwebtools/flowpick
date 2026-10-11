@@ -1,5 +1,6 @@
 import { createPageReporter } from '../utils/page-reporter'
 import { pageIdentity } from '../utils/page-session'
+import { isRecordingBridgeMessage, localRecordingBuffer } from '../utils/recording-bridge'
 
 export default defineContentScript({
   matches: ['*://*/*'],
@@ -8,6 +9,7 @@ export default defineContentScript({
   // document_end many players have already created their SourceBuffers.
   runAt: 'document_start',
   main() {
+    let injectedPageHookReady = false
     const activeBlobDownloads = new Set<string>()
     window.addEventListener('beforeunload', event => {
       if (activeBlobDownloads.size) { event.preventDefault(); event.returnValue = '' }
@@ -33,10 +35,414 @@ export default defineContentScript({
     }
 
     let latestSettings: any
-    const applyPageSettings = (s: any) => {
-      if (s?.enableMseCapture) {
-        window.postMessage({ type: 'FLOWPICK_MSE_ENABLE' }, '*')
+    setTimeout(() => {
+      if (!injectedPageHookReady) console.warn('[FlowPick] Page hook did not report READY; MSE recording may be unavailable due to injection timing or page CSP')
+    }, 5000)
+    let mseCaptureActive = false
+    let recordingSourceReadySent = false
+    let recordingPushQueue: Promise<unknown> = Promise.resolve()
+    let recordingConfigPosted = false
+    const pendingRecordingDeliveries: any[] = []
+    window.addEventListener('message', event => {
+      if (!isRecordingBridgeMessage(event, window, location.origin) || event.data?.type !== 'FLOWPICK_MSE_RECORDING_FLUSH') return
+      const port = event.ports[0]
+      // All earlier window events have now joined recordingPushQueue. Wait
+      // for their delivery to the recorder before acknowledging stop.
+      void recordingPushQueue.then(() => {
+        port?.postMessage({ ok: true, active: false })
+        port?.close()
+      }, error => {
+        port?.postMessage({ ok: false, active: false, error: String(error) })
+        port?.close()
+      })
+    })
+    let lastReportedPlayback: boolean | undefined
+    let msrRegionTracking = false
+    let captureRegionMode: 'mse' | 'msr' = 'msr'
+    let msePlaybackPlaying = false
+    let captureRegionTimer: ReturnType<typeof setInterval> | undefined
+    let captureRegionFrame: number | undefined
+    let lastCaptureRegionSignature = ''
+    let captureRegionOverlay: HTMLDivElement | undefined
+    let captureRegionOverlayLabel: HTMLDivElement | undefined
+    let captureRegionOverlayEnabled = false
+    let msrControlSessionId = ''
+    let msrControlState = 'ready'
+    let captureRegionStartButton: HTMLButtonElement | undefined
+
+    interface CaptureRegion {
+      x: number
+      y: number
+      width: number
+      height: number
+      viewportWidth: number
+      viewportHeight: number
+      devicePixelRatio: number
+      kind: 'video' | 'iframe'
+    }
+
+    function visibleElementRegion(element: Element, kind: CaptureRegion['kind']): CaptureRegion | undefined {
+      const style = getComputedStyle(element)
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) <= 0) return undefined
+      const rect = element.getBoundingClientRect()
+      let contentLeft = rect.left
+      let contentTop = rect.top
+      let contentWidth = rect.width
+      let contentHeight = rect.height
+
+      // A portrait stream is often rendered inside a landscape <video> box
+      // with object-fit: contain. The surrounding pillar/letterbox pixels are
+      // part of the element box but not the actual picture, so exclude them
+      // from the MSR crop instead of recording large black borders.
+      if (element instanceof HTMLVideoElement && element.videoWidth > 0 && element.videoHeight > 0) {
+        const objectFit = style.objectFit || 'fill'
+        if (objectFit === 'contain' || objectFit === 'scale-down') {
+          const positionParts = style.objectPosition.trim().split(/\s+/)
+          const positionFactor = (value: string | undefined, start: string, end: string) => {
+            if (!value || value === 'center') return 0.5
+            if (value === start) return 0
+            if (value === end) return 1
+            if (value.endsWith('%')) return Math.max(0, Math.min(1, Number.parseFloat(value) / 100))
+            return 0.5
+          }
+          const positionX = positionFactor(positionParts[0], 'left', 'right')
+          const positionY = positionFactor(positionParts[1] || positionParts[0], 'top', 'bottom')
+          const mediaRatio = element.videoWidth / element.videoHeight
+          const boxRatio = rect.width / Math.max(1, rect.height)
+          if (boxRatio > mediaRatio) {
+            contentWidth = rect.height * mediaRatio
+            contentLeft = rect.left + (rect.width - contentWidth) * positionX
+          } else if (boxRatio < mediaRatio) {
+            contentHeight = rect.width / mediaRatio
+            contentTop = rect.top + (rect.height - contentHeight) * positionY
+          }
+        }
       }
+      const viewportWidth = Math.max(1, window.innerWidth)
+      const viewportHeight = Math.max(1, window.innerHeight)
+      const left = Math.max(0, contentLeft)
+      const top = Math.max(0, contentTop)
+      const right = Math.min(viewportWidth, contentLeft + contentWidth)
+      const bottom = Math.min(viewportHeight, contentTop + contentHeight)
+      const width = right - left
+      const height = bottom - top
+      if (width < 160 || height < 90) return undefined
+      return {
+        x: left,
+        y: top,
+        width,
+        height,
+        viewportWidth,
+        viewportHeight,
+        devicePixelRatio: window.devicePixelRatio || 1,
+        kind,
+      }
+    }
+
+    function querySelectorAllDeep<T extends Element>(selector: string): T[] {
+      const matches: T[] = []
+      const visit = (root: Document | ShadowRoot) => {
+        matches.push(...root.querySelectorAll<T>(selector))
+        for (const element of root.querySelectorAll<HTMLElement>('*')) {
+          if (element.shadowRoot) visit(element.shadowRoot)
+        }
+      }
+      visit(document)
+      return matches
+    }
+
+    function hideCaptureRegionOverlay() {
+      captureRegionOverlay?.remove()
+      captureRegionOverlay = undefined
+      captureRegionOverlayLabel = undefined
+      captureRegionStartButton = undefined
+    }
+
+    function showCaptureRegionOverlay(region?: CaptureRegion) {
+      if (!region || window.top !== window) {
+        hideCaptureRegionOverlay()
+        return
+      }
+      if (!captureRegionOverlay) {
+        const host = document.createElement('div')
+        host.dataset.flowpickMsrRegion = 'true'
+        host.style.cssText = [
+          'all:initial',
+          'position:fixed',
+          'pointer-events:none',
+          'z-index:2147483647',
+          'box-sizing:border-box',
+          'overflow:visible',
+        ].join(';')
+        const shadow = host.attachShadow({ mode: 'closed' })
+        const style = document.createElement('style')
+        style.textContent = `
+          :host { color-scheme: light dark; }
+          /* Keep every painted pixel outside the recording crop. Inward
+             shadows/glows would otherwise burn the blue frame into video. */
+          .edge { position: absolute; background: #1677ff; }
+          .top { left: 0; right: 0; top: -8px; height: 3px; }
+          .right { top: 0; bottom: 0; right: -8px; width: 3px; }
+          .bottom { left: 0; right: 0; bottom: -8px; height: 3px; }
+          .left { top: 0; bottom: 0; left: -8px; width: 3px; }
+          .label { position: absolute; left: 0; bottom: calc(100% + 9px); padding: 4px 8px; border-radius: 5px; background: #1677ff; color: #fff; font: 600 12px/1.2 system-ui, sans-serif; white-space: nowrap; }
+          .label.below { top: calc(100% + 9px); bottom: auto; }
+          .label.mse { left: 12px; bottom: 12px; top: auto; background: #dc2626; padding: 7px 10px; border: 1px solid rgba(255,255,255,.4); }
+          .label.mse.waiting { background: #b45309; }
+          .start { position: absolute; left: 12px; bottom: 12px; pointer-events: auto; border: 1px solid rgba(255,255,255,.45); border-radius: 8px; padding: 9px 14px; background: #1677ff; color: #fff; font: 600 13px/1.3 system-ui,sans-serif; cursor: pointer; }
+          .start:hover { background: #0969da; }
+          .start:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+          .start[hidden] { display: none; }
+        `
+        const label = document.createElement('div')
+        label.className = 'label'
+        label.textContent = 'FlowPick MSR 录制区域'
+        const startButton = document.createElement('button')
+        startButton.type = 'button'
+        startButton.className = 'start'
+        startButton.textContent = 'Start Recording'
+        startButton.addEventListener('click', async event => {
+          event.preventDefault()
+          event.stopPropagation()
+          if (msrControlState !== 'ready' || !msrControlSessionId) return
+          const requestedSessionId = msrControlSessionId
+          msrControlState = 'starting'
+          startButton.hidden = true
+          try {
+            // Let the removal paint before requesting tab capture, so the
+            // source-page control never appears in the recorded first frame.
+            await new Promise(resolve => setTimeout(resolve, 100))
+            const result = await browser.runtime.sendMessage({
+              type: 'FLOWPICK_MSR_SOURCE_START', sessionId: requestedSessionId,
+            }) as any
+            if (!result?.ok) throw new Error(result?.error || 'recording-start-failed')
+          } catch (error) {
+            if (msrControlSessionId !== requestedSessionId) return
+            msrControlState = 'ready'
+            startButton.hidden = false
+            startButton.title = String(error)
+            console.warn('[FlowPick] Source-page recording start failed:', error)
+          }
+        })
+        for (const side of ['top', 'right', 'bottom', 'left']) {
+          const edge = document.createElement('div')
+          edge.className = `edge ${side}`
+          shadow.appendChild(edge)
+        }
+        shadow.append(style, label, startButton)
+        document.documentElement.appendChild(host)
+        captureRegionOverlay = host
+        captureRegionOverlayLabel = label
+        captureRegionStartButton = startButton
+      }
+      captureRegionOverlay.style.left = `${region.x}px`
+      captureRegionOverlay.style.top = `${region.y}px`
+      captureRegionOverlay.style.width = `${region.width}px`
+      captureRegionOverlay.style.height = `${region.height}px`
+      if (captureRegionStartButton) captureRegionStartButton.hidden = captureRegionMode !== 'msr' || msrControlState !== 'ready'
+      if (captureRegionOverlayLabel) {
+        const source = region.kind === 'iframe' ? 'IFRAME' : 'VIDEO'
+        captureRegionOverlayLabel.classList.toggle('mse', captureRegionMode === 'mse')
+        captureRegionOverlayLabel.classList.toggle('waiting', captureRegionMode === 'mse' && !msePlaybackPlaying)
+        captureRegionOverlayLabel.textContent = captureRegionMode === 'mse'
+          ? `FlowPick MSE · ${msePlaybackPlaying ? '● 录制中' : '等待播放'} · ${Math.round(region.width)}×${Math.round(region.height)}`
+          : `FlowPick MSR · ${source} · ${Math.round(region.width)}×${Math.round(region.height)}`
+      }
+      captureRegionOverlayLabel?.classList.toggle('below', captureRegionMode === 'msr' && region.y < 32)
+    }
+
+    function findBestCaptureRegion(): CaptureRegion | undefined {
+      // tabCapture records the top-level visual viewport. Child-frame element
+      // coordinates are local to that frame, so only select elements whose
+      // bounds can be mapped accurately into the captured tab.
+      if (window.top !== window) return undefined
+      const videos = querySelectorAllDeep<HTMLVideoElement>('video')
+        .map(element => ({
+          region: visibleElementRegion(element, 'video'),
+          playing: !element.paused && !element.ended && element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
+        }))
+        .filter((item): item is { region: CaptureRegion, playing: boolean } => Boolean(item.region))
+        .sort((left, right) => {
+          const score = (item: { region: CaptureRegion, playing: boolean }) => (
+            item.region.width * item.region.height * (item.playing ? 1.25 : 1)
+          )
+          return score(right) - score(left)
+        })
+      if (videos[0]) return videos[0].region
+
+      // Cross-origin players hide their inner <video> from the top document.
+      // In that case an iframe with a normal video aspect ratio is the most
+      // useful safe approximation of the player window.
+      return querySelectorAllDeep<HTMLIFrameElement>('iframe')
+        .map(element => visibleElementRegion(element, 'iframe'))
+        .filter((region): region is CaptureRegion => {
+          if (!region) return false
+          const ratio = region.width / region.height
+          return ratio >= 1.2 && ratio <= 2.5
+        })
+        .sort((left, right) => right.width * right.height - left.width * left.height)[0]
+    }
+
+    function reportCaptureRegion(force = false) {
+      if (!msrRegionTracking || window.top !== window) return
+      const region = findBestCaptureRegion()
+      if (captureRegionOverlayEnabled) showCaptureRegionOverlay(region)
+      else hideCaptureRegionOverlay()
+      // MSE records media buffers, not this rectangle. The outline is only
+      // a playback-page indicator; never alter MSE data or send crop commands.
+      if (captureRegionMode === 'mse') return
+      const signature = region
+        ? [region.x, region.y, region.width, region.height, region.viewportWidth, region.viewportHeight, region.kind]
+            .map(value => typeof value === 'number' ? Math.round(value * 10) / 10 : value)
+            .join(':')
+        : 'full-tab'
+      if (!force && signature === lastCaptureRegionSignature) return
+      lastCaptureRegionSignature = signature
+      browser.runtime.sendMessage({
+        type: 'FLOWPICK_RECORDING_CAPTURE_REGION',
+        region,
+      }).then((result: any) => {
+        if (!result?.ok && result?.error === 'recording-session-not-active') stopCaptureRegionTracking()
+      }).catch(() => undefined)
+    }
+
+    function scheduleCaptureRegionReport(force = false) {
+      if (!msrRegionTracking || window.top !== window) return
+      if (captureRegionFrame !== undefined) cancelAnimationFrame(captureRegionFrame)
+      captureRegionFrame = requestAnimationFrame(() => {
+        captureRegionFrame = undefined
+        reportCaptureRegion(force)
+      })
+    }
+
+    function startCaptureRegionTracking(mode: 'mse' | 'msr' = 'msr') {
+      if (window.top !== window) return
+      captureRegionMode = mode
+      msrRegionTracking = true
+      // Persist through play/pause; the outline and label are drawn outside
+      // the crop rather than hidden when recording starts.
+      captureRegionOverlayEnabled = true
+      scheduleCaptureRegionReport(true)
+      captureRegionTimer ??= setInterval(() => scheduleCaptureRegionReport(), 750)
+    }
+
+    function stopCaptureRegionTracking() {
+      msrRegionTracking = false
+      msePlaybackPlaying = false
+      msrControlSessionId = ''
+      msrControlState = 'ready'
+      captureRegionOverlayEnabled = false
+      lastCaptureRegionSignature = ''
+      hideCaptureRegionOverlay()
+      if (captureRegionTimer) clearInterval(captureRegionTimer)
+      captureRegionTimer = undefined
+      if (captureRegionFrame !== undefined) cancelAnimationFrame(captureRegionFrame)
+      captureRegionFrame = undefined
+    }
+
+    function reportPlaybackState(force = false) {
+      const playing = [...document.querySelectorAll<HTMLMediaElement>('video, audio')]
+        .some(element => !element.paused && !element.ended)
+      if (!force && playing === lastReportedPlayback) return
+      lastReportedPlayback = playing
+      // Publish the player's settled metadata/size before the recorder starts
+      // encoding its first frame after a source-page refresh.
+      if (playing && msrRegionTracking) reportCaptureRegion(true)
+      return browser.runtime.sendMessage({
+        type: 'FLOWPICK_RECORDING_PLAYBACK_STATE',
+        playing,
+      }).then((result: any) => {
+        // READY/enable may happen after playback already began. Refresh the
+        // badge from the aggregate response even when no transition was sent.
+        if (mseCaptureActive && captureRegionMode === 'mse' && typeof result?.playing === 'boolean') {
+          msePlaybackPlaying = result.playing
+          scheduleCaptureRegionReport(true)
+        }
+        return result
+      }).catch(() => undefined)
+    }
+
+    for (const eventName of ['play', 'playing', 'pause', 'ended', 'emptied', 'loadedmetadata', 'resize']) {
+      document.addEventListener(eventName, () => {
+        reportPlaybackState()
+        scheduleCaptureRegionReport(true)
+      }, true)
+    }
+    window.addEventListener('resize', () => scheduleCaptureRegionReport())
+    window.addEventListener('scroll', () => scheduleCaptureRegionReport(), true)
+    document.addEventListener('fullscreenchange', () => scheduleCaptureRegionReport(true))
+    window.addEventListener('pageshow', () => reportPlaybackState(true))
+    window.addEventListener('pagehide', () => {
+      lastReportedPlayback = false
+      browser.runtime.sendMessage({
+        type: 'FLOWPICK_RECORDING_PLAYBACK_STATE',
+        playing: false,
+      }).catch(() => undefined)
+    })
+
+    function arrayBufferToBase64(buffer: ArrayBuffer) {
+      const bytes = new Uint8Array(buffer)
+      const parts: string[] = []
+      const batchSize = 0x8000
+      for (let offset = 0; offset < bytes.length; offset += batchSize) {
+        parts.push(String.fromCharCode(...bytes.subarray(offset, offset + batchSize)))
+      }
+      return btoa(parts.join(''))
+    }
+
+    function base64ToArrayBuffer(value: string) {
+      const binary = atob(value)
+      const bytes = new Uint8Array(binary.length)
+      for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+      return bytes.buffer
+    }
+
+    function pushRecordingEvent(payload: Record<string, unknown>) {
+      recordingPushQueue = recordingPushQueue
+        .catch(() => undefined)
+        .then(() => browser.runtime.sendMessage({
+          type: 'FLOWPICK_RECORDING_STREAM_DATA',
+          payload,
+        }))
+        .then(result => {
+          if (!result?.ok) throw new Error(result?.error || 'recording-delivery-rejected')
+          return result
+        })
+        .catch(error => {
+          console.warn('[FlowPick] MSE recording delivery failed:', error)
+          throw error
+        })
+      return recordingPushQueue
+    }
+
+    function setMseCaptureEnabled(enabled: boolean): Promise<{ ok: boolean, active: boolean }> {
+      return new Promise(resolve => {
+        const channel = new MessageChannel()
+        let settled = false
+        const finish = (result: { ok: boolean, active: boolean }) => {
+          if (settled) return
+          settled = true
+          clearTimeout(timeout)
+          channel.port1.close()
+          mseCaptureActive = result.active
+          if (result.active) {
+            startCaptureRegionTracking('mse')
+            void reportPlaybackState(true)
+          } else if (captureRegionMode === 'mse') stopCaptureRegionTracking()
+          resolve(result)
+        }
+        const timeout = setTimeout(() => {
+          console.warn('[FlowPick] MSE page-hook acknowledgement timed out; check Firefox injection/CSP and message bridge')
+          finish({ ok: false, active: mseCaptureActive })
+        }, enabled ? 3000 : 60000)
+        channel.port1.onmessage = event => finish({
+          ok: event.data?.ok === true,
+          active: event.data?.active === true,
+        })
+        window.postMessage({ type: 'FLOWPICK_MSE_SET_ENABLED', enabled }, '*', [channel.port2])
+      })
+    }
+    const applyPageSettings = (s: any) => {
       window.postMessage({
         type: 'FLOWPICK_DATA_IMAGES_ENABLE',
         enabled: s?.captureDataImages === true,
@@ -49,12 +455,24 @@ export default defineContentScript({
     }).catch(() => {})
 
     window.addEventListener('message', (event) => {
-      if (event.source !== window) return
+      if (!isRecordingBridgeMessage(event, window, location.origin)) return
+      if (event.data?.type === 'FLOWPICK_INJECTED_READY') injectedPageHookReady = true
       if (event.data?.type === 'FLOWPICK_PING') {
         window.postMessage({ type: 'FLOWPICK_PONG', version: browser.runtime.getManifest().version }, '*')
       }
       if (event.data?.type === 'FLOWPICK_INJECTED_READY' && latestSettings) {
         applyPageSettings(latestSettings)
+      }
+      if (event.data?.type === 'FLOWPICK_INJECTED_READY' && mseCaptureActive) {
+        window.postMessage({ type: 'FLOWPICK_MSE_SET_ENABLED', enabled: true }, '*')
+      }
+      if (event.data?.type === 'FLOWPICK_INJECTED_READY' && !recordingSourceReadySent) {
+        recordingSourceReadySent = true
+        browser.runtime.sendMessage({ type: 'FLOWPICK_RECORDING_SOURCE_READY' }).then((result: any) => {
+          if (result?.capture === true) void setMseCaptureEnabled(true)
+          if (result?.mode === 'msr') startCaptureRegionTracking()
+          if (result?.ok) reportPlaybackState(true)
+        }).catch(() => undefined)
       }
       if (event.data?.type === 'FLOWPICK_INJECTED_READY') void reporter.sync()
       if (event.data?.type === 'FLOWPICK_PAGE_NAVIGATED' && typeof event.data.url === 'string') {
@@ -85,6 +503,42 @@ export default defineContentScript({
           })
         }
         tryFetch()
+      }
+      if (event.data?.type === 'FLOWPICK_RECORDING_READY') {
+        const requestedSessionId = event.data.sessionId
+        browser.runtime.sendMessage({
+          type: 'FLOWPICK_RECORDING_PAGE_READY',
+          sessionId: event.data.sessionId,
+        }).then((result: any) => {
+          window.postMessage({ type: 'FLOWPICK_RECORDING_CONFIG', sessionId: requestedSessionId, ...(result || { ok: false, error: 'recording-background-no-response' }) }, '*')
+          if (result?.ok) {
+            recordingConfigPosted = true
+            // CONFIG and DATA use the same window message queue: the recorder
+            // installs its session ID before consuming the first init bytes.
+            for (const payload of pendingRecordingDeliveries.splice(0)) deliverRecordingPayload(payload)
+          } else {
+            pendingRecordingDeliveries.length = 0
+          }
+        }).catch(error => {
+          window.postMessage({ type: 'FLOWPICK_RECORDING_CONFIG', sessionId: requestedSessionId, ok: false, error: String(error) }, '*')
+        })
+      }
+      if (event.data?.type === 'FLOWPICK_RECORDING_COMMAND') {
+        browser.runtime.sendMessage({
+          type: 'FLOWPICK_RECORDING_PAGE_COMMAND',
+          command: event.data.command,
+          sessionId: event.data.sessionId,
+        }).then((result: any) => {
+          window.postMessage({ type: 'FLOWPICK_RECORDING_COMMAND_RESULT', command: event.data.command, ...(result || { ok: false }) }, '*')
+        }).catch(error => {
+          window.postMessage({ type: 'FLOWPICK_RECORDING_COMMAND_RESULT', command: event.data.command, ok: false, error: String(error) }, '*')
+        })
+      }
+      if (event.data?.type === 'FLOWPICK_RECORDING_MSR_UI_STATE') {
+        void browser.runtime.sendMessage({
+          type: 'FLOWPICK_RECORDING_PAGE_COMMAND', command: 'msr-state',
+          sessionId: event.data.sessionId, state: event.data.state, label: event.data.label,
+        }).catch(() => undefined)
       }
     })
 
@@ -151,6 +605,17 @@ export default defineContentScript({
       })
     }
 
+    function deliverRecordingPayload(payload: any) {
+      const dataBase64 = typeof payload.dataBase64 === 'string' ? payload.dataBase64 : undefined
+      if (dataBase64) {
+        const buffer = base64ToArrayBuffer(dataBase64)
+        const { dataBase64: _dataBase64, ...metadata } = payload
+        window.postMessage({ type: 'FLOWPICK_RECORDING_DATA', ...metadata, buffer }, '*', [buffer])
+      } else {
+        window.postMessage({ type: 'FLOWPICK_RECORDING_DATA', ...payload }, '*')
+      }
+    }
+
     // 接收 background 发来的消息，通过 postMessage 转发给页面
     browser.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'FLOWPICK_SESSION_CHANGED' || msg.type === 'FLOWPICK_SYNC_PAGE') {
@@ -167,13 +632,94 @@ export default defineContentScript({
       if (msg.type === 'FLOWPICK_NOTIFY_CLICK') {
         window.postMessage({ type: 'FLOWPICK_NOTIFY_CLICK', tag: msg.tag }, '*')
       }
+      if (msg.type === 'FLOWPICK_RECORDING_DELIVER') {
+        const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {}
+        if (!recordingConfigPosted) pendingRecordingDeliveries.push(payload)
+        else deliverRecordingPayload(payload)
+      }
+      if (msg.type === 'FLOWPICK_MSR_REGION_TRACKING_START') {
+        if (window.top !== window) return
+        if (msrControlSessionId !== msg.sessionId) msrControlState = 'connecting'
+        msrControlSessionId = msg.sessionId || ''
+        startCaptureRegionTracking()
+        return Promise.resolve({ ok: true, region: findBestCaptureRegion() })
+      }
+      if (msg.type === 'FLOWPICK_RECORDING_SOURCE_START') {
+        window.postMessage(msg, '*')
+        return Promise.resolve({ ok: true })
+      }
+      if (msg.type === 'FLOWPICK_MSR_CONTROL_STATE') {
+        if (msg.sessionId !== msrControlSessionId) return
+        msrControlState = msg.state
+        if (captureRegionStartButton) {
+          captureRegionStartButton.hidden = msrControlState !== 'ready'
+          if (typeof msg.label === 'string' && msg.label) captureRegionStartButton.textContent = msg.label
+        }
+        if (msg.state === 'starting') return new Promise(resolve => setTimeout(() => resolve({ ok: true }), 100))
+        return Promise.resolve({ ok: true })
+      }
+      if (msg.type === 'FLOWPICK_RECORDING_PLAYBACK_SYNC') {
+        return Promise.resolve(reportPlaybackState(true)).then(() => ({ ok: true }))
+      }
+      if (msg.type === 'FLOWPICK_RECORDING_SESSION_STATE') {
+        if (msg.state === 'closed' || msg.state === 'stopped' || msg.state === 'source-closed') stopCaptureRegionTracking()
+        window.postMessage({ ...msg, type: 'FLOWPICK_RECORDING_SESSION_STATE' }, '*')
+      }
+      if (msg.type === 'FLOWPICK_RECORDING_PLAYBACK_STATE') {
+        if (mseCaptureActive && captureRegionMode === 'mse') {
+          msePlaybackPlaying = msg.playing === true
+          scheduleCaptureRegionReport(true)
+        }
+        window.postMessage({ ...msg, type: 'FLOWPICK_RECORDING_PLAYBACK_STATE' }, '*')
+      }
+      if (msg.type === 'FLOWPICK_MEDIA_AUTOPLAY') {
+        const tryAutoplay = async () => {
+          let mediaCount = 0
+          let playingCount = 0
+          for (const delay of [0, 250, 500, 1000, 1500]) {
+            if (delay) await new Promise(resolve => setTimeout(resolve, delay))
+            const media = [...document.querySelectorAll<HTMLMediaElement>('video, audio')]
+            mediaCount = Math.max(mediaCount, media.length)
+            for (const element of media) {
+              if (!element.paused) {
+                playingCount++
+                continue
+              }
+              const played = await Promise.race([
+                element.play().then(() => true).catch(() => false),
+                new Promise<boolean>(resolve => setTimeout(() => resolve(false), 800)),
+              ])
+              if (played) playingCount++
+            }
+            if (playingCount > 0) break
+          }
+          // Keep a few non-blocking retries for players that replace their
+          // media element shortly after the load event.
+          const playLater = () => {
+            for (const element of document.querySelectorAll<HTMLMediaElement>('video, audio')) {
+              if (element.paused) void element.play().catch(() => undefined)
+            }
+          }
+          for (const delay of [1000, 2500, 5000]) setTimeout(playLater, delay)
+          return { ok: playingCount > 0, mediaCount, playingCount }
+        }
+        return tryAutoplay()
+      }
       if (msg.type === 'MSE_PLAY_TRIGGER' || msg.type === 'MSE_DOWNLOAD_TRIGGER') {
         return requestMsePageAction(msg.type === 'MSE_PLAY_TRIGGER' ? 'play' : 'download', msg.captureId, msg.uiText)
       }
+      if (msg.type === 'FLOWPICK_MSE_CAPTURE_SET') {
+        const enabled = msg.enabled === true
+        return (async () => {
+          const result = await setMseCaptureEnabled(enabled)
+          await recordingPushQueue.catch(() => undefined)
+          return result
+        })()
+      }
+      if (msg.type === 'FLOWPICK_MSE_CAPTURE_STATUS') {
+        return Promise.resolve({ ok: true, active: mseCaptureActive })
+      }
       if (msg.type === 'FLOWPICK_SETTINGS_CHANGED') {
-        if (msg.enableMseCapture) {
-          window.postMessage({ type: 'FLOWPICK_MSE_ENABLE' }, '*')
-        }
         window.postMessage({
           type: 'FLOWPICK_DATA_IMAGES_ENABLE',
           enabled: msg.captureDataImages === true,
@@ -256,14 +802,14 @@ export default defineContentScript({
     }
 
     window.addEventListener('message', async (event) => {
-      if (event.source !== window) return
+      if (!isRecordingBridgeMessage(event, window, location.origin)) return
       if (typeof event.data?.pageUrl === 'string' && pageIdentity(event.data.pageUrl) !== pageIdentity(location.href)) return
 
       // injected 脚本加载后主动请求设置，补发避免竞态丢失
       if (event.data?.type === 'FLOWPICK_REQUEST_SETTINGS') {
         browser.runtime.sendMessage({ type: 'GET_SETTINGS' }).then((s: any) => {
-          if (s?.enableMseCapture) {
-            window.postMessage({ type: 'FLOWPICK_MSE_ENABLE' }, '*')
+          if (mseCaptureActive) {
+            window.postMessage({ type: 'FLOWPICK_MSE_SET_ENABLED', enabled: true }, '*')
           }
           window.postMessage({
             type: 'FLOWPICK_DATA_IMAGES_ENABLE',
@@ -295,15 +841,24 @@ export default defineContentScript({
         return
       }
 
-      if (event.data?.type === 'MSE_STREAM_UPDATE') {
-          reporter.report({
-            type: 'MSE_STREAM_UPDATE',
-            captureId: event.data.captureId,
-            title: event.data.title,
-            totalBytes: event.data.totalBytes,
-            trackCount: event.data.trackCount,
-            complete: event.data.complete,
-          }).catch(() => {})
+      if (event.data?.type === 'FLOWPICK_MSE_RECORDING_EVENT') {
+        const payload: Record<string, unknown> = {
+          event: event.data.event,
+          captureId: event.data.captureId,
+          title: event.data.title,
+          totalBytes: event.data.totalBytes,
+          trackCount: event.data.trackCount,
+          trackIndex: event.data.trackIndex,
+          mimeType: event.data.mimeType,
+          sequence: event.data.sequence,
+        }
+        // Chrome runtime messaging serializes messages as JSON, so encode the
+        // binary chunk for the extension hop. The target content script turns
+        // it back into a transferable ArrayBuffer before exposing it to the UI.
+        const buffer = localRecordingBuffer(event.data.buffer)
+        if (buffer) payload.dataBase64 = arrayBufferToBase64(buffer)
+        else if (event.data.event === 'chunk') console.warn('[FlowPick] MSE chunk has no readable binary buffer')
+        void pushRecordingEvent(payload).catch(() => undefined)
         return
       }
 

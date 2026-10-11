@@ -1,6 +1,21 @@
 import { pageIdentity } from '../utils/page-session'
+import { isRecordingBridgeMessage } from '../utils/recording-bridge'
+import { isFirefoxFamily } from '../utils/recording-support'
 
 export default defineUnlistedScript(() => {
+  // Repeated page injection must not install duplicate sniffing/MSE proxies.
+  // Hook each document once, but repeat READY for a newly attached bridge.
+  const pageWindow = window as Window & {
+    __flowpickPageHook?: { ready: boolean }
+  }
+  if (pageWindow.__flowpickPageHook) {
+    if (pageWindow.__flowpickPageHook.ready) {
+      window.postMessage({ type: 'FLOWPICK_INJECTED_READY' }, '*')
+    }
+    return
+  }
+  const pageHook: { ready: boolean } = { ready: false }
+  pageWindow.__flowpickPageHook = pageHook
   let capturePage = pageIdentity(location.href)
   let pageGeneration = 0
   let routeStartedAt = 0
@@ -354,10 +369,9 @@ export default defineUnlistedScript(() => {
   }
 
   // ────────────────────────────────────────────────────────────────────
-  // MediaSource 代理（参照 cat-catch catch.js proxyMediaSourceMethods）
-  // 拦截 addSourceBuffer + appendBuffer，把每路 MSE 数据流缓存在内存中，
-  // endOfStream 时通知 popup 有可下载的 MSE 流（上报元数据，数据留在页面内存）。
-  // 默认不激活，需收到 FLOWPICK_MSE_ENABLE 消息后才安装代理。
+  // MediaSource 代理（参照 cat-catch catch.js proxyMediaSourceMethods）。
+  // 录制数据只流式发送给专用录制页，不在源页重复缓存，
+  // 也不再作为 mse:// 媒体产物上报给扩展列表。
   // ────────────────────────────────────────────────────────────────────
   interface MseTrack {
     mimeType: string
@@ -374,7 +388,6 @@ export default defineUnlistedScript(() => {
   }
 
   const mseCaptures = new Map<string, MseCapture>()
-  const mseCaptureGenerations = new Map<string, number>()
   const mseCaptureIds = new WeakMap<MediaSource, string>()
   const msePlaybackSources = new WeakSet<MediaSource>()
   // A page may temporarily contain listeners from two extension injections
@@ -382,8 +395,97 @@ export default defineUnlistedScript(() => {
   // the id so only the instance that captured the stream answers requests.
   const mseInstanceId = Math.random().toString(36).slice(2, 10)
   let mseCaptureSeq = 0
-  const MSE_SEGMENT_SIZE = 1024 * 1024 * 1024
   let mseProxyInstalled = false
+  let mseCaptureActive = false
+  let mseCaptureErrorLogged = false
+  let mseRecordingSequence = 0
+  const MSE_RECORDING_MESSAGE_BYTES = 512 * 1024
+  const MSE_INIT_CACHE_MAX_BYTES = 8 * 1024 * 1024
+
+  function isWebMInitializationSegment(bytes: Uint8Array) {
+    if (bytes.byteLength < 4) return false
+    return bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3
+  }
+
+  // Returns the end of a complete fMP4 initialization segment, 0 while more
+  // bytes are needed, or -1 when media data starts before a moov is found.
+  // Some players split ftyp/moov (and even a single moov box) across several
+  // appendBuffer calls, so inspecting each append independently is not enough.
+  function findMp4InitializationEnd(bytes: Uint8Array) {
+    let offset = 0
+    while (offset + 8 <= bytes.byteLength) {
+      const size32 = ((bytes[offset]! << 24) | (bytes[offset + 1]! << 16) | (bytes[offset + 2]! << 8) | bytes[offset + 3]!) >>> 0
+      const type = String.fromCharCode(bytes[offset + 4]!, bytes[offset + 5]!, bytes[offset + 6]!, bytes[offset + 7]!)
+      let size = size32
+      if (size32 === 1) {
+        if (offset + 16 > bytes.byteLength) return 0
+        const high = ((bytes[offset + 8]! << 24) | (bytes[offset + 9]! << 16) | (bytes[offset + 10]! << 8) | bytes[offset + 11]!) >>> 0
+        const low = ((bytes[offset + 12]! << 24) | (bytes[offset + 13]! << 16) | (bytes[offset + 14]! << 8) | bytes[offset + 15]!) >>> 0
+        if (high > 0x1fffff) return -1
+        size = high * 0x100000000 + low
+      } else if (size32 === 0) {
+        size = bytes.byteLength - offset
+      }
+      if (size < (size32 === 1 ? 16 : 8)) return -1
+      if (offset + size > bytes.byteLength) return 0
+      if (type === 'moov') return offset + size
+      if (type === 'moof' || type === 'mdat') return -1
+      offset += size
+    }
+    return 0
+  }
+
+  function findMp4InitializationRangeAnywhere(bytes: Uint8Array): { start: number, end: number } | undefined {
+    const hasType = (start: number, end: number, a: number, b: number, c: number, d: number) => {
+      for (let offset = start; offset + 4 <= end; offset++) {
+        if (bytes[offset] === a && bytes[offset + 1] === b && bytes[offset + 2] === c && bytes[offset + 3] === d) return true
+      }
+      return false
+    }
+    for (let typeOffset = 4; typeOffset + 4 <= bytes.byteLength; typeOffset++) {
+      if (bytes[typeOffset] !== 0x6d || bytes[typeOffset + 1] !== 0x6f || bytes[typeOffset + 2] !== 0x6f || bytes[typeOffset + 3] !== 0x76) continue
+      const boxOffset = typeOffset - 4
+      const size32 = ((bytes[boxOffset]! << 24) | (bytes[boxOffset + 1]! << 16) | (bytes[boxOffset + 2]! << 8) | bytes[boxOffset + 3]!) >>> 0
+      let size = size32
+      let headerSize = 8
+      if (size32 === 1) {
+        if (boxOffset + 16 > bytes.byteLength) continue
+        const high = ((bytes[boxOffset + 8]! << 24) | (bytes[boxOffset + 9]! << 16) | (bytes[boxOffset + 10]! << 8) | bytes[boxOffset + 11]!) >>> 0
+        const low = ((bytes[boxOffset + 12]! << 24) | (bytes[boxOffset + 13]! << 16) | (bytes[boxOffset + 14]! << 8) | bytes[boxOffset + 15]!) >>> 0
+        if (high > 0x1fffff) continue
+        size = high * 0x100000000 + low
+        headerSize = 16
+      }
+      const boxEnd = boxOffset + size
+      if (size < headerSize || boxEnd > bytes.byteLength) continue
+      const payloadStart = boxOffset + headerSize
+      // Avoid accepting an accidental "moov" byte pattern from mdat.
+      if (!hasType(payloadStart, boxEnd, 0x6d, 0x76, 0x68, 0x64)) continue // mvhd
+      if (!hasType(payloadStart, boxEnd, 0x74, 0x72, 0x61, 0x6b)) continue // trak
+      let initializationStart = boxOffset
+      for (let candidateType = 4; candidateType + 4 <= boxOffset; candidateType++) {
+        if (bytes[candidateType] !== 0x66 || bytes[candidateType + 1] !== 0x74 || bytes[candidateType + 2] !== 0x79 || bytes[candidateType + 3] !== 0x70) continue
+        const candidateOffset = candidateType - 4
+        const candidateSize = ((bytes[candidateOffset]! << 24) | (bytes[candidateOffset + 1]! << 16) | (bytes[candidateOffset + 2]! << 8) | bytes[candidateOffset + 3]!) >>> 0
+        if (candidateSize >= 8 && candidateOffset + candidateSize <= boxOffset) initializationStart = candidateOffset
+      }
+      return { start: initializationStart, end: boxEnd }
+    }
+    return undefined
+  }
+
+  function looksLikeMp4Initialization(bytes: Uint8Array) {
+    const end = Math.min(bytes.byteLength, 4096)
+    for (let offset = 4; offset + 4 <= end; offset++) {
+      const a = bytes[offset]
+      const b = bytes[offset + 1]
+      const c = bytes[offset + 2]
+      const d = bytes[offset + 3]
+      if ((a === 0x66 && b === 0x74 && c === 0x79 && d === 0x70) // ftyp
+        || (a === 0x6d && b === 0x6f && c === 0x6f && d === 0x76)) return true // moov
+    }
+    return false
+  }
 
   function formatBytes(b: number): string {
     if (b < 1024 * 1024) return (b / 1024).toFixed(1) + 'KB'
@@ -391,17 +493,27 @@ export default defineUnlistedScript(() => {
     return (b / 1024 / 1024 / 1024).toFixed(1) + 'GB'
   }
 
-  function notifyMseUpdate(capture: MseCapture) {
-    if (mseCaptureGenerations.get(capture.captureId) !== pageGeneration) return
+  function emitMseRecordingEvent(event: string, capture: MseCapture, extra: Record<string, unknown> = {}, transfer: Transferable[] = []) {
     window.postMessage({
-      type: 'MSE_STREAM_UPDATE',
-      pageUrl: location.href,
+      type: 'FLOWPICK_MSE_RECORDING_EVENT',
+      event,
       captureId: capture.captureId,
       title: capture.title,
       totalBytes: capture.totalBytes,
       trackCount: capture.tracks.length,
-      complete: capture.complete,
-    }, '*')
+      ...extra,
+    }, '*', transfer)
+  }
+
+  function completeMseCapture(capture: MseCapture) {
+    if (capture.complete) return
+    capture.complete = true
+    capture.title = document.title
+    clearTimeout((capture as any)._notifyTimer)
+    emitMseRecordingEvent('complete', capture)
+    // The recording page owns the streamed bytes. Once completion has been
+    // delivered, discard the source-page session metadata as well.
+    mseCaptures.delete(capture.captureId)
   }
 
   function installMseProxy() {
@@ -414,60 +526,159 @@ export default defineUnlistedScript(() => {
       apply(target, ms: MediaSource, args: [string]) {
         const sourceBuffer = Reflect.apply(target, ms, args)
         if (msePlaybackSources.has(ms)) return sourceBuffer
-        try {
-          let captureId = mseCaptureIds.get(ms)
-          if (!captureId) {
-            captureId = `mse-${mseInstanceId}-${++mseCaptureSeq}-${Date.now()}`
-            mseCaptureIds.set(ms, captureId)
-            const capture: MseCapture = {
-              captureId,
-              tracks: [],
-              totalBytes: 0,
-              complete: false,
-              startedAt: Date.now(),
-              title: document.title,
-            }
-            mseCaptures.set(captureId, capture)
-            mseCaptureGenerations.set(captureId, pageGeneration)
-            notifyMseUpdate(capture)
-          }
-
-          const capture = mseCaptures.get(captureId)!
-          // Keep codecs: previewing captured fragmented MP4 requires the
-          // complete SourceBuffer MIME string.
-          const mimeType = (args[0] || '').trim()
-          const track: MseTrack = { mimeType, buffers: [], byteLength: 0 }
-          capture.tracks.push(track)
-
-          sourceBuffer.appendBuffer = new Proxy(sourceBuffer.appendBuffer, {
-            apply(abTarget, sb: SourceBuffer, abArgs: [BufferSource]) {
-              Reflect.apply(abTarget, sb, abArgs)
-              try {
-                const buf = abArgs[0]
-                if (!buf) return
-                const srcArray = ArrayBuffer.isView(buf)
-                  ? new Uint8Array((buf as ArrayBufferView).buffer as ArrayBuffer, (buf as ArrayBufferView).byteOffset, (buf as ArrayBufferView).byteLength)
-                  : new Uint8Array(buf as ArrayBuffer)
-                const copy = srcArray.slice(0).buffer as ArrayBuffer
-                track.buffers.push(copy)
-                track.byteLength += copy.byteLength
-                capture.totalBytes += copy.byteLength
-
-                clearTimeout((capture as any)._notifyTimer)
-                ;(capture as any)._notifyTimer = setTimeout(() => notifyMseUpdate(capture), 800)
-
-                if (capture.totalBytes >= MSE_SEGMENT_SIZE) {
-                  window.postMessage({
-                    type: 'MSE_STREAM_SEGMENT',
-                    captureId,
-                    title: capture.title,
-                    totalBytes: capture.totalBytes,
-                  }, '*')
+        // Install the lightweight append hook up front so a recording can be
+        // started after the player has already created its SourceBuffers.
+        const mimeType = (args[0] || '').trim()
+        let track: MseTrack | undefined
+        let trackCaptureId: string | undefined
+        // Keep only the small container initialization segment while idle.
+        // This is metadata rather than media recording, and lets a recording
+        // started mid-playback produce a self-contained, playable file.
+        let cachedInitialization: ArrayBuffer | undefined
+        let pendingInitialization: Uint8Array | undefined = new Uint8Array(0)
+        sourceBuffer.appendBuffer = new Proxy(sourceBuffer.appendBuffer, {
+          apply(abTarget, sb: SourceBuffer, abArgs: [BufferSource]) {
+            Reflect.apply(abTarget, sb, abArgs)
+            try {
+              const buf = abArgs[0]
+              if (!buf) return
+              const srcArray = ArrayBuffer.isView(buf)
+                ? new Uint8Array((buf as ArrayBufferView).buffer as ArrayBuffer, (buf as ArrayBufferView).byteOffset, (buf as ArrayBufferView).byteLength)
+                : new Uint8Array(buf as ArrayBuffer)
+              let currentIsInitialization = false
+              let startsNewInitialization = false
+              let pendingBeforeCurrent: ArrayBuffer | undefined
+              if (mimeType.toLowerCase().includes('webm')) {
+                currentIsInitialization = srcArray.byteLength <= MSE_INIT_CACHE_MAX_BYTES
+                  && isWebMInitializationSegment(srcArray)
+                startsNewInitialization = currentIsInitialization
+                if (currentIsInitialization) cachedInitialization = srcArray.slice(0).buffer as ArrayBuffer
+              } else {
+                // If an earlier append looked like media data, keep watching
+                // for a later codec/quality switch that supplies a fresh init.
+                if (!pendingInitialization && looksLikeMp4Initialization(srcArray)) {
+                  startsNewInitialization = true
+                  pendingInitialization = new Uint8Array(0)
                 }
-              } catch {}
-            },
-          })
-        } catch {}
+                if (!pendingInitialization) {
+                  currentIsInitialization = false
+                } else {
+                  currentIsInitialization = true
+                  if (pendingInitialization.byteLength > 0) {
+                    pendingBeforeCurrent = pendingInitialization.slice(0).buffer as ArrayBuffer
+                  }
+                  const combinedLength = pendingInitialization.byteLength + srcArray.byteLength
+                  // Some players append the small ftyp+moov initialization
+                  // together with a large first moof+mdat. Parse/extract the
+                  // init before enforcing the cache limit; otherwise a >8 MB
+                  // first append discards the only moov even though we only
+                  // need to retain its small leading range. Limit the probe
+                  // itself so a huge first media append is never duplicated.
+                  const probeLength = Math.min(combinedLength, MSE_INIT_CACHE_MAX_BYTES)
+                  const combinedProbe = new Uint8Array(probeLength)
+                  const pendingProbeLength = Math.min(pendingInitialization.byteLength, probeLength)
+                  combinedProbe.set(pendingInitialization.subarray(0, pendingProbeLength), 0)
+                  if (pendingProbeLength < probeLength) {
+                    combinedProbe.set(srcArray.subarray(0, probeLength - pendingProbeLength), pendingProbeLength)
+                  }
+                  const initializationEnd = findMp4InitializationEnd(combinedProbe)
+                  const fallbackRange = initializationEnd <= 0
+                    ? findMp4InitializationRangeAnywhere(combinedProbe)
+                    : undefined
+                  if (initializationEnd > 0) {
+                    cachedInitialization = combinedProbe.slice(0, initializationEnd).buffer as ArrayBuffer
+                    pendingInitialization = undefined
+                  } else if (fallbackRange) {
+                    const initializationSize = fallbackRange.end - fallbackRange.start
+                    if (initializationSize <= MSE_INIT_CACHE_MAX_BYTES) {
+                      cachedInitialization = combinedProbe.slice(fallbackRange.start, fallbackRange.end).buffer as ArrayBuffer
+                    }
+                    pendingInitialization = undefined
+                  } else if (initializationEnd < 0 || combinedLength > MSE_INIT_CACHE_MAX_BYTES) {
+                    pendingInitialization = undefined
+                    currentIsInitialization = false
+                    pendingBeforeCurrent = undefined
+                  } else {
+                    pendingInitialization = combinedProbe
+                  }
+                }
+              }
+              if (!mseCaptureActive) return
+
+              // DASH ABR can append a new initialization segment to the same
+              // SourceBuffer when it changes representation. Samples before
+              // and after that point can require different avcC/hvcC data and
+              // must never be flattened into one MP4 sample description. End
+              // the previous coherent capture and let this append start a new
+              // group. The recorder page already selects the largest complete
+              // group, which avoids producing a long but corrupted file.
+              const currentCaptureId = mseCaptureIds.get(ms)
+              if (startsNewInitialization && track?.byteLength && trackCaptureId === currentCaptureId) {
+                const currentCapture = currentCaptureId ? mseCaptures.get(currentCaptureId) : undefined
+                if (currentCapture && !currentCapture.complete) completeMseCapture(currentCapture)
+                track = undefined
+                trackCaptureId = undefined
+              }
+
+              let captureId = mseCaptureIds.get(ms)
+              let capture = captureId ? mseCaptures.get(captureId) : undefined
+              if (!capture || capture.complete) {
+                captureId = `mse-${mseInstanceId}-${++mseCaptureSeq}-${Date.now()}`
+                mseCaptureIds.set(ms, captureId)
+                capture = {
+                  captureId,
+                  tracks: [],
+                  totalBytes: 0,
+                  complete: false,
+                  startedAt: Date.now(),
+                  title: document.title,
+                }
+                mseCaptures.set(captureId, capture)
+                emitMseRecordingEvent('start', capture)
+              }
+              if (!track || trackCaptureId !== captureId) {
+                track = { mimeType, buffers: [], byteLength: 0 }
+                trackCaptureId = captureId
+                capture.tracks.push(track)
+              }
+
+              const trackIndex = capture.tracks.indexOf(track)
+              const appendCapturedBytes = (copy: ArrayBuffer) => {
+                track!.byteLength += copy.byteLength
+                capture!.totalBytes += copy.byteLength
+                // The website recorder is a separate tab. Stream bounded pieces
+                // through the content script/background relay to avoid one huge
+                // extension message for large SourceBuffer appends.
+                for (let offset = 0; offset < copy.byteLength; offset += MSE_RECORDING_MESSAGE_BYTES) {
+                  const part = copy.slice(offset, Math.min(copy.byteLength, offset + MSE_RECORDING_MESSAGE_BYTES))
+                  emitMseRecordingEvent('chunk', capture!, {
+                    trackIndex,
+                    mimeType,
+                    sequence: ++mseRecordingSequence,
+                    buffer: part,
+                  }, [part])
+                }
+              }
+              if (track.byteLength === 0) {
+                // Capture may be enabled between two partial init appends. In
+                // that case prepend only the bytes observed before this call;
+                // the current append is emitted normally below.
+                if (pendingBeforeCurrent && currentIsInitialization) {
+                  appendCapturedBytes(pendingBeforeCurrent)
+                } else if (cachedInitialization && !currentIsInitialization) {
+                  appendCapturedBytes(cachedInitialization.slice(0))
+                }
+              }
+              appendCapturedBytes(srcArray.slice(0).buffer as ArrayBuffer)
+
+            } catch (error) {
+              if (!mseCaptureErrorLogged) {
+                mseCaptureErrorLogged = true
+                console.warn('[FlowPick] MSE append capture failed:', error)
+              }
+            }
+          },
+        })
         return sourceBuffer
       },
     })
@@ -481,19 +692,33 @@ export default defineUnlistedScript(() => {
           if (!captureId) return
           const capture = mseCaptures.get(captureId)
           if (!capture) return
-          capture.complete = true
-          capture.title = document.title
-          clearTimeout((capture as any)._notifyTimer)
-          notifyMseUpdate(capture)
+          completeMseCapture(capture)
         } catch {}
       },
     })
   }
 
   window.addEventListener('message', (event) => {
-    if (event.source !== window || !event.data) return
-    if (event.data.type === 'FLOWPICK_MSE_ENABLE') {
-      installMseProxy()
+    if (!isRecordingBridgeMessage(event, window, location.origin) || !event.data) return
+    if (event.data.type === 'FLOWPICK_MSE_SET_ENABLED') {
+      if (event.data.enabled === true && !mseProxyInstalled) {
+        console.warn('[FlowPick] MSE recording hook is unavailable on this page')
+        event.ports[0]?.postMessage({ ok: false, active: false, error: 'mse-hook-unavailable' })
+        return
+      }
+      mseCaptureActive = event.data.enabled === true
+      if (!mseCaptureActive) {
+        for (const capture of mseCaptures.values()) {
+          completeMseCapture(capture)
+        }
+      }
+      if (!mseCaptureActive && event.ports[0]) {
+        // Put the acknowledgement behind all chunk/complete events in the
+        // same window queue. A direct MessagePort reply can overtake them.
+        window.postMessage({ type: 'FLOWPICK_MSE_RECORDING_FLUSH' }, '*', [event.ports[0]])
+      } else {
+        event.ports[0]?.postMessage({ ok: true, active: mseCaptureActive })
+      }
     }
     if (event.data.type === 'FLOWPICK_DATA_IMAGES_ENABLE') {
       dataImagesEnabled = event.data.enabled === true
@@ -502,6 +727,10 @@ export default defineUnlistedScript(() => {
     }
   })
 
+  // Firefox recording has been retired; keep ordinary media sniffing only.
+  if (!import.meta.env.FIREFOX && !isFirefoxFamily(navigator.userAgent)) installMseProxy()
+
+  pageHook.ready = true
   window.postMessage({ type: 'FLOWPICK_INJECTED_READY' }, '*')
 
   function appendCapturedBuffers(sourceBuffer: SourceBuffer, buffers: ArrayBuffer[]): Promise<void> {
@@ -1264,7 +1493,6 @@ export default defineUnlistedScript(() => {
       const confirmed = cid ? confirmedBilibiliPlayurls.get(cid) : undefined
       if (confirmed && Date.now() - confirmed.at < 30_000) parseBilibiliPlayurl(confirmed.json, confirmed.sourceUrl)
       replayCurrentDouyinTask()
-      for (const capture of mseCaptures.values()) notifyMseUpdate(capture)
     }, delay)
   })
   // Autoplay does not always go through the page's wrapped History methods.

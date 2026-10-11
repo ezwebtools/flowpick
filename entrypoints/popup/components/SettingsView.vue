@@ -166,28 +166,13 @@
             </div>
           </div>
 
-          <!-- MSE Capture -->
+          <!-- Capture behavior -->
           <div class="bg-gray-50 dark:bg-gray-800/80 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-700/50 shadow-sm">
             <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700/70 flex items-center gap-2">
               <div class="w-1.5 h-4 bg-rose-500 rounded-full"></div>
-              <p class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">MSE {{ t('capture') || 'Capture' }}</p>
+              <p class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{{ t('capture') || 'Capture' }}</p>
             </div>
             <div class="px-4 py-4 flex items-center justify-between gap-3">
-              <div class="flex-1 min-w-0">
-                <p class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('enableMseCapture') || '启用 MSE 流捕获' }}</p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">{{ t('enableMseCaptureDesc') || '拦截 MediaSource 流数据，支持捕获无 URL 的视频（如部分网页播放器）。会占用较多内存，建议按需开启。' }}</p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                :aria-checked="settings.enableMseCapture"
-                @click="settings.enableMseCapture = !settings.enableMseCapture; emit('save')"
-                :class="['relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none shadow-inner', settings.enableMseCapture ? 'bg-rose-500' : 'bg-gray-300 dark:bg-gray-600']"
-              >
-                <span :class="['pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out', settings.enableMseCapture ? 'translate-x-4' : 'translate-x-0']" />
-              </button>
-            </div>
-            <div class="px-4 py-4 flex items-center justify-between gap-3 border-t border-gray-200 dark:border-gray-700/70">
               <div class="flex-1 min-w-0">
                 <p class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('hideStreamSegments') || '隐藏流媒体分片' }}</p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">{{ t('hideStreamSegmentsDesc') || '隐藏 HLS/DASH 的分片（如 .ts/.m4s），只显示其播放列表入口（m3u8/mpd）。关闭后可单独查看/下载分片。' }}</p>

@@ -14,7 +14,7 @@ export default defineConfig({
     default_locale: 'en',
     permissions: [
       'storage', 'tabs', 'webRequest', 'webNavigation', 'downloads', 'declarativeNetRequest', 'notifications',
-      ...(browser !== 'firefox' ? ['sidePanel'] : ['webRequestBlocking']),
+      ...(browser !== 'firefox' ? ['sidePanel', 'tabCapture'] : ['webRequestBlocking']),
     ],
     host_permissions: ['<all_urls>'],
     web_accessible_resources: [

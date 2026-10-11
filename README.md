@@ -2,7 +2,7 @@
 
 > **Smart Media Sniffer · Preview & Download** — Automatically capture video streams, audio, and images from web pages with built-in playback and instant download.
 
-[🇨🇳 中文文档](README_zh.md) | [🇬🇧 English](README.md)
+[🇨🇳 中文文档](README_ZH.md) | [🇬🇧 English](README.md)
 
 [![License](https://img.shields.io/github/license/ezwebtools/flowpick)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/ezwebtools/flowpick)](stargazers)
@@ -42,6 +42,7 @@ Preview media without leaving the extension panel:
 - **HLS Proxy Loader** — Fetches segments via the background proxy with auth headers and Referer, bypassing CORS and hotlink protection
 - **DRM Detection** — Automatically detects Widevine / PlayReady DRM-protected content and warns it cannot be previewed
 - **Live Recording** — Record HTTP-FLV / MPEG-TS live streams while playing; auto-stops at the 500MB limit
+- **Tab Recording** — Record the current tab's video in MSE or MediaRecorder mode into a dedicated recording page; sessions survive background service worker restarts
 - **Audio Spectrum** — Real-time frequency visualization powered by Web Audio API
 - **Image Preview** — Full-screen lightbox with automatic dimension detection
 
@@ -154,7 +155,15 @@ npm run dev
 
 # Firefox (hot reload)
 npm run dev:firefox
+
+# Type check
+npm run compile
+
+# Unit tests (Node.js built-in test runner)
+node --test tests/
 ```
+
+> **Environment-based site origin**: Web pages hosted on our site (the recording page and the m3u8 / dash / audio / video downloaders) resolve their origin from `utils/site.ts` — `https://localhost:3001` under `wxt dev`, and `https://flowpick.net` in production builds (`wxt build` / `wxt zip`). No manual switching required; run the local website dev server on port 3001 for full functionality during development.
 
 ---
 
@@ -197,8 +206,8 @@ flowpick/
 │   ├── content.ts         # Content script: page injection, message relay, MSE stream capture
 │   ├── douyin.content.ts  # Douyin platform adapter: parses page JSON for multi-bitrate candidates
 │   ├── injected.ts        # Injected script: Fetch/XHR interception, MSE interception
-│   ├── popup/             # Popup panel UI
-│   │   ├── App.vue        # Main component: list, playback, settings (also drives the side panel)
+│   ├── popup/             # Popup panel UI (also drives the side panel)
+│   │   ├── App.vue        # Main component: list, playback, settings, recording dialog
 │   │   ├── components/
 │   │   │   └── SettingsView.vue  # Settings panel component
 │   │   ├── composables/
@@ -208,23 +217,28 @@ flowpick/
 │   │   │   └── useStreamThumbnails.ts  # Stream first-frame thumbnails
 │   │   ├── utils/
 │   │   │   └── hlsProxyLoader.ts       # HLS background proxy loader
+│   │   ├── types.ts       # Shared popup types
 │   │   ├── main.ts        # Entry point
 │   │   └── style.css      # Styles
 │   ├── sidepanel/         # Side panel entry (Chrome Side Panel / Firefox Sidebar)
-│   ├── welcome/           # Welcome guide: tutorial + FAQ
-│   ├── download/          # Download page
-│   │   ├── App.vue        # Download progress component
-│   │   └── index.html     # Download page entry
-│   └── options/           # Options page
-│       └── App.vue        # Settings component
+│   └── welcome/           # Welcome guide: tutorial + FAQ
 ├── utils/
 │   ├── detect.ts          # Media format detection (Content-Type + URL pattern)
 │   ├── settings.ts        # Settings management (sniffing rules, domain exclusion, capture toggles)
 │   ├── storage.ts         # Storage management (per-tab data persistence)
 │   ├── stream-parser.ts   # M3U8/MPD manifest parsing (variants/duration/size estimation)
 │   ├── platform-media.ts  # Generic platform adapter interface (PlatformMediaTask)
+│   ├── download-job.ts    # Resource download jobs (image/document/audio/live via download page)
+│   ├── native-download.ts # Waits for downloads.download terminal state with byte verification
+│   ├── page-session.ts    # Page identity (site + path) tracking across navigations
+│   ├── page-reporter.ts   # Ordered, acknowledged media-event bridge from content scripts
+│   ├── recording-bridge.ts        # Recording page <-> injected script messaging bridge
+│   ├── recording-session-store.ts # Recording session persistence & service worker restart recovery
+│   ├── recording-support.ts       # Recording capability detection (Firefox unsupported)
 │   ├── useM3u8Ext.ts      # External M3U8 download extension integration
+│   ├── site.ts            # Site origin: localhost:3001 in dev, flowpick.net in builds
 │   └── i18n.ts            # i18n + theme/density management (7 languages)
+├── tests/                 # Unit tests (Node.js built-in test runner)
 ├── public/
 │   ├── _locales/          # Internationalization (en / zh_CN / zh_TW / ja / de / es / ko)
 │   └── icon/              # Extension icons

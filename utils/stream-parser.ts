@@ -9,6 +9,8 @@ export interface VariantStream {
 export interface ParsedManifest {
   type: 'hls-master' | 'hls-media' | 'dash' | 'unknown'
   variants: VariantStream[]
+  /** HLS subtitle rendition playlists referenced by the master. */
+  subtitleUris?: string[]
   /** 总时长（秒）。Live 流可能拿不到。 */
   duration?: number
   /** 估算总大小（字节）。通过抽样 segment 大小 × segment 数量得出。 */
@@ -260,13 +262,18 @@ export async function parseM3U8Manifest(
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
   const audioGroupUris = new Map<string, string>()
+  const subtitleUris: string[] = []
   for (const line of lines) {
-    if (line.startsWith('#EXT-X-MEDIA:') && line.includes('TYPE=AUDIO')) {
+    if (!line.startsWith('#EXT-X-MEDIA:')) continue
+    if (line.includes('TYPE=AUDIO')) {
       const groupIdMatch = /GROUP-ID="([^"]+)"/.exec(line)
       const uriMatch = /URI="([^"]+)"/.exec(line)
       if (groupIdMatch && uriMatch) {
         audioGroupUris.set(groupIdMatch[1]!, resolveUrl(url, uriMatch[1]!))
       }
+    } else if (line.includes('TYPE=SUBTITLES')) {
+      const uriMatch = /URI="([^"]+)"/.exec(line)
+      if (uriMatch) subtitleUris.push(resolveUrl(url, uriMatch[1]!))
     }
   }
 
@@ -318,7 +325,7 @@ export async function parseM3U8Manifest(
     } catch { /* 忽略，duration 保持 undefined */ }
   }
 
-  return { type: 'hls-master', variants, duration, estimatedSize }
+  return { type: 'hls-master', variants, subtitleUris: [...new Set(subtitleUris)], duration, estimatedSize }
 }
 
 export async function parseDashManifest(
