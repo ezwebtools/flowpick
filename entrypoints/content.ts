@@ -5,8 +5,8 @@ import { isRecordingBridgeMessage, localRecordingBuffer } from '../utils/recordi
 export default defineContentScript({
   matches: ['*://*/*'],
   allFrames: true,
-  // MSE must be hooked before the page player creates MediaSource. At
-  // document_end many players have already created their SourceBuffers.
+  // An explicitly requested recording must hook before player initialization.
+  // Ordinary browsing installs no MSE hooks.
   runAt: 'document_start',
   main() {
     let injectedPageHookReady = false
@@ -24,12 +24,18 @@ export default defineContentScript({
       // the source and injects it as page-world code for MV2 (Firefox). The
       // hand-written <script src="moz-extension://…"> path is not reliable
       // under Firefox's page-world/CSP isolation.
-      void injectScript('/injected.js', {
-        keepInDom: true,
-        modifyScript(script) {
-          script.dataset.m3u8Injected = '1'
-        },
-      }).catch((error) => {
+      void (async () => {
+        const hookState = await browser.runtime.sendMessage({
+          type: 'FLOWPICK_RECORDING_HOOK_STATE',
+        }).catch(() => ({ mse: false }))
+        await injectScript('/injected.js', {
+          keepInDom: true,
+          modifyScript(script) {
+            script.dataset.m3u8Injected = '1'
+            if (hookState?.mse === true) script.dataset.flowpickMseArmed = '1'
+          },
+        })
+      })().catch((error) => {
         console.warn('[FlowPick] page script injection failed:', error)
       })
     }

@@ -1213,7 +1213,7 @@ export default defineBackground(() => {
       return true
     }
     const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'OPEN_RECORDING_PAGE', 'FLOWPICK_RECORDING_PAGE_READY', 'FLOWPICK_RECORDING_SOURCE_READY', 'FLOWPICK_RECORDING_PLAYBACK_STATE', 'FLOWPICK_RECORDING_CAPTURE_REGION', 'FLOWPICK_RECORDING_STREAM_DATA', 'FLOWPICK_RECORDING_PAGE_COMMAND', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
-    if (asyncTypes.includes(msg.type) || msg.type === 'FLOWPICK_MSR_SOURCE_START') {
+    if (asyncTypes.includes(msg.type) || msg.type === 'FLOWPICK_MSR_SOURCE_START' || msg.type === 'FLOWPICK_RECORDING_HOOK_STATE') {
       void handleMessage(msg, sender, sendResponse).catch(error => {
         sendResponse({ ok: false, sessionId: msg.sessionId, error: String(error) })
       })
@@ -1498,6 +1498,14 @@ export default defineBackground(() => {
         playing: session.playbackPlaying,
         captureRegion: session.captureRegion,
       })
+      return
+    }
+
+    if (msg.type === 'FLOWPICK_RECORDING_HOOK_STATE') {
+      const sourceTabId = sender.tab?.id
+      const targetTabId = sourceTabId !== undefined ? recordingTargetBySource.get(sourceTabId) : undefined
+      const session = targetTabId !== undefined ? recordingSessionsByTarget.get(targetTabId) : undefined
+      sendResponse({ mse: !isFirefox && !!session && !session.cancelled && session.mode === 'mse' })
       return
     }
 
