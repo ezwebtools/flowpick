@@ -10,8 +10,11 @@ import { waitForNativeDownload } from '../utils/native-download'
 import { isFirefoxFamily } from '../utils/recording-support'
 import { createRecordingSessionStore } from '../utils/recording-session-store'
 import { SITE_ORIGIN } from '../utils/site'
+import { openDownloadQueue, readDownloadQueue, removeDownloadQueue } from '../utils/download-queue'
+import { ProxyContextGate } from '../utils/proxy-context-gate'
 
 const metadataBatchControllers = new Map<string, AbortController>()
+const proxyContexts = new ProxyContextGate()
 
 // Signed stream URLs are refreshed frequently while still identifying the
 // same manifest. Keep stable query parameters (quality, language, etc.) but
@@ -1075,7 +1078,16 @@ export default defineBackground(() => {
   const playbackHeaderHosts = new Map<string, { referer: string; authHeaders?: Record<string, string> }>()
   let dnlRefererSeq = 1
 
-  async function ensureProxyHeaderRule(
+  const proxyRuleUpdates = new Map<string, Promise<void>>()
+  function ensureProxyHeaderRule(targetUrl: string, referer: string, authHeaders?: Record<string, string>): Promise<void> {
+    let host: string
+    try { host = new URL(targetUrl).host } catch { return Promise.resolve() }
+    const next = (proxyRuleUpdates.get(host) || Promise.resolve()).catch(() => undefined)
+      .then(() => applyProxyHeaderRule(targetUrl, referer, authHeaders))
+    proxyRuleUpdates.set(host, next)
+    return next.finally(() => { if (proxyRuleUpdates.get(host) === next) proxyRuleUpdates.delete(host) })
+  }
+  async function applyProxyHeaderRule(
     targetUrl: string,
     referer: string,
     authHeaders?: Record<string, string>,
@@ -1171,6 +1183,7 @@ export default defineBackground(() => {
 
   // 清理已处理的请求记录（当标签页关闭时）
   browser.tabs.onRemoved.addListener((tabId) => {
+    void removeDownloadQueue(tabId).catch(() => undefined)
     void removeResourceDownloads(tabId).catch(() => {})
     purgeTabState(tabId)
   })
@@ -1212,7 +1225,7 @@ export default defineBackground(() => {
       void handleMessage(msg, sender, sendResponse)
       return true
     }
-    const asyncTypes = ['OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'OPEN_RECORDING_PAGE', 'FLOWPICK_RECORDING_PAGE_READY', 'FLOWPICK_RECORDING_SOURCE_READY', 'FLOWPICK_RECORDING_PLAYBACK_STATE', 'FLOWPICK_RECORDING_CAPTURE_REGION', 'FLOWPICK_RECORDING_STREAM_DATA', 'FLOWPICK_RECORDING_PAGE_COMMAND', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
+    const asyncTypes = ['OPEN_DOWNLOAD_QUEUE', 'FLOWPICK_QUEUE_READY', 'OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'OPEN_RECORDING_PAGE', 'FLOWPICK_RECORDING_PAGE_READY', 'FLOWPICK_RECORDING_SOURCE_READY', 'FLOWPICK_RECORDING_PLAYBACK_STATE', 'FLOWPICK_RECORDING_CAPTURE_REGION', 'FLOWPICK_RECORDING_STREAM_DATA', 'FLOWPICK_RECORDING_PAGE_COMMAND', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
     if (asyncTypes.includes(msg.type) || msg.type === 'FLOWPICK_MSR_SOURCE_START' || msg.type === 'FLOWPICK_RECORDING_HOOK_STATE') {
       void handleMessage(msg, sender, sendResponse).catch(error => {
         sendResponse({ ok: false, sessionId: msg.sessionId, error: String(error) })
@@ -1712,6 +1725,22 @@ export default defineBackground(() => {
       return
     }
 
+    if (msg.type === 'OPEN_DOWNLOAD_QUEUE') {
+      try {
+        const source = typeof msg.sourceTabId === 'number' ? await browser.tabs.get(msg.sourceTabId) : sender.tab
+        if (!source || source.windowId === undefined || !Array.isArray(msg.items) || msg.items.length > 500) throw new Error('invalid-queue-request')
+        const result = await openDownloadQueue(msg.items.map((item: any) => ({
+          ...item, sourceUrl: source.url || '',
+          requestHeaders: item.requestHeaders || tabMap.get(source.id!)?.get(item.url)?.requestHeaders,
+        })), source.windowId)
+        sendResponse(result)
+      } catch (error) { sendResponse({ ok: false, error: String(error) }) }
+      return true
+    }
+    if (msg.type === 'FLOWPICK_QUEUE_READY') {
+      sendResponse(sender.tab?.id === undefined ? { ok: false } : await readDownloadQueue(sender.tab.id, sender.tab.url))
+      return true
+    }
     if (msg.type === 'OPEN_DOWNLOAD_PAGE') {
       const { url, format, filename, requestHeaders } = msg
       let sourceUrl = sender.tab?.url || ''
@@ -2063,7 +2092,10 @@ export default defineBackground(() => {
       const controller = new AbortController()
       pendingProxyFetches.set(requestId, { controller, tabId })
       ;(async () => {
+        let releaseContext: (() => void) | undefined
         try {
+          const contextHeaders = Object.entries(options?.authHeaders || {}).sort(([a], [b]) => a.localeCompare(b))
+          releaseContext = await proxyContexts.acquire(url, JSON.stringify([options?.referrer || '', contextHeaders]), controller.signal)
           // 剔除 options.headers 中可能携带的缓存/条件请求头（无论来源），
           // 配合 cache:'no-store' 让本次 fetch 走网络而非 HTTP 缓存，避免拿到 206 局部响应
           const headers: Record<string, string> = {}
@@ -2107,11 +2139,40 @@ export default defineBackground(() => {
           }
           const response = await fetch(url, { headers, signal: controller.signal, cache: 'no-store' })
           if (!response.ok) {
-            const bodyText = await response.text()
-            sendResponse({ ok: false, error: `HTTP ${response.status}: ${bodyText.substring(0, 200)}` })
+            // Queue requests must remain bounded even when a server returns a large error page.
+            let bodyText = ''
+            if (options?.maxBytes) await response.body?.cancel()
+            else bodyText = await response.text()
+            sendResponse({ ok: false, status: response.status, error: `HTTP ${response.status}: ${bodyText.substring(0, 200)}` })
             return
           }
-          const arrayBuffer = await response.arrayBuffer()
+          let arrayBuffer: ArrayBuffer
+          if (Number.isSafeInteger(options?.maxBytes) && options.maxBytes > 0) {
+            const maximum = Math.min(options.maxBytes, 16 * 1024 * 1024)
+            if (Number(response.headers.get('content-length')) > maximum) {
+              await response.body?.cancel()
+              throw new Error('queue-response-too-large')
+            }
+            if (!response.body) throw new Error('empty-download')
+            const reader = response.body.getReader()
+            const chunks: Uint8Array[] = []
+            let length = 0
+            try {
+              for (;;) {
+                const chunk = await reader.read()
+                if (chunk.done) break
+                length += chunk.value.byteLength
+                if (length > maximum) { await reader.cancel(); throw new Error('queue-response-too-large') }
+                chunks.push(chunk.value)
+              }
+            } finally { reader.releaseLock() }
+            const buffer = new Uint8Array(length)
+            let position = 0
+            for (const chunk of chunks) { buffer.set(chunk, position); position += chunk.byteLength }
+            arrayBuffer = buffer.buffer
+          } else {
+            arrayBuffer = await response.arrayBuffer()
+          }
           if (arrayBuffer.byteLength === 0) throw new Error('empty-download')
           const bytes = new Uint8Array(arrayBuffer)
           let binary = ''
@@ -2136,6 +2197,7 @@ export default defineBackground(() => {
           }
           sendResponse({ ok: false, error: e.message })
         } finally {
+          releaseContext?.()
           pendingProxyFetches.delete(requestId)
         }
       })()

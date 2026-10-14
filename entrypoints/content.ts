@@ -1,6 +1,7 @@
 import { createPageReporter } from '../utils/page-reporter'
 import { pageIdentity } from '../utils/page-session'
 import { isRecordingBridgeMessage, localRecordingBuffer } from '../utils/recording-bridge'
+import { isQueuePage } from '../utils/download-queue'
 
 export default defineContentScript({
   matches: ['*://*/*'],
@@ -488,6 +489,11 @@ export default defineContentScript({
         }
         if (pageIdentity(event.data.url) === pageIdentity(location.href)) void reporter.sync()
       }
+      if (event.data?.type === 'FLOWPICK_REQUEST_QUEUE' && window.top === window && isQueuePage(location.href)) {
+        browser.runtime.sendMessage({ type: 'FLOWPICK_QUEUE_READY' }).then(resp => {
+          window.postMessage({ type: 'FLOWPICK_QUEUE_DATA', ...resp }, location.origin)
+        }).catch(() => window.postMessage({ type: 'FLOWPICK_QUEUE_DATA', ok: false }, location.origin))
+      }
       if (event.data?.type === 'FLOWPICK_REQUEST_DOWNLOAD') {
         let retries = 0
         function tryFetch() {
@@ -624,6 +630,9 @@ export default defineContentScript({
 
     // 接收 background 发来的消息，通过 postMessage 转发给页面
     browser.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'FLOWPICK_QUEUE_CHANGED' && window.top === window && isQueuePage(location.href)) {
+        window.postMessage({ type: 'FLOWPICK_QUEUE_CHANGED' }, location.origin)
+      }
       if (msg.type === 'FLOWPICK_SESSION_CHANGED' || msg.type === 'FLOWPICK_SYNC_PAGE') {
         if (msg.type === 'FLOWPICK_SESSION_CHANGED') reporter.invalidate()
         window.postMessage({ type: 'FLOWPICK_CHECK_PAGE' }, '*')
