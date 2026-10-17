@@ -15,13 +15,13 @@
         "message": "Mga Bagong Tampok"
     },
     "changelogFeatures": {
-        "message": "• Pinahusay na pagtuklas ng resources at pag-load ng metadata para sa mas mabilis na unang resulta.\n• Pinahusay na pag-update ng cover at duration para sa mga video at stream resource.\n• Nagdagdag ng malinaw na babala kapag itinatago ng mga panuntunan sa sniffing ang mga natuklasang resource.\n• Ang mga batch download ay pumipili na lang ng top-level HLS master sa halip na mga child variant at segment."
+        "message": "• Bagong download queue: ang mga batch download ng video, audio, at stream ay pinoproseso na nang paisa-isa sa isang queue page, sa halip na magbukas ng hiwalay na download page para sa bawat file.\n• Nagdagdag ng proteksyon laban sa paulit-ulit na pag-submit sa mga batch download."
     },
     "changelogFixesTitle": {
         "message": "Mga Pag-aayos"
     },
     "changelogFixes": {
-        "message": "• Inayos ang metadata requests na nakikipag-compet sa pag-load ng nakikitang media.\n• Inayos ang batch downloads na naglalaman ng HLS variants, audio tracks at segments.\n• Inayos ang video thumbnails na hindi nag-a-update ng duration sa ilang kaso."
+        "message": "• Ang MSE hooks ay ini-inject na lang kapag kailangan: naka-install lang kapag malinaw mong sinimulan ang recording; hindi na hook-een ang mga pahina sa karaniwang pag-browse, nababawasan ang overhead at mga isyu sa compatibility.\n• Pinaliit ang saklaw ng network at DOM interception sa mga pahina, lalong nababawasan ang abala sa mga website.\n• Inayos ang race condition sa mga proxy header rule na maaaring magpabigo sa sabay-sabay na mga download."
     },
     "tutorialTitle": {
         "message": "Magsimula"

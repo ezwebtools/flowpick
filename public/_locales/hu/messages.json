@@ -15,13 +15,13 @@
         "message": "Új funkciók"
     },
     "changelogFeatures": {
-        "message": "• Gyorsabb első eredmény érdekében javult az erőforrás-észlelés és a metaadat-betöltés.\n• Javult a borítók és az időtartam frissítése videó- és streamerőforrásoknál.\n• Világos figyelmeztetés jelent meg, amikor az észlelési szabályok elrejtik a talált erőforrásokat.\n• A kötegelt letöltések mostantól csak a legfelső szintű HLS mastert választják az alárendelt variánsok és szegmensek helyett."
+        "message": "• Új letöltési sor: a videók, hangok és streamek kötegelt letöltése mostantól egyetlen várólista-oldalon történik egymás után, ahelyett hogy minden fájlhoz külön letöltési oldalt nyitna.\n• Kötegelt letöltéseknél duplikált beküldés elleni védelem került hozzáadásra."
     },
     "changelogFixesTitle": {
         "message": "Hibajavítások"
     },
     "changelogFixes": {
-        "message": "• Javítva: a metaadat-kérések versenyeztek a látható média betöltésével.\n• Javítva: a kötegelt letöltések HLS-variánsokat, hangsávokat és szegmenseket is tartalmaztak.\n• Javítva: a videóbélyegképek egyes esetekben nem frissítették az időtartamot."
+        "message": "• MSE hookek mostantól igény szerint kerülnek beinjektálásra: csak akkor települnek, amikor explicit módon elindítja a felvételt; normál böngészés közben az oldalak többé nem hookolódnak, csökkentve a terhelést és a kompatibilitási problémákat.\n• A hálózati és DOM-lehallgatás hatóköre szűkült az oldalakon, tovább csökkentve a webhelyek zavarását.\n• Javítva a proxy fejlécszabályok versenyhelyzete, amely egyidejű letöltéseknél hibát okozhatott."
     },
     "tutorialTitle": {
         "message": "Első lépések"

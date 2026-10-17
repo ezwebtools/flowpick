@@ -15,13 +15,13 @@
         "message": "Nieuwe functies"
     },
     "changelogFeatures": {
-        "message": "• Verbeterde resourcedetectie en metadatalading voor een sneller eerste resultaat.\n• Verbeterde updates van covers en duur voor video- en streamresources.\n• Duidelijke hint toegevoegd wanneer sniffregels gevonden resources verbergen.\n• Batchdownloads selecteren nu alleen de HLS-master op het hoogste niveau in plaats van onderliggende varianten en segmenten."
+        "message": "• Nieuwe downloadwachtrij: batchdownloads van video, audio en streams worden nu één voor één verwerkt op één wachtrijpagina, in plaats van voor elk bestand een aparte downloadpagina te openen.\n• Bescherming tegen dubbele verzending toegevoegd aan batchdownloads."
     },
     "changelogFixesTitle": {
         "message": "Opgeloste problemen"
     },
     "changelogFixes": {
-        "message": "• Opgelost: metadataverzoeken concurreerden met het laden van zichtbare media.\n• Opgelost: batchdownloads bevatten HLS-varianten, audiosporen en segmenten.\n• Opgelost: videotumbnails toonden in sommige gevallen geen duurupdates."
+        "message": "• MSE-hooks worden nu op aanvraag geïnjecteerd: ze worden alleen geïnstalleerd wanneer je expliciet een opname start; normaal browsen haakt niet meer in op pagina's, wat overhead en compatibiliteitsproblemen vermindert.\n• Het bereik van netwerk- en DOM-onderschepping op pagina's is verkleind, waardoor de interferentie met websites verder afneemt.\n• Een raceconditie in proxy-headerregels verholpen die gelijktijdige downloads kon laten mislukken."
     },
     "tutorialTitle": {
         "message": "Aan de slag"

@@ -15,13 +15,13 @@
         "message": "Funcții noi"
     },
     "changelogFeatures": {
-        "message": "• Detectare îmbunătățită a resurselor și încărcarea metadatelor pentru un prim rezultat mai rapid.\n• Îmbunătățiri la actualizările copertei și duratei pentru resurse video și stream.\n• Adăugat un indiciu clar când regulile de detectare ascund resursele găsite.\n• Descărcările în lot selectează acum doar masterul HLS de nivel superior în loc de variante și segmente copil."
+        "message": "• Coadă nouă de descărcări: descărcările în lot ale videoclipurilor, audio și stream-urilor sunt acum procesate pe rând într-o singură pagină de coadă, în loc să deschidă o pagină de descărcare separată pentru fiecare fișier.\n• Adăugată protecție împotriva trimiterilor duplicate la descărcările în lot."
     },
     "changelogFixesTitle": {
         "message": "Corecturi"
     },
     "changelogFixes": {
-        "message": "• Corectat: cererile de metadate concura cu încărcarea media vizibilă.\n• Corectat: descărcările în lot includeau variante HLS, piste audio și segmente.\n• Corectat: miniaturile video nu actualizau durata în unele cazuri."
+        "message": "• Hook-urile MSE sunt acum injectate la cerere: se instalează doar când porniți explicit o înregistrare; navigarea obișnuită nu mai interceptează paginile, reducând suprasarcina și problemele de compatibilitate.\n• Restrânsă sfera interceptării rețelei și DOM pe pagini, reducând și mai mult interferența cu site-urile.\n• Corectată o condiție de cursă în regulile anteturilor proxy care putea cauza eșuarea descărcărilor simultane."
     },
     "tutorialTitle": {
         "message": "Început"

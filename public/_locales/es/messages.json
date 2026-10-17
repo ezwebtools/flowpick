@@ -336,12 +336,12 @@
         "message": "Nuevas funciones"
     },
     "changelogFeatures":{
-        "message": "• Añadida la vista previa mediante proxy de imágenes protegidas contra hotlinking, con Referer y cabeceras de autenticación.\n• Añadidas descargas mediante proxy para imágenes, audio, documentos y subtítulos protegidos.\n• Mejorada la carga de portadas: cuando se requiere Referer, el recurso proxy se precarga directamente.\n• Mejorado el soporte de Firefox con inyección de cabeceras mediante webRequestBlocking y eliminación automática de Origin.\n• Actualizada la versión de la extensión a 1.1.1."
+        "message": "• Nueva cola de descargas: las descargas por lotes de vídeo, audio y streams ahora se procesan una a una en una sola página de cola, en lugar de abrir una página de descarga independiente para cada archivo.\n• Se añadió protección contra envíos duplicados en las descargas por lotes."
     },
     "changelogFixesTitle":{
         "message": "Correcciones"
     },
     "changelogFixes":{
-        "message": "• Corregido el problema que impedía mostrar imágenes bloqueadas por hotlinking.\n• Corregidas las descargas de imágenes que guardaban una página HTML en lugar del archivo.\n• Corregidas las descargas protegidas de audio y documentos sin cabeceras necesarias.\n• Corregida la carga de recursos multimedia cross-origin en Firefox.\n• Corregidas las respuestas incorrectas o incompletas del proxy causadas por cabeceras de caché reenviadas."
+        "message": "• Los hooks MSE ahora se inyectan bajo demanda: solo se instalan al iniciar una grabación de forma explícita; la navegación normal ya no hooka las páginas, lo que reduce la sobrecarga y los problemas de compatibilidad.\n• Se redujo el alcance de la intercepción de red y DOM en las páginas, disminuyendo aún más la interferencia con los sitios.\n• Se corrigió una condición de carrera en las reglas de encabezados del proxy que podía causar fallos en descargas simultáneas."
     }
 }
