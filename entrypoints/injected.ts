@@ -727,8 +727,12 @@ export default defineUnlistedScript(() => {
     }
   })
 
-  // Firefox recording has been retired; keep ordinary media sniffing only.
-  if (!import.meta.env.FIREFOX && !isFirefoxFamily(navigator.userAgent)) installMseProxy()
+  // The isolated content script obtains this flag from the background's
+  // tab-owned recording session before injection. Never patch MediaSource
+  // during ordinary browsing: even an idle hook can affect site behavior.
+  const mseArmed = document.currentScript instanceof HTMLScriptElement
+    && document.currentScript.dataset.flowpickMseArmed === '1'
+  if (mseArmed && !import.meta.env.FIREFOX && !isFirefoxFamily(navigator.userAgent)) installMseProxy()
 
   pageHook.ready = true
   window.postMessage({ type: 'FLOWPICK_INJECTED_READY' }, '*')
@@ -1163,95 +1167,106 @@ export default defineUnlistedScript(() => {
   }
 
 
-  // ── 拦截 XHR 响应体 ────────────────────────────────────────────────
-  const originalXHROpen = XMLHttpRequest.prototype.open
-  const originalXHRSend = XMLHttpRequest.prototype.send
+  const originalFetch = window.fetch
 
-  XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: any[]) {
-    checkPage()
-    ;(this as any)._fpUrl = typeof url === 'string' ? url : url.toString()
-    // Save the route at request creation, rather than looking at location when
-    // the async response arrives.
-    ;(this as any)._fpBilibiliRouteKey = getBilibiliRouteKey()
-    ;(this as any)._fpPage = pageIdentity(location.href)
-    tryDetect(url)
-    return originalXHROpen.apply(this, [method, url, ...rest] as any)
-  }
+  function installNetworkHooks() {
+    // Only these platforms need page-world API response bodies. Ordinary
+    // media requests are observed by background webRequest instead. Keep
+    // other pages' Fetch/XHR untouched: routing their requests through an
+    // extension script can interact with client-side request blocking.
+    if (!isBilibiliPage && !/(^|\.)(douyin\.com|iesdouyin\.com)$/i.test(location.hostname)) return
 
-  XMLHttpRequest.prototype.send = function (...args: any[]) {
-    const fpUrl: string = (this as any)._fpUrl || ''
-    const fpBilibiliRouteKey: string = (this as any)._fpBilibiliRouteKey || getBilibiliRouteKey()
-    const requestPage = (this as any)._fpPage
-    this.addEventListener('load', function (this: XMLHttpRequest) {
+    // ── 拦截 XHR 响应体 ────────────────────────────────────────────────
+    const originalXHROpen = XMLHttpRequest.prototype.open
+    const originalXHRSend = XMLHttpRequest.prototype.send
+
+    XMLHttpRequest.prototype.open = function (method: string, url: string | URL, ...rest: any[]) {
+      checkPage()
+      ;(this as any)._fpUrl = typeof url === 'string' ? url : url.toString()
+      // Save the route at request creation, rather than looking at location when
+      // the async response arrives.
+      ;(this as any)._fpBilibiliRouteKey = getBilibiliRouteKey()
+      ;(this as any)._fpPage = pageIdentity(location.href)
+      tryDetect(url)
+      return originalXHROpen.apply(this, [method, url, ...rest] as any)
+    }
+
+    XMLHttpRequest.prototype.send = function (...args: any[]) {
+      const fpUrl: string = (this as any)._fpUrl || ''
+      const fpBilibiliRouteKey: string = (this as any)._fpBilibiliRouteKey || getBilibiliRouteKey()
+      const requestPage = (this as any)._fpPage
+      this.addEventListener('load', function (this: XMLHttpRequest) {
+        try {
+          if (this.status < 200 || this.status >= 300) return
+          const urlLower = fpUrl.toLowerCase()
+
+          if (urlLower.includes('bilibili.com') && (
+            urlLower.includes('/x/player/playurl') ||
+            urlLower.includes('/pgc/player/web/playurl') ||
+            urlLower.includes('/playurl')
+          )) {
+            parseBilibiliPlayurl(JSON.parse(this.responseText), fpUrl, false, fpBilibiliRouteKey)
+            return
+          }
+
+          if (isDouyinMediaApi(fpUrl)) {
+            parseDouyinAwemeResponse(JSON.parse(this.responseText), fpUrl, requestPage)
+            return
+          }
+
+          // YouTube player-response parsing is intentionally disabled.
+        } catch {}
+      })
+      return originalXHRSend.apply(this, args as [body?: Document | XMLHttpRequestBodyInit | null])
+    }
+
+    // ── 拦截 fetch 响应体 ──────────────────────────────────────────────
+    window.fetch = function (...args: Parameters<typeof fetch>) {
+      checkPage()
+      let urlStr = ''
+      const requestRouteKey = getBilibiliRouteKey()
+      const requestPage = pageIdentity(location.href)
       try {
-        if (this.status < 200 || this.status >= 300) return
-        const urlLower = fpUrl.toLowerCase()
+        const input = args[0]
+        if (typeof input === 'string') urlStr = input
+        else if (input instanceof URL) urlStr = input.toString()
+        else if (input instanceof Request) urlStr = input.url
+        tryDetect(urlStr)
+      } catch {}
 
-        if (urlLower.includes('bilibili.com') && (
+      const promise = originalFetch.apply(this, args)
+      try {
+        const urlLower = urlStr.toLowerCase()
+        const isBiliPlayurl = urlLower.includes('bilibili.com') && (
           urlLower.includes('/x/player/playurl') ||
           urlLower.includes('/pgc/player/web/playurl') ||
           urlLower.includes('/playurl')
-        )) {
-          parseBilibiliPlayurl(JSON.parse(this.responseText), fpUrl, false, fpBilibiliRouteKey)
-          return
+        )
+        if (isBiliPlayurl) {
+          return promise.then(async (response) => {
+            if (!response.ok) return response
+            try {
+              const clone = response.clone()
+              const json = await clone.json()
+              parseBilibiliPlayurl(json, urlStr, false, requestRouteKey)
+            } catch {}
+            return response
+          })
         }
-
-        if (isDouyinMediaApi(fpUrl)) {
-          parseDouyinAwemeResponse(JSON.parse(this.responseText), fpUrl, requestPage)
-          return
+        if (isDouyinMediaApi(urlStr)) {
+          return promise.then(async (response) => {
+            if (!response.ok) return response
+            try { parseDouyinAwemeResponse(await response.clone().json(), urlStr, requestPage) } catch {}
+            return response
+          })
         }
-
-        // YouTube player-response parsing is intentionally disabled.
       } catch {}
-    })
-    return originalXHRSend.apply(this, args as [body?: Document | XMLHttpRequestBodyInit | null])
+
+      return promise
+    }
+
   }
-
-  // ── 拦截 fetch 响应体 ──────────────────────────────────────────────
-  const originalFetch = window.fetch
-  window.fetch = function (...args: Parameters<typeof fetch>) {
-    checkPage()
-    let urlStr = ''
-    const requestRouteKey = getBilibiliRouteKey()
-    const requestPage = pageIdentity(location.href)
-    try {
-      const input = args[0]
-      if (typeof input === 'string') urlStr = input
-      else if (input instanceof URL) urlStr = input.toString()
-      else if (input instanceof Request) urlStr = input.url
-      tryDetect(urlStr)
-    } catch {}
-
-    const promise = originalFetch.apply(this, args)
-    try {
-      const urlLower = urlStr.toLowerCase()
-      const isBiliPlayurl = urlLower.includes('bilibili.com') && (
-        urlLower.includes('/x/player/playurl') ||
-        urlLower.includes('/pgc/player/web/playurl') ||
-        urlLower.includes('/playurl')
-      )
-      if (isBiliPlayurl) {
-        return promise.then(async (response) => {
-          if (!response.ok) return response
-          try {
-            const clone = response.clone()
-            const json = await clone.json()
-            parseBilibiliPlayurl(json, urlStr, false, requestRouteKey)
-          } catch {}
-          return response
-        })
-      }
-      if (isDouyinMediaApi(urlStr)) {
-        return promise.then(async (response) => {
-          if (!response.ok) return response
-          try { parseDouyinAwemeResponse(await response.clone().json(), urlStr, requestPage) } catch {}
-          return response
-        })
-      }
-    } catch {}
-
-    return promise
-  }
+  installNetworkHooks()
 
   // ── 读取 B站页面内嵌变量 __playinfo__ ─────────────────────────────
   function tryReadBiliPagePlayinfo(expectedRouteKey = getBilibiliRouteKey()) {
@@ -1284,34 +1299,9 @@ export default defineUnlistedScript(() => {
     })
   }
 
-  // ── iframe sandbox 清除工具函数 ───────────────────────────────────
-  function clearIframeSandbox(iframe: HTMLIFrameElement) {
-    try {
-      const cloned = iframe.cloneNode(true) as HTMLIFrameElement
-      cloned.removeAttribute('sandbox')
-      iframe.parentNode?.replaceChild(cloned, iframe)
-    } catch {}
-  }
-
-  // 代理 setAttribute，拦截动态写入 sandbox 属性（insert 前设置的场景）
-  const _origSetAttribute = Element.prototype.setAttribute
-  Element.prototype.setAttribute = function (name: string, value: string) {
-    if (name.toLowerCase() === 'sandbox' && this.nodeName === 'IFRAME') {
-      return
-    }
-    return _origSetAttribute.call(this, name, value)
-  }
-
-  // ── 监听 <source> 标签插入 + iframe sandbox 清除 ──────────────────
+  // Observe media nodes without changing the page's iframe security or lifecycle.
   const domObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      if (mutation.type === 'attributes' && mutation.target instanceof HTMLIFrameElement) {
-        if (mutation.attributeName === 'sandbox' && mutation.target.hasAttribute('sandbox')) {
-          clearIframeSandbox(mutation.target)
-        }
-        continue
-      }
-
       if (mutation.type === 'attributes' && mutation.target instanceof HTMLElement) {
         if (mutation.target.matches('source, video, audio')) detectMediaElement(mutation.target)
         continue
@@ -1319,14 +1309,6 @@ export default defineUnlistedScript(() => {
 
       for (const node of mutation.addedNodes) {
         if (!(node instanceof HTMLElement)) continue
-
-        if (node.nodeName === 'IFRAME' && (node as HTMLIFrameElement).hasAttribute('sandbox')) {
-          clearIframeSandbox(node as HTMLIFrameElement)
-        } else {
-          node.querySelectorAll?.('iframe[sandbox]').forEach(iframe => {
-            clearIframeSandbox(iframe as HTMLIFrameElement)
-          })
-        }
 
         // <source>/<video>/<audio> src 检测
         const sources = /^(SOURCE|VIDEO|AUDIO)$/.test(node.nodeName)
@@ -1357,7 +1339,7 @@ export default defineUnlistedScript(() => {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['sandbox', 'src'],
+      attributeFilter: ['src'],
     })
   }
   observeDocument()
@@ -1389,9 +1371,6 @@ export default defineUnlistedScript(() => {
   function scanExistingMedia() {
     document.querySelectorAll('video[src], audio[src], source[src]').forEach(el => {
       detectMediaElement(el)
-    })
-    document.querySelectorAll<HTMLIFrameElement>('iframe[sandbox]').forEach(iframe => {
-      clearIframeSandbox(iframe)
     })
     tryReadBiliPagePlayinfo()
     // YouTube's ytInitialPlayerResponse is intentionally not parsed.

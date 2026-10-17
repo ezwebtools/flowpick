@@ -15,13 +15,13 @@
         "message": "Nové funkce"
     },
     "changelogFeatures": {
-        "message": "• Vylepšeno zjišťování zdrojů a načítání metadat pro rychlejší první výsledek.\n• Vylepšeny aktualizace obálek a délky u video a stream zdrojů.\n• Přidána jasná připomínka, když pravidla zjišťování skrývají nalezené zdroje.\n• Hromadné stahování nyní vybírá pouze HLS master nejvyšší úrovně místo podřízených variant a segmentů."
+        "message": "• Nová fronta stahování: hromadné stahování videí, audia a streamů se nyní zpracovává postupně na jedné stránce fronty, místo otevírání samostatné stránky stahování pro každý soubor.\n• Přidána ochrana proti opakovanému odeslání při hromadném stahování."
     },
     "changelogFixesTitle": {
         "message": "Opravy chyb"
     },
     "changelogFixes": {
-        "message": "• Opraveno: požadavky na metadata soutěžily s načítáním viditelných médií.\n• Opraveno: hromadné stahování zahrnovalo varianty HLS, zvukové stopy a segmenty.\n• Opraveno: miniatury videí v některých případech neaktualizovaly délku."
+        "message": "• MSE háčky jsou nyní vkládány na vyžádání: instalují se pouze při explicitním spuštění nahrávání; při běžném prohlížení už stránky nejsou hookovány, což snižuje zátěž a problémy s kompatibilitou.\n• Zúžen rozsah zachytávání sítě a DOM na stránkách, což dále snižuje zásahy do webů.\n• Opraven race condition v pravidlech proxy hlaviček, který mohl způsobit selhání souběžných stahování."
     },
     "tutorialTitle": {
         "message": "Začínáme"

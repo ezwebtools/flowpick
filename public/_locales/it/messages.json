@@ -336,13 +336,13 @@
         "message": "Nuove funzionalità"
     },
     "changelogFeatures": {
-        "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
+        "message": "• Nuova coda di download: i download in blocco di video, audio e stream vengono ora elaborati uno alla volta in una singola pagina di coda, invece di aprire una pagina di download separata per ogni file.\n• Aggiunta protezione contro invii duplicati nei download in blocco."
     },
     "changelogFixesTitle": {
         "message": "Correzioni di bug"
     },
     "changelogFixes": {
-        "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."
+        "message": "• Gli hook MSE ora vengono iniettati on demand: installati solo quando avvii esplicitamente una registrazione; la navigazione normale non hook più le pagine, riducendo sovraccarico e problemi di compatibilità.\n• Ridotto l'ambito dell'intercettazione di rete e DOM sulle pagine, diminuendo ulteriormente le interferenze con i siti.\n• Corretta una race condition nelle regole delle intestazioni proxy che poteva far fallire download simultanei."
     },
     "theme": {
         "message": "Tema"

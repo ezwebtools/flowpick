@@ -336,12 +336,12 @@
         "message": "New Features"
     },
     "changelogFeatures":{
-        "message": "• Improved resource detection and metadata loading for a faster first result.\n• Improved cover and duration updates for video and stream resources.\n• Added a clear hint when sniffing rules hide detected resources.\n• Batch downloads now select only the top-level HLS master instead of its child variants and segments."
+        "message": "• New download queue: batch downloads of video, audio, and streams are now processed one by one in a single queue page, instead of opening a separate download page for each file.\n• Added protection against duplicate submissions for batch downloads."
     },
     "changelogFixesTitle":{
         "message": "Bug Fixes"
     },
     "changelogFixes":{
-        "message": "• Fixed metadata requests competing with visible media loading.\n• Fixed batch downloads including HLS variants, audio tracks, and segments.\n• Fixed video thumbnails missing duration updates in some cases."
+        "message": "• MSE hooks are now injected on demand: they are only installed when you explicitly start a recording, so normal browsing no longer hooks pages — less overhead and fewer compatibility issues.\n• Narrowed network and DOM interception on pages to further reduce interference with websites.\n• Fixed a race condition in proxy header rules that could cause concurrent downloads to fail."
     }
 }

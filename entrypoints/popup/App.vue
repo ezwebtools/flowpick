@@ -2204,37 +2204,45 @@
     }
   }
 
-  const batchDownload = () => {
+  const batchSubmitting = ref(false)
+  const batchDownload = async () => {
+    if (batchSubmitting.value) return
     const items = selectedDownloadItems.value
-    const subDir = sanitizeDirectoryName(currentTabTitle.value)
-    items.forEach((item, idx) => {
-      const baseName = getDownloadName(item.url)
-      const suffix = items.length > 1 ? `_${idx + 1}` : ''
-      if (item.format === 'mse') {
-        if (item.captureId) browser.runtime.sendMessage({ type: 'MSE_DOWNLOAD', captureId: item.captureId, tabId: currentTabId, frameId: item.frameId })
-      } else if (isStreamFormat(item.format) || isVideoDownloadFormat(item.format) || isAudioFormat(item.format)) {
-        const filename = `${baseName}${suffix}`
-        browser.runtime.sendMessage({
-          type: 'OPEN_DOWNLOAD_PAGE',
-          url: item.url,
-          format: item.format,
-          filename,
-          requestHeaders: item.requestHeaders,
-          audioUrl: item.audioUrl || item.audioOptions?.[0]?.url,
+    if (!items.length) return
+    batchSubmitting.value = true
+    const queueItems = items.filter(item => item.format !== 'mse' && (isStreamFormat(item.format) || isVideoDownloadFormat(item.format) || isAudioFormat(item.format)))
+    try {
+      if (queueItems.length) {
+        const result = await browser.runtime.sendMessage({
+          type: 'OPEN_DOWNLOAD_QUEUE', sourceTabId: currentTabId,
+          items: queueItems.map(item => ({
+            url: item.url, format: item.format, filename: getDownloadName(item.url),
+            requestHeaders: item.requestHeaders, audioUrl: item.audioUrl,
+            audioOptions: item.audioOptions, isLive: item.isLiveStream,
+          })),
         })
-      } else if (isImageFormat(item.format)) {
-        const filename = getBatchDownloadFilename(item.url, item.format, subDir)
-        void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'image')
-      } else if (DOC_AND_SUB_FORMATS.includes(item.format.toLowerCase())) {
-        const filename = getBatchDownloadFilename(item.url, item.format, subDir)
-        void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'document')
-      } else {
-        const filename = getBatchDownloadFilename(item.url, item.format, subDir)
-        browser.downloads.download({ url: item.url, filename })
+        if (!result?.ok) throw new Error(result?.error || 'queue-open-failed')
       }
-    })
-    showToastMsg(t('batchDownloadStarted', items.length.toString()))
-    selectedKeys.value = new Set()
+      const subDir = sanitizeDirectoryName(currentTabTitle.value)
+      items.filter(item => !queueItems.includes(item)).forEach((item) => {
+        if (item.format === 'mse') {
+          if (item.captureId) browser.runtime.sendMessage({ type: 'MSE_DOWNLOAD', captureId: item.captureId, tabId: currentTabId, frameId: item.frameId })
+        } else if (isImageFormat(item.format)) {
+          const filename = getBatchDownloadFilename(item.url, item.format, subDir)
+          void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'image')
+        } else if (DOC_AND_SUB_FORMATS.includes(item.format.toLowerCase())) {
+          const filename = getBatchDownloadFilename(item.url, item.format, subDir)
+          void downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'document')
+        } else {
+          const filename = getBatchDownloadFilename(item.url, item.format, subDir)
+          browser.downloads.download({ url: item.url, filename })
+        }
+      })
+      showToastMsg(t(queueItems.length ? 'batchQueued' : 'batchDownloadStarted', String(queueItems.length || items.length)))
+      selectedKeys.value = new Set()
+    } catch {
+      showToastMsg(t('docDownloadFailed'))
+    } finally { batchSubmitting.value = false }
   }
 
   const openFeedback = () => {
@@ -2475,7 +2483,7 @@
                   <path v-if="selectableMediaList.every(item => selectedKeys.has(getMediaKey(item)))" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
                 </svg>
               </button>
-              <button @click="batchDownload" :disabled="selectedKeys.size === 0"
+              <button @click="batchDownload" :disabled="selectedKeys.size === 0 || batchSubmitting"
                 class="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-all disabled:cursor-not-allowed"
                 :class="selectedKeys.size > 0 ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-sm' : 'text-gray-400 dark:text-gray-600 bg-transparent'"
                 :title="t('downloadSelected')">

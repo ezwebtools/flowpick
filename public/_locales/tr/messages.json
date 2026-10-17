@@ -336,12 +336,12 @@
         "message": "Yeni Özellikler"
     },
     "changelogFeatures": {
-        "message": "• Added anti-hotlink image proxy previews with Referer and authentication headers.\n• Added protected-resource proxy downloads for images, audio, documents, and subtitles.\n• Improved video cover loading by using the proxy immediately when Referer headers are required.\n• Improved Firefox support with webRequestBlocking header injection and automatic Origin removal.\n• Updated the extension version to 1.1.1."
+        "message": "• Yeni indirme kuyruğu: video, ses ve akışların toplu indirmeleri artık her dosya için ayrı bir indirme sayfası açmak yerine tek bir kuyruk sayfasında sırayla işleniyor.\n• Toplu indirmelere yinelenen gönderim koruması eklendi."
     },
     "changelogFixesTitle": {
         "message": "Hata Düzeltmeleri"
     },
     "changelogFixes": {
-        "message": "• Fixed protected images failing to load.\n• Fixed image downloads that saved an HTML error page instead of the image.\n• Fixed missing request headers for protected audio and document downloads.\n• Fixed cross-origin media resources failing to load in Firefox.\n• Fixed proxy requests returning incorrect or incomplete content because of forwarded cache headers."
+        "message": "• MSE kancaları artık isteğe bağlı enjekte ediliyor: yalnızca açıkça bir kayıt başlattığınızda kuruluyor; normal gezinme sırasında sayfalara artık müdahale edilmiyor, bu da yükü ve uyumluluk sorunlarını azaltıyor.\n• Sayfalardaki ağ ve DOM yakalama kapsamı daraltılarak sitelere müdahale daha da azaltıldı.\n• Aynı anda yapılan indirmelerde proxy başlık kurallarındaki yarış durumu nedeniyle indirmelerin başarısız olabileceği sorun düzeltildi."
     }
 }
