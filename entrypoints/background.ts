@@ -12,6 +12,7 @@ import { createRecordingSessionStore } from '../utils/recording-session-store'
 import { SITE_ORIGIN } from '../utils/site'
 import { openDownloadQueue, readDownloadQueue, removeDownloadQueue } from '../utils/download-queue'
 import { ProxyContextGate } from '../utils/proxy-context-gate'
+import { allowsSiteRuntimeMessage, proxyRequestKey } from '../utils/site-bridge'
 
 const metadataBatchControllers = new Map<string, AbortController>()
 const proxyContexts = new ProxyContextGate()
@@ -1241,6 +1242,10 @@ export default defineBackground(() => {
   })
 
   async function handleMessage(msg: any, sender: any, sendResponse: (response?: any) => void) {
+    if (!allowsSiteRuntimeMessage(msg.type, sender, browser.runtime.id, browser.runtime.getURL('/'))) {
+      sendResponse({ ok: false, error: 'untrusted-site-bridge-sender' })
+      return
+    }
     if (msg.type === 'OPEN_RECORDING_PAGE' || String(msg.type).startsWith('FLOWPICK_RECORDING_') || msg.type === 'FLOWPICK_MSR_SOURCE_START') {
       try { await recordingStore.ready } catch (error) {
         sendResponse({ ok: false, sessionId: msg.sessionId, error: `recording-session-restore-failed: ${String(error)}` })
@@ -2087,10 +2092,21 @@ export default defineBackground(() => {
     }
     if (msg.type === 'PROXY_FETCH') {
       const { url, options } = msg
+      try {
+        if (!/^https?:$/.test(new URL(url).protocol)) throw new Error('unsupported-proxy-url')
+      } catch {
+        sendResponse({ ok: false, error: 'unsupported-proxy-url' })
+        return true
+      }
       const requestId = (msg.requestId as string) || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const requestKey = proxyRequestKey(sender, requestId)
+      if (pendingProxyFetches.has(requestKey)) {
+        sendResponse({ ok: false, error: 'duplicate-proxy-request' })
+        return true
+      }
       const tabId = sender?.tab?.id
       const controller = new AbortController()
-      pendingProxyFetches.set(requestId, { controller, tabId })
+      pendingProxyFetches.set(requestKey, { controller, tabId })
       ;(async () => {
         let releaseContext: (() => void) | undefined
         try {
@@ -2198,7 +2214,7 @@ export default defineBackground(() => {
           sendResponse({ ok: false, error: e.message })
         } finally {
           releaseContext?.()
-          pendingProxyFetches.delete(requestId)
+          if (pendingProxyFetches.get(requestKey)?.controller === controller) pendingProxyFetches.delete(requestKey)
         }
       })()
       return true
@@ -2206,10 +2222,11 @@ export default defineBackground(() => {
 
     if (msg.type === 'PROXY_FETCH_CANCEL') {
       const { requestId } = msg
-      const entry = requestId ? pendingProxyFetches.get(requestId) : undefined
+      const requestKey = proxyRequestKey(sender, requestId)
+      const entry = requestId ? pendingProxyFetches.get(requestKey) : undefined
       if (entry) {
         entry.controller.abort()
-        pendingProxyFetches.delete(requestId)
+        pendingProxyFetches.delete(requestKey)
       }
       sendResponse({ ok: true })
       return true

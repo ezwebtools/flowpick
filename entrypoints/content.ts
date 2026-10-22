@@ -2,6 +2,7 @@ import { createPageReporter } from '../utils/page-reporter'
 import { pageIdentity } from '../utils/page-session'
 import { isRecordingBridgeMessage, localRecordingBuffer } from '../utils/recording-bridge'
 import { isQueuePage } from '../utils/download-queue'
+import { allowsSitePageMessage, isSiteOrigin } from '../utils/site-bridge'
 
 export default defineContentScript({
   matches: ['*://*/*'],
@@ -463,6 +464,7 @@ export default defineContentScript({
 
     window.addEventListener('message', (event) => {
       if (!isRecordingBridgeMessage(event, window, location.origin)) return
+      if (!allowsSitePageMessage(event.data?.type, location.href, window.top === window, event.origin)) return
       if (event.data?.type === 'FLOWPICK_INJECTED_READY') injectedPageHookReady = true
       if (event.data?.type === 'FLOWPICK_PING') {
         window.postMessage({ type: 'FLOWPICK_PONG', version: browser.runtime.getManifest().version }, '*')
@@ -507,7 +509,7 @@ export default defineContentScript({
                 sourceUrl: resp.sourceUrl,
                 requestHeaders: resp.requestHeaders,
                 audioUrl: resp.audioUrl,
-              }, '*')
+              }, location.origin)
             } else if (retries < 20) {
               retries++
               setTimeout(tryFetch, 300)
@@ -641,8 +643,8 @@ export default defineContentScript({
       if (msg.type === 'FLOWPICK_SOURCE_URL' && msg.sourceUrl) {
         window.postMessage({ type: 'FLOWPICK_SOURCE_URL', sourceUrl: msg.sourceUrl }, '*')
       }
-      if (msg.type === 'PROXY_FETCH_RESPONSE') {
-        window.postMessage(msg, '*')
+      if (msg.type === 'PROXY_FETCH_RESPONSE' && window.top === window && isSiteOrigin(location.href)) {
+        window.postMessage(msg, location.origin)
       }
       if (msg.type === 'FLOWPICK_NOTIFY_CLICK') {
         window.postMessage({ type: 'FLOWPICK_NOTIFY_CLICK', tag: msg.tag }, '*')
@@ -818,6 +820,7 @@ export default defineContentScript({
 
     window.addEventListener('message', async (event) => {
       if (!isRecordingBridgeMessage(event, window, location.origin)) return
+      if (!allowsSitePageMessage(event.data?.type, location.href, window.top === window, event.origin)) return
       if (typeof event.data?.pageUrl === 'string' && pageIdentity(event.data.pageUrl) !== pageIdentity(location.href)) return
 
       // injected 脚本加载后主动请求设置，补发避免竞态丢失
@@ -889,9 +892,9 @@ export default defineContentScript({
             format,
             filename: filename || getFilenameFromUrl(url),
           })
-          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: true }, '*')
+          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: true }, location.origin)
         } catch {
-          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: false }, '*')
+          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: false }, location.origin)
         }
       }
 
@@ -931,7 +934,7 @@ export default defineContentScript({
               headers,
               text,
               responseType: 'text',
-            }, '*')
+            }, location.origin)
           } else {
             const arrayBuffer = await response.arrayBuffer()
             window.postMessage({
@@ -942,12 +945,12 @@ export default defineContentScript({
               headers,
               buffer: arrayBuffer,
               responseType: 'arraybuffer',
-            }, '*', [arrayBuffer])
+            }, location.origin, [arrayBuffer])
           }
         } catch (err) {
           flowpickFetchControllers.delete(requestId)
           if (err instanceof DOMException && err.name === 'AbortError') return
-          window.postMessage({ type: 'FLOWPICK_FETCH_RESPONSE', requestId, ok: false }, '*')
+          window.postMessage({ type: 'FLOWPICK_FETCH_RESPONSE', requestId, ok: false }, location.origin)
         }
       }
 
@@ -981,7 +984,7 @@ export default defineContentScript({
               ok: false,
               status: resp?.status,
               error: resp?.error,
-            }, '*')
+            }, location.origin)
             return
           }
           const arrayBuffer = b64ToArrayBuffer(resp.data)
@@ -997,13 +1000,13 @@ export default defineContentScript({
           if (responseType === 'text') {
             msg.text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
           }
-          window.postMessage(msg, '*', [arrayBuffer])
+          window.postMessage(msg, location.origin, [arrayBuffer])
         }).catch(() => {
           window.postMessage({
             type: 'FLOWPICK_PROXY_FETCH_RESPONSE',
             requestId,
             ok: false,
-          }, '*')
+          }, location.origin)
         })
       }
 
@@ -1027,7 +1030,7 @@ export default defineContentScript({
         // 页面据此判定扩展已接管，避免再退化为网页通知造成重复。
         const { title, body, tag, pageUrl } = event.data
         browser.runtime.sendMessage({ type: 'FLOWPICK_NOTIFY', title, body, tag, pageUrl: pageUrl || window.location.href })
-          .then(() => window.postMessage({ type: 'FLOWPICK_NOTIFY_ACK', tag }, '*'))
+          .then(() => window.postMessage({ type: 'FLOWPICK_NOTIFY_ACK', tag }, location.origin))
           .catch(() => { /* 扩展未处理：页面将回退到网页通知 */ })
       }
     })
