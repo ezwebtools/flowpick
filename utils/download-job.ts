@@ -13,14 +13,12 @@ const storage = () => browser.storage.session ?? browser.storage.local
 
 export async function openResourceDownload(job: Omit<ResourceDownloadJob, 'createdAt'>) {
   if (!/^https?:$/.test(new URL(job.url).protocol)) throw new Error('unsupported-download-url')
-  const key = prefix + crypto.randomUUID()
-  const value: ResourceDownloadJob = { ...job, createdAt: Date.now() }
-  await storage().set({ [key]: value })
-  try {
-    const tab = await browser.tabs.create({ url: browser.runtime.getURL('/download.html') + '?job=' + encodeURIComponent(key) })
-    await storage().set({ [key]: { ...value, tabId: tab.id } })
-    return { ok: true, tabId: tab.id }
-  } catch (error) { await storage().remove(key); throw error }
+  // The legacy /download.html entrypoint is absent. Live resources use the
+  // existing hosted downloader, with the data use described in the privacy policy.
+  return await browser.runtime.sendMessage({
+    type: 'OPEN_DOWNLOAD_PAGE', url: job.url, format: job.format,
+    filename: job.filename, requestHeaders: job.requestHeaders,
+  })
 }
 
 export async function readResourceDownload(key: string): Promise<ResourceDownloadJob | undefined> {

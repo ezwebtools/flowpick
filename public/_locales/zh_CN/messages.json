@@ -1,9 +1,9 @@
 {
     "extName": {
-        "message": "FlowPick - 万能网页视频/音频/图片下载器"
+        "message": "FlowPick - 媒体嗅探与下载器"
     },
     "extDescription": {
-        "message": "自动嗅探网页中的 M3U8/HLS 流媒体、视频、音频和图片，内置播放预览，支持批量下载，全程本地运行，隐私安全。"
+        "message": "检测和预览网页媒体，下载视频、音频、图片及 HLS/DASH 流媒体，支持批量下载。"
     },
     "title":{
         "message": "Flowpick"
@@ -210,7 +210,7 @@
         "message": "扩展会收集我的隐私数据吗？"
     },
     "faq3A":{
-        "message": "不会。本扩展完全在本地运行，不会将任何数据发送到外部服务器。所有检测和下载操作都在你的浏览器中完成。"
+        "message": "FlowPick 为检测、预览和下载媒体，读取网页地址、标题、资源地址及部分请求头。检测结果保存在浏览器中。 发起网站下载或批量任务时，flowpick.net 页面将接收所选资源地址、文件名、来源网页地址及所需请求头，其中可能包含签名链接、Cookie、Authorization 或其他访问令牌。 主动开始录制后，所选标签页的标题和录制的音视频将交给 flowpick.net 录制页面。"
     },
     "faq4Q":{
         "message": "为什么图标上没有显示检测数量？"
@@ -343,5 +343,26 @@
     },
     "changelogFixes":{
         "message": "• MSE 钩子改为按需注入：仅在主动发起录制时安装，日常浏览不再拦截页面，降低性能损耗与兼容性冲突。\n• 收窄页面网络请求与 DOM 拦截范围，进一步减少对网站的干扰。\n• 修复多个下载并发时请求头规则竞争导致的下载异常。"
+    },
+    "privacyTitle": {
+        "message": "隐私与数据使用"
+    },
+    "privacySummary": {
+        "message": "FlowPick 为检测、预览和下载媒体，读取网页地址、标题、资源地址及部分请求头。检测结果保存在浏览器中。"
+    },
+    "privacyWebsite": {
+        "message": "发起网站下载或批量任务时，flowpick.net 页面将接收所选资源地址、文件名、来源网页地址及所需请求头，其中可能包含签名链接、Cookie、Authorization 或其他访问令牌。"
+    },
+    "privacyRecording": {
+        "message": "主动开始录制后，所选标签页的标题和录制的音视频将交给 flowpick.net 录制页面。"
+    },
+    "privacyWebsiteBoundary": {
+        "message": "向网站页面交接数据与上传服务器不同。云端上传是独立的可选操作；使用云端服务前，请阅读网站的相关说明。"
+    },
+    "privacyControls": {
+        "message": "可在列表清空检测结果，在设置中调整资源类别或排除域名。停用或卸载 FlowPick 可停止扩展的所有访问。"
+    },
+    "privacyPolicy": {
+        "message": "完整隐私政策"
     }
 }

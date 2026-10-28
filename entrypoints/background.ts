@@ -5,12 +5,13 @@ import { parseM3U8Manifest, parseDashManifest } from '../utils/stream-parser'
 import type { MetadataBatchItem, MetadataBatchRequest, MetadataBatchResult } from './popup/types'
 import type { PlatformMediaTask } from '../utils/platform-media'
 import { PageSessions, pageIdentity, type PageContext } from '../utils/page-session'
-import { openResourceDownload, removeResourceDownloads } from '../utils/download-job'
+import { removeResourceDownloads } from '../utils/download-job'
 import { waitForNativeDownload } from '../utils/native-download'
 import { isFirefoxFamily } from '../utils/recording-support'
 import { createRecordingSessionStore } from '../utils/recording-session-store'
 import { SITE_ORIGIN } from '../utils/site'
 import { openDownloadQueue, readDownloadQueue, removeDownloadQueue } from '../utils/download-queue'
+import { mayCaptureRequestHeaders } from '../utils/privacy'
 import { ProxyContextGate } from '../utils/proxy-context-gate'
 import { allowsSiteRuntimeMessage, proxyRequestKey } from '../utils/site-bridge'
 
@@ -268,7 +269,7 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onInstalled.addListener((details) => {
-    if (details.reason === 'install') {
+    if (details.reason === 'install' || details.reason === 'update') {
       const welcomeUrl = browser.runtime.getURL('/welcome.html' as any)
       browser.tabs.create({ url: welcomeUrl })
     }
@@ -553,9 +554,11 @@ export default defineBackground(() => {
 
 
   let currentSettings: Settings = createDefaultSettings()
+  let captureSettingsReady = false
   let settingsSaveQueue: Promise<void> = Promise.resolve()
   loadSettings().then(s => {
     currentSettings = s
+    captureSettingsReady = true
     refreshBadgesForLiveTabs()
   })
 
@@ -760,7 +763,7 @@ export default defineBackground(() => {
 
   // 缓存每个请求发出时的关键头（Referer、cookie、authorization 等），
   // 以 requestId 为 key，在 onHeadersReceived 时合并到媒体条目，
-  // 下载时通过 DNR/webRequest 重放，实现携带 token/cookie 绕过鉴权
+  // 仅供用户已有访问权限的媒体预览和下载重放，不用于绕过访问控制。
   const pendingRequestHeaders = new Map<string, Record<string, string>>()
   const pendingRequestSessions = new Map<string, { tabId: number; sessionId?: number; frameId: number; frameGeneration: number }>()
 
@@ -769,7 +772,6 @@ export default defineBackground(() => {
   const CAPTURED_REQUEST_HEADER_NAMES = new Set([
     'referer',
     'cookie', 'authorization', 'x-auth-token', 'x-access-token',
-    'token', 'api-key', 'x-api-key', 'x-csrf-token', 'wbi-key',
   ])
 
   function mergeCapturedRequestHeaders(
@@ -828,7 +830,7 @@ export default defineBackground(() => {
 
   browser.webRequest.onSendHeaders.addListener(
     (details) => {
-      if (details.tabId <= 0) return
+      if (!captureSettingsReady || details.tabId <= 0) return
       if (details.type === 'other' && !isPotentialMediaRequest(details.url)) return
       pendingRequestSessions.set(details.requestId, {
         tabId: details.tabId,
@@ -836,6 +838,9 @@ export default defineBackground(() => {
         frameId: details.frameId,
         frameGeneration: pageSessions.frameGeneration(details.tabId, details.frameId),
       })
+      const pageUrl = tabPageUrls.get(details.tabId) || details.initiator || details.url
+      const excluded = isDomainExcluded(pageUrl, currentSettings) || isDomainExcluded(details.url, currentSettings)
+      if (!mayCaptureRequestHeaders(details.type, isPotentialMediaRequest(details.url), excluded)) return
       const capturedHeaders: Record<string, string> = {}
       for (const h of details.requestHeaders ?? []) {
         const name = h.name.toLowerCase()
@@ -1259,10 +1264,12 @@ export default defineBackground(() => {
         const referrer = headers?.referer || headers?.Referer || sourceTab?.url || ''
         const resourceKind = msg.resourceKind || 'document'
         if (resourceKind === 'live') {
-          sendResponse(await openResourceDownload({
-            url: msg.url, filename: msg.filename, format: msg.format, requestHeaders: headers,
-            referrer, resourceKind,
-          }))
+          // Route inside the worker: runtime.sendMessage excludes its sending
+          // context and cannot call this same background listener reliably.
+          await handleMessage({
+            type: 'OPEN_DOWNLOAD_PAGE', url: msg.url, filename: msg.filename,
+            format: msg.format, requestHeaders: headers,
+          }, sender, sendResponse)
         } else {
           const url = String(msg.url || '')
           if (!/^https?:$/.test(new URL(url).protocol)) throw new Error('unsupported-download-url')

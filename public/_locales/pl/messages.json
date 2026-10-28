@@ -3,7 +3,7 @@
         "message": "FlowPick - Wykrywacz i pobieracz multimediów"
     },
     "extDescription": {
-        "message": "Wykrywaj i pobieraj strumienie M3U8/HLS, filmy, dźwięk oraz obrazy. Wbudowany odtwarzacz i pobieranie zbiorcze."
+        "message": "Wykrywaj i przeglądaj multimedia na stronach. Pobieraj filmy, dźwięk, obrazy i strumienie HLS/DASH z FlowPick."
     },
     "title": {
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "Czy rozszerzenie zbiera moje prywatne dane?"
     },
     "faq3A": {
-        "message": "Nie. To rozszerzenie działa w całości lokalnie i nie wysyła żadnych danych do zewnętrznych serwerów. Wszystkie operacje wykrywania i pobierania są wykonywane w Twojej przeglądarce."
+        "message": "FlowPick odczytuje adresy i tytuły stron, adresy zasobów oraz wybrane nagłówki żądań, aby wykrywać, wyświetlać i pobierać multimedia. Wyniki są przechowywane w przeglądarce. Po rozpoczęciu pobierania przez witrynę lub pobierania zbiorczego strona flowpick.net otrzyma wybrane adresy zasobów, nazwy plików, adresy stron źródłowych i wymagane nagłówki żądań. Mogą one zawierać podpisane adresy URL, Cookie, Authorization lub inne tokeny dostępu. Po rozpoczęciu nagrywania tytuł wybranej karty i nagrane dane audio/wideo trafią na stronę nagrywania flowpick.net."
     },
     "faq4Q": {
         "message": "Dlaczego ikona nie pokazuje licznika wykryć?"
@@ -352,5 +352,26 @@
     },
     "density": {
         "message": "Gęstość"
+    },
+    "privacyTitle": {
+        "message": "Prywatność i użycie danych"
+    },
+    "privacySummary": {
+        "message": "FlowPick odczytuje adresy i tytuły stron, adresy zasobów oraz wybrane nagłówki żądań, aby wykrywać, wyświetlać i pobierać multimedia. Wyniki są przechowywane w przeglądarce."
+    },
+    "privacyWebsite": {
+        "message": "Po rozpoczęciu pobierania przez witrynę lub pobierania zbiorczego strona flowpick.net otrzyma wybrane adresy zasobów, nazwy plików, adresy stron źródłowych i wymagane nagłówki żądań. Mogą one zawierać podpisane adresy URL, Cookie, Authorization lub inne tokeny dostępu."
+    },
+    "privacyRecording": {
+        "message": "Po rozpoczęciu nagrywania tytuł wybranej karty i nagrane dane audio/wideo trafią na stronę nagrywania flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Przekazanie danych stronie internetowej różni się od przesłania ich na serwer. Wysyłanie do chmury jest osobną, opcjonalną czynnością. Przed użyciem usług chmurowych przeczytaj informacje witryny."
+    },
+    "privacyControls": {
+        "message": "Usuń wyniki z listy. Zmień kategorie lub wyklucz domeny w ustawieniach. Wyłącz lub odinstaluj FlowPick, aby zatrzymać cały dostęp."
+    },
+    "privacyPolicy": {
+        "message": "Pełna polityka prywatności"
     }
 }

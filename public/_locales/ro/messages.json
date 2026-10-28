@@ -3,7 +3,7 @@
         "message": "FlowPick - Detector și descărcător de media"
     },
     "extDescription": {
-        "message": "Detectează și descarcă automat fluxuri M3U8/HLS, videoclipuri, audio și imagini. Player încorporat. Descărcare în lot. 100% local și privat."
+        "message": "Detectați și previzualizați media pe web. Descărcați videoclipuri, audio, imagini și fluxuri HLS/DASH cu FlowPick."
     },
     "welcomeSubtitle": {
         "message": "Detector și descărcător media inteligent"
@@ -81,7 +81,7 @@
         "message": "Extensia colectează datele mele private?"
     },
     "faq3A": {
-        "message": "Nu. Această extensie rulează complet local și nu trimite date către servere externe. Toate operațiunile de detectare și descărcare au loc în browserul tău."
+        "message": "FlowPick citește adresele și titlurile paginilor, adresele resurselor și anumite antete ale cererilor pentru a detecta, previzualiza și descărca fișiere media. Rezultatele sunt stocate în browser. Când începeți o descărcare prin site sau un lot, pagina flowpick.net primește adresele resurselor selectate, numele fișierelor, adresele paginilor sursă și antetele necesare. Acestea pot conține URL-uri semnate, Cookie, Authorization sau alte tokenuri de acces. Când începeți o înregistrare, titlul filei selectate și datele audio/video înregistrate sunt transmise paginii de înregistrare flowpick.net."
     },
     "faq4Q": {
         "message": "De ce pictograma nu afișează numărul de detecții?"
@@ -124,5 +124,26 @@
     },
     "needMoreHelpDesc": {
         "message": "Dacă conținutul de mai sus nu ți-a rezolvat problema, poți obține suport prin următoarele canale"
+    },
+    "privacyTitle": {
+        "message": "Confidențialitate și utilizarea datelor"
+    },
+    "privacySummary": {
+        "message": "FlowPick citește adresele și titlurile paginilor, adresele resurselor și anumite antete ale cererilor pentru a detecta, previzualiza și descărca fișiere media. Rezultatele sunt stocate în browser."
+    },
+    "privacyWebsite": {
+        "message": "Când începeți o descărcare prin site sau un lot, pagina flowpick.net primește adresele resurselor selectate, numele fișierelor, adresele paginilor sursă și antetele necesare. Acestea pot conține URL-uri semnate, Cookie, Authorization sau alte tokenuri de acces."
+    },
+    "privacyRecording": {
+        "message": "Când începeți o înregistrare, titlul filei selectate și datele audio/video înregistrate sunt transmise paginii de înregistrare flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Transmiterea datelor unei pagini web diferă de încărcarea pe un server. Încărcarea în cloud este o acțiune opțională separată. Citiți notificările site-ului înainte de a folosi servicii cloud."
+    },
+    "privacyControls": {
+        "message": "Ștergeți rezultatele din listă. Schimbați categoriile sau excludeți domenii din Setări. Dezactivați sau dezinstalați FlowPick pentru a opri orice acces."
+    },
+    "privacyPolicy": {
+        "message": "Politica de confidențialitate completă"
     }
 }

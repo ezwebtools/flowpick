@@ -3,7 +3,7 @@
         "message": "FlowPick - Trình phát hiện và tải xuống đa phương tiện"
     },
     "extDescription": {
-        "message": "Phát hiện và tải xuống luồng M3U8/HLS, video, âm thanh và hình ảnh. Có trình phát tích hợp và tải xuống hàng loạt."
+        "message": "Phát hiện và xem trước nội dung đa phương tiện trên web. Tải video, âm thanh, hình ảnh và luồng HLS/DASH với FlowPick."
     },
     "title": {
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "Tiện ích có thu thập dữ liệu riêng tư của tôi không?"
     },
     "faq3A": {
-        "message": "Không. Tiện ích này hoạt động hoàn toàn cục bộ và không gửi bất kỳ dữ liệu nào đến máy chủ bên ngoài. Mọi thao tác phát hiện và tải xuống đều được hoàn tất trong trình duyệt của bạn."
+        "message": "FlowPick đọc địa chỉ và tiêu đề trang, địa chỉ tài nguyên cùng một số tiêu đề yêu cầu để phát hiện, xem trước và tải nội dung đa phương tiện. Kết quả được lưu trong trình duyệt. Khi bạn bắt đầu tải qua trang web hoặc tải hàng loạt, trang flowpick.net sẽ nhận địa chỉ tài nguyên đã chọn, tên tệp, địa chỉ trang nguồn và các tiêu đề yêu cầu cần thiết. Dữ liệu có thể gồm URL có chữ ký, Cookie, Authorization hoặc mã truy cập khác. Khi bạn bắt đầu ghi hình, tiêu đề thẻ đã chọn và âm thanh/video được ghi sẽ chuyển tới trang ghi hình flowpick.net."
     },
     "faq4Q": {
         "message": "Tại sao biểu tượng không hiển thị số lượng phát hiện?"
@@ -352,5 +352,26 @@
     },
     "density": {
         "message": "Mật độ"
+    },
+    "privacyTitle": {
+        "message": "Quyền riêng tư và sử dụng dữ liệu"
+    },
+    "privacySummary": {
+        "message": "FlowPick đọc địa chỉ và tiêu đề trang, địa chỉ tài nguyên cùng một số tiêu đề yêu cầu để phát hiện, xem trước và tải nội dung đa phương tiện. Kết quả được lưu trong trình duyệt."
+    },
+    "privacyWebsite": {
+        "message": "Khi bạn bắt đầu tải qua trang web hoặc tải hàng loạt, trang flowpick.net sẽ nhận địa chỉ tài nguyên đã chọn, tên tệp, địa chỉ trang nguồn và các tiêu đề yêu cầu cần thiết. Dữ liệu có thể gồm URL có chữ ký, Cookie, Authorization hoặc mã truy cập khác."
+    },
+    "privacyRecording": {
+        "message": "Khi bạn bắt đầu ghi hình, tiêu đề thẻ đã chọn và âm thanh/video được ghi sẽ chuyển tới trang ghi hình flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Chuyển dữ liệu cho trang web khác với tải lên máy chủ. Tải lên đám mây là thao tác tùy chọn riêng biệt. Hãy đọc thông báo của trang trước khi dùng dịch vụ đám mây."
+    },
+    "privacyControls": {
+        "message": "Xóa kết quả trong danh sách. Đổi loại tài nguyên hoặc loại trừ tên miền trong Cài đặt. Tắt hoặc gỡ FlowPick để dừng mọi truy cập."
+    },
+    "privacyPolicy": {
+        "message": "Chính sách quyền riêng tư đầy đủ"
     }
 }

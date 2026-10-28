@@ -1,4 +1,7 @@
 import { ref, computed } from 'vue'
+import privacyCopy from './privacy-copy.json'
+
+const privacyKeys = ["privacyTitle", "privacySummary", "privacyWebsite", "privacyRecording", "privacyWebsiteBoundary", "privacyControls", "privacyPolicy"]
 
 export type LocaleCode = 'system' | 'en' | 'zh_CN' | 'zh_TW' | 'de' | 'es' | 'ja' | 'ko' | 'ru' | 'pt_BR' | 'fr' | 'tr' | 'it' | 'pl' | 'id' | 'vi' | 'th' | 'hi' | 'fil' | 'uk' | 'nl' | 'ro' | 'cs' | 'hu'
 
@@ -3478,6 +3481,8 @@ const activeMessages = computed<Messages>(() => {
 })
 
 export function t(key: string, substitutions?: string | string[]): string {
+  const privacyIndex = privacyKeys.indexOf(key)
+  if (privacyIndex !== -1) return (privacyCopy as Record<string, string[]>)[resolvedLocale.value]?.[privacyIndex] ?? privacyCopy.en[privacyIndex]!
   const msg = activeMessages.value[key] ?? messagesMap['en'][key] ?? key
   if (!substitutions) return msg
   const subs = Array.isArray(substitutions) ? substitutions : [substitutions]

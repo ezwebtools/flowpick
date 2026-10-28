@@ -3,7 +3,7 @@
         "message": "FlowPick - Sniffer médií a stahovač"
     },
     "extDescription": {
-        "message": "Automaticky rozpoznávejte a stahujte M3U8/HLS streamy, videa, zvuk a obrázky. Vestavěný přehrávač. Hromadné stahování. 100% lokální a soukromé."
+        "message": "Rozpoznávejte a prohlížejte média na webových stránkách. Stahujte videa, zvuk, obrázky a streamy HLS/DASH s FlowPick."
     },
     "welcomeSubtitle": {
         "message": "Chytrý sniffer médií a stahovač"
@@ -81,7 +81,7 @@
         "message": "Sbírá rozšíření moje soukromá data?"
     },
     "faq3A": {
-        "message": "Ne. Toto rozšíření běží zcela lokálně a neposílá žádná data na externí servery. Veškeré zjišťování i stahování probíhá ve vašem prohlížeči."
+        "message": "FlowPick čte adresy a názvy stránek, adresy zdrojů a vybrané hlavičky požadavků, aby mohl rozpoznat, zobrazit a stáhnout média. Výsledky se ukládají v prohlížeči. Při zahájení stahování přes web nebo hromadného stahování stránka flowpick.net obdrží vybrané adresy zdrojů, názvy souborů, adresy zdrojových stránek a potřebné hlavičky požadavků. Mohou obsahovat podepsané URL, Cookie, Authorization nebo jiné přístupové tokeny. Při zahájení nahrávání se název vybrané karty a nahraný zvuk/video předají nahrávací stránce flowpick.net."
     },
     "faq4Q": {
         "message": "Proč ikona nezobrazuje počet zjištění?"
@@ -124,5 +124,26 @@
     },
     "needMoreHelpDesc": {
         "message": "Pokud vám výše uvedený obsah nevyřešil problém, neváhejte získat podporu prostřednictvím následujících kanálů"
+    },
+    "privacyTitle": {
+        "message": "Soukromí a používání údajů"
+    },
+    "privacySummary": {
+        "message": "FlowPick čte adresy a názvy stránek, adresy zdrojů a vybrané hlavičky požadavků, aby mohl rozpoznat, zobrazit a stáhnout média. Výsledky se ukládají v prohlížeči."
+    },
+    "privacyWebsite": {
+        "message": "Při zahájení stahování přes web nebo hromadného stahování stránka flowpick.net obdrží vybrané adresy zdrojů, názvy souborů, adresy zdrojových stránek a potřebné hlavičky požadavků. Mohou obsahovat podepsané URL, Cookie, Authorization nebo jiné přístupové tokeny."
+    },
+    "privacyRecording": {
+        "message": "Při zahájení nahrávání se název vybrané karty a nahraný zvuk/video předají nahrávací stránce flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Předání údajů webové stránce se liší od nahrání na server. Nahrávání do cloudu je samostatná volitelná akce. Před použitím cloudových služeb si přečtěte oznámení webu."
+    },
+    "privacyControls": {
+        "message": "Vymažte výsledky v seznamu. Změňte kategorie nebo vylučte domény v nastavení. Pro zastavení veškerého přístupu FlowPick deaktivujte nebo odinstalujte."
+    },
+    "privacyPolicy": {
+        "message": "Úplné zásady ochrany soukromí"
     }
 }

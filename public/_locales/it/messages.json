@@ -3,7 +3,7 @@
         "message": "FlowPick - Rilevatore e downloader multimediale"
     },
     "extDescription": {
-        "message": "Rileva e scarica flussi M3U8/HLS, video, audio e immagini. Lettore integrato e download in batch."
+        "message": "Rileva e visualizza i media nelle pagine web. Scarica video, audio, immagini e flussi HLS/DASH con FlowPick."
     },
     "title": {
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "L'estensione raccoglie i miei dati privati?"
     },
     "faq3A": {
-        "message": "No. Questa estensione funziona interamente in locale e non invia dati a server esterni. Tutte le operazioni di rilevamento e download vengono completate nel tuo browser."
+        "message": "FlowPick legge indirizzi e titoli delle pagine, indirizzi delle risorse e alcune intestazioni delle richieste per rilevare, visualizzare e scaricare contenuti multimediali. I risultati restano nel browser. Quando avvii un download dal sito o un gruppo di download, la pagina flowpick.net riceve gli indirizzi selezionati, i nomi dei file, gli indirizzi delle pagine di origine e le intestazioni necessarie. Possono includere URL firmati, Cookie, Authorization o altri token di accesso. Quando avvii una registrazione, il titolo della scheda scelta e i dati audio/video registrati vengono trasmessi alla pagina di registrazione di flowpick.net."
     },
     "faq4Q": {
         "message": "Perché l'icona non mostra il conteggio delle rilevazioni?"
@@ -352,5 +352,26 @@
     },
     "density": {
         "message": "Densità"
+    },
+    "privacyTitle": {
+        "message": "Privacy e utilizzo dei dati"
+    },
+    "privacySummary": {
+        "message": "FlowPick legge indirizzi e titoli delle pagine, indirizzi delle risorse e alcune intestazioni delle richieste per rilevare, visualizzare e scaricare contenuti multimediali. I risultati restano nel browser."
+    },
+    "privacyWebsite": {
+        "message": "Quando avvii un download dal sito o un gruppo di download, la pagina flowpick.net riceve gli indirizzi selezionati, i nomi dei file, gli indirizzi delle pagine di origine e le intestazioni necessarie. Possono includere URL firmati, Cookie, Authorization o altri token di accesso."
+    },
+    "privacyRecording": {
+        "message": "Quando avvii una registrazione, il titolo della scheda scelta e i dati audio/video registrati vengono trasmessi alla pagina di registrazione di flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Passare dati a una pagina web è diverso dal caricarli su un server. Il caricamento nel cloud è un’azione facoltativa separata. Leggi gli avvisi del sito prima di usare servizi cloud."
+    },
+    "privacyControls": {
+        "message": "Cancella i risultati nell’elenco. Modifica le categorie o escludi domini nelle impostazioni. Disattiva o disinstalla FlowPick per interrompere ogni accesso."
+    },
+    "privacyPolicy": {
+        "message": "Informativa sulla privacy completa"
     }
 }

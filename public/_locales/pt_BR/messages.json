@@ -3,7 +3,7 @@
         "message": "FlowPick - Detector e Downloader de Mídia"
     },
     "extDescription": {
-        "message": "Detecta e baixa automaticamente streams M3U8/HLS, vídeos, áudios e imagens. Player integrado. Download em lote. 100% local e privado."
+        "message": "Detecte e visualize mídia na web. Baixe vídeos, áudios, imagens e streams HLS/DASH com o FlowPick."
     },
     "title": {
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "A extensão coleta meus dados privados?"
     },
     "faq3A": {
-        "message": "Não. Esta extensão funciona totalmente localmente e não envia dados para servidores externos. Todas as operações de detecção e download são concluídas no seu navegador."
+        "message": "O FlowPick lê endereços e títulos de páginas, endereços de recursos e alguns cabeçalhos de requisição para detectar, visualizar e baixar mídia. Os resultados ficam no navegador. Ao iniciar um download pelo site ou um lote, a página flowpick.net recebe os endereços selecionados, nomes de arquivos, páginas de origem e cabeçalhos necessários. Eles podem conter URLs assinadas, Cookie, Authorization ou outros tokens de acesso. Ao iniciar uma gravação, o título da aba selecionada e o áudio/vídeo gravado são enviados à página de gravação do flowpick.net."
     },
     "faq4Q": {
         "message": "Por que o ícone não mostra a contagem de detecções?"
@@ -343,5 +343,26 @@
     },
     "changelogFixes": {
         "message": "• Os hooks do MSE agora são injetados sob demanda: instalados apenas quando uma gravação é iniciada explicitamente; a navegação normal não faz mais hook das páginas, reduzindo overhead e problemas de compatibilidade.\n• Reduzido o escopo da interceptação de rede e DOM nas páginas, diminuindo ainda mais a interferência nos sites.\n• Corrigida uma condição de corrida nas regras de cabeçalhos do proxy que podia causar falha em downloads simultâneos."
+    },
+    "privacyTitle": {
+        "message": "Privacidade e uso de dados"
+    },
+    "privacySummary": {
+        "message": "O FlowPick lê endereços e títulos de páginas, endereços de recursos e alguns cabeçalhos de requisição para detectar, visualizar e baixar mídia. Os resultados ficam no navegador."
+    },
+    "privacyWebsite": {
+        "message": "Ao iniciar um download pelo site ou um lote, a página flowpick.net recebe os endereços selecionados, nomes de arquivos, páginas de origem e cabeçalhos necessários. Eles podem conter URLs assinadas, Cookie, Authorization ou outros tokens de acesso."
+    },
+    "privacyRecording": {
+        "message": "Ao iniciar uma gravação, o título da aba selecionada e o áudio/vídeo gravado são enviados à página de gravação do flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Entregar dados a uma página é diferente de enviá-los a um servidor. O upload para a nuvem é uma ação opcional separada. Leia os avisos do site antes de usar serviços na nuvem."
+    },
+    "privacyControls": {
+        "message": "Apague os resultados na lista. Ajuste categorias ou exclua domínios nas Configurações. Desative ou desinstale o FlowPick para encerrar todo acesso."
+    },
+    "privacyPolicy": {
+        "message": "Política de privacidade completa"
     }
 }

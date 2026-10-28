@@ -3,7 +3,7 @@
         "message": "FlowPick - Mediasniffer en downloader"
     },
     "extDescription": {
-        "message": "Detecteer en download automatisch M3U8/HLS-streams, video’s, audio en afbeeldingen. Ingebouwde speler. Batchdownload. 100% lokaal en privé."
+        "message": "Detecteer media op webpagina’s en bekijk voorbeelden. Download video, audio, afbeeldingen en HLS/DASH-streams met FlowPick."
     },
     "welcomeSubtitle": {
         "message": "Slimme mediasniffer en downloader"
@@ -81,7 +81,7 @@
         "message": "Verzamelt de extensie mijn privégegevens?"
     },
     "faq3A": {
-        "message": "Nee. Deze extensie werkt volledig lokaal en stuurt geen gegevens naar externe servers. Alle detectie- en downloadbewerkingen vinden plaats in je browser."
+        "message": "FlowPick leest pagina-adressen, titels, bronadressen en bepaalde aanvraagheaders om media te detecteren, vooraf te bekijken en te downloaden. Resultaten worden in de browser opgeslagen. Wanneer u een websitedownload of batch start, ontvangt de pagina flowpick.net de geselecteerde bronadressen, bestandsnamen, adressen van bronpagina’s en benodigde aanvraagheaders. Deze kunnen ondertekende URL’s, Cookie, Authorization of andere toegangstokens bevatten. Bij het starten van een opname worden de titel van het gekozen tabblad en opgenomen audio/video doorgegeven aan de opnamepagina van flowpick.net."
     },
     "faq4Q": {
         "message": "Waarom toont het pictogram geen aantal?"
@@ -124,5 +124,26 @@
     },
     "needMoreHelpDesc": {
         "message": "Als het bovenstaande je probleem niet heeft opgelost, kun je via de onderstaande kanalen ondersteuning krijgen"
+    },
+    "privacyTitle": {
+        "message": "Privacy en gegevensgebruik"
+    },
+    "privacySummary": {
+        "message": "FlowPick leest pagina-adressen, titels, bronadressen en bepaalde aanvraagheaders om media te detecteren, vooraf te bekijken en te downloaden. Resultaten worden in de browser opgeslagen."
+    },
+    "privacyWebsite": {
+        "message": "Wanneer u een websitedownload of batch start, ontvangt de pagina flowpick.net de geselecteerde bronadressen, bestandsnamen, adressen van bronpagina’s en benodigde aanvraagheaders. Deze kunnen ondertekende URL’s, Cookie, Authorization of andere toegangstokens bevatten."
+    },
+    "privacyRecording": {
+        "message": "Bij het starten van een opname worden de titel van het gekozen tabblad en opgenomen audio/video doorgegeven aan de opnamepagina van flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Gegevens aan een webpagina doorgeven is iets anders dan uploaden naar een server. Uploaden naar de cloud is een afzonderlijke optionele actie. Lees de meldingen van de website voordat u clouddiensten gebruikt."
+    },
+    "privacyControls": {
+        "message": "Wis resultaten in de lijst. Wijzig categorieën of sluit domeinen uit in Instellingen. Schakel FlowPick uit of verwijder het om alle toegang te stoppen."
+    },
+    "privacyPolicy": {
+        "message": "Volledig privacybeleid"
     }
 }

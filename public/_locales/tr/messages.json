@@ -3,7 +3,7 @@
         "message": "FlowPick - Medya Algılayıcı ve İndirici"
     },
     "extDescription": {
-        "message": "M3U8/HLS akışlarını, videoları, sesleri ve görselleri otomatik algılar ve indirir. Dahili oynatıcı. Toplu indirme. %100 yerel ve gizli."
+        "message": "Web sayfalarındaki medyayı algılayın ve önizleyin. FlowPick ile video, ses, resim ve HLS/DASH akışlarını indirin."
     },
     "title": {
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "Uzantı özel verilerimi topluyor mu?"
     },
     "faq3A": {
-        "message": "Hayır. Bu uzantı tamamen yerel çalışır ve hiçbir veriyi harici sunuculara göndermez. Tüm algılama ve indirme işlemleri tarayıcınızda tamamlanır."
+        "message": "FlowPick; medyayı algılamak, önizlemek ve indirmek için sayfa adreslerini, başlıklarını, kaynak adreslerini ve belirli istek başlıklarını okur. Sonuçlar tarayıcıda saklanır. Web sitesi üzerinden indirme veya toplu işlem başlattığınızda flowpick.net sayfası seçilen kaynak adreslerini, dosya adlarını, kaynak sayfa adreslerini ve gerekli istek başlıklarını alır. Bunlar imzalı URL, Cookie, Authorization veya diğer erişim belirteçlerini içerebilir. Kayıt başlatıldığında seçilen sekmenin başlığı ve kaydedilen ses/video flowpick.net kayıt sayfasına aktarılır."
     },
     "faq4Q": {
         "message": "Simge algılama sayısını neden göstermiyor?"
@@ -343,5 +343,26 @@
     },
     "changelogFixes": {
         "message": "• MSE kancaları artık isteğe bağlı enjekte ediliyor: yalnızca açıkça bir kayıt başlattığınızda kuruluyor; normal gezinme sırasında sayfalara artık müdahale edilmiyor, bu da yükü ve uyumluluk sorunlarını azaltıyor.\n• Sayfalardaki ağ ve DOM yakalama kapsamı daraltılarak sitelere müdahale daha da azaltıldı.\n• Aynı anda yapılan indirmelerde proxy başlık kurallarındaki yarış durumu nedeniyle indirmelerin başarısız olabileceği sorun düzeltildi."
+    },
+    "privacyTitle": {
+        "message": "Gizlilik ve veri kullanımı"
+    },
+    "privacySummary": {
+        "message": "FlowPick; medyayı algılamak, önizlemek ve indirmek için sayfa adreslerini, başlıklarını, kaynak adreslerini ve belirli istek başlıklarını okur. Sonuçlar tarayıcıda saklanır."
+    },
+    "privacyWebsite": {
+        "message": "Web sitesi üzerinden indirme veya toplu işlem başlattığınızda flowpick.net sayfası seçilen kaynak adreslerini, dosya adlarını, kaynak sayfa adreslerini ve gerekli istek başlıklarını alır. Bunlar imzalı URL, Cookie, Authorization veya diğer erişim belirteçlerini içerebilir."
+    },
+    "privacyRecording": {
+        "message": "Kayıt başlatıldığında seçilen sekmenin başlığı ve kaydedilen ses/video flowpick.net kayıt sayfasına aktarılır."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Bir web sayfasına veri aktarmak, sunucuya yüklemekten farklıdır. Buluta yükleme ayrı ve isteğe bağlı bir işlemdir. Bulut hizmetlerini kullanmadan önce sitenin açıklamalarını okuyun."
+    },
+    "privacyControls": {
+        "message": "Sonuçları listeden temizleyin. Ayarlardan kategorileri değiştirin veya alan adlarını hariç tutun. Tüm erişimi durdurmak için FlowPick’i devre dışı bırakın veya kaldırın."
+    },
+    "privacyPolicy": {
+        "message": "Tam gizlilik politikası"
     }
 }

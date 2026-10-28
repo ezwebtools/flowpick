@@ -1,9 +1,9 @@
 {
     "extName": {
-        "message": "FlowPick - 萬能網頁影片/音訊/圖片下載器"
+        "message": "FlowPick - 媒體偵測與下載工具"
     },
     "extDescription": {
-        "message": "自動嗅探網頁中的 M3U8/HLS 串流媒體、影片、音訊與圖片，內建播放預覽，支援批次下載，全程本機運行，隱私安全。"
+        "message": "偵測及預覽網頁媒體，下載影片、音訊、圖片及 HLS/DASH 串流，支援批次下載。"
     },
     "title":{
         "message": "m3u8影片下載器"
@@ -210,7 +210,7 @@
         "message": "擴充功能會收集我的隱私資料嗎？"
     },
     "faq3A":{
-        "message": "不會。本擴充功能完全在本機執行，不會將任何資料傳送到外部伺服器。所有偵測和下載作業都在你的瀏覽器中完成。"
+        "message": "FlowPick 為偵測、預覽及下載媒體，讀取網頁網址、標題、資源網址及部分請求標頭。偵測結果儲存在瀏覽器中。 發起網站下載或批次任務時，flowpick.net 頁面將接收所選資源網址、檔案名稱、來源網頁網址及所需請求標頭，其中可能包含簽署連結、Cookie、Authorization 或其他存取權杖。 主動開始錄製後，所選分頁的標題和錄製的影音將交給 flowpick.net 錄製頁面。"
     },
     "faq4Q":{
         "message": "為什麼圖示上沒有顯示偵測數量？"
@@ -343,5 +343,26 @@
     },
     "changelogFixes":{
         "message": "• MSE 鉤子改為按需注入：僅在主動發起錄製時安裝，日常瀏覽不再攔截頁面，降低效能損耗與相容性衝突。\n• 收窄頁面網路請求與 DOM 攔截範圍，進一步減少對網站的干擾。\n• 修復多個下載並行時請求標頭規則競爭導致的下載異常。"
+    },
+    "privacyTitle": {
+        "message": "隱私與資料使用"
+    },
+    "privacySummary": {
+        "message": "FlowPick 為偵測、預覽及下載媒體，讀取網頁網址、標題、資源網址及部分請求標頭。偵測結果儲存在瀏覽器中。"
+    },
+    "privacyWebsite": {
+        "message": "發起網站下載或批次任務時，flowpick.net 頁面將接收所選資源網址、檔案名稱、來源網頁網址及所需請求標頭，其中可能包含簽署連結、Cookie、Authorization 或其他存取權杖。"
+    },
+    "privacyRecording": {
+        "message": "主動開始錄製後，所選分頁的標題和錄製的影音將交給 flowpick.net 錄製頁面。"
+    },
+    "privacyWebsiteBoundary": {
+        "message": "將資料交給網站頁面與上傳伺服器不同。雲端上傳是獨立的選用操作；使用雲端服務前，請閱讀網站的相關說明。"
+    },
+    "privacyControls": {
+        "message": "可在清單清除偵測結果，在設定中調整資源類別或排除網域。停用或解除安裝 FlowPick 可停止擴充功能的所有存取。"
+    },
+    "privacyPolicy": {
+        "message": "完整隱私權政策"
     }
 }

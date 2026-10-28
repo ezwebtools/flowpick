@@ -3,7 +3,7 @@
         "message": "FlowPick - Media Sniffer & Downloader"
     },
     "extDescription": {
-        "message": "Auto-detect & download M3U8/HLS streams, videos, audio & images. Built-in player. Batch download. 100% local & private."
+        "message": "Detect and preview webpage media. Download videos, audio, images and HLS/DASH streams with FlowPick."
     },
     "title":{
         "message": "Flowpick"
@@ -210,7 +210,7 @@
         "message": "Does the extension collect my private data?"
     },
     "faq3A":{
-        "message": "No. This extension runs entirely locally and does not send any data to external servers. All detection and download operations are completed in your browser."
+        "message": "FlowPick reads page URLs, titles, resource addresses and selected request headers to detect, preview and download media. Detection results are stored in the browser. When you start a website download or batch, flowpick.net receives the selected resource URLs, filenames, source page addresses and required request headers. These may include signed URLs, Cookie, Authorization or other access tokens. Recording sends the selected tab’s title and recorded audio/video to the flowpick.net recording page when you start recording."
     },
     "faq4Q":{
         "message": "Why doesn't the icon show the detection count?"
@@ -343,5 +343,26 @@
     },
     "changelogFixes":{
         "message": "• MSE hooks are now injected on demand: they are only installed when you explicitly start a recording, so normal browsing no longer hooks pages — less overhead and fewer compatibility issues.\n• Narrowed network and DOM interception on pages to further reduce interference with websites.\n• Fixed a race condition in proxy header rules that could cause concurrent downloads to fail."
+    },
+    "privacyTitle": {
+        "message": "Privacy and data use"
+    },
+    "privacySummary": {
+        "message": "FlowPick reads page URLs, titles, resource addresses and selected request headers to detect, preview and download media. Detection results are stored in the browser."
+    },
+    "privacyWebsite": {
+        "message": "When you start a website download or batch, flowpick.net receives the selected resource URLs, filenames, source page addresses and required request headers. These may include signed URLs, Cookie, Authorization or other access tokens."
+    },
+    "privacyRecording": {
+        "message": "Recording sends the selected tab’s title and recorded audio/video to the flowpick.net recording page when you start recording."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Giving data to a website page is different from uploading it to a server. Cloud upload is a separate optional action. Review the website’s notices before using cloud services."
+    },
+    "privacyControls": {
+        "message": "Clear detected items in the list. Use Settings to change resource categories or exclude domains. Disable or uninstall FlowPick to stop all extension access."
+    },
+    "privacyPolicy": {
+        "message": "Full privacy policy"
     }
 }

@@ -3,7 +3,7 @@
         "message": "FlowPick - Media Sniffer at Downloader"
     },
     "extDescription": {
-        "message": "Awtomatikong tuklasin at i-download ang mga M3U8/HLS stream, video, audio at larawan. May built-in na player. Batch download. 100% lokal at pribado."
+        "message": "Tuklasin at i-preview ang media sa web. Mag-download ng video, audio, larawan at HLS/DASH stream gamit ang FlowPick."
     },
     "welcomeSubtitle": {
         "message": "Smart Media Sniffer at Downloader"
@@ -81,7 +81,7 @@
         "message": "Kinokolekta ba ng extension ang private data ko?"
     },
     "faq3A": {
-        "message": "Hindi. Ganap na lokal ang pagtakbo ng extension na ito at walang ipinapadang data sa mga external server. Lahat ng detection at download ay nangyayari sa browser mo."
+        "message": "Binabasa ng FlowPick ang mga address at pamagat ng pahina, address ng resource, at ilang request header para makita, ma-preview, at ma-download ang media. Nasa browser ang mga resulta. Kapag nagsimula ka ng pag-download sa website o batch download, matatanggap ng pahina ng flowpick.net ang mga napiling resource address, pangalan ng file, address ng pinagmulang pahina, at kinakailangang request header. Maaaring kasama ang signed URL, Cookie, Authorization, o iba pang access token. Kapag sinimulan mo ang pag-record, ipapasa ang pamagat ng napiling tab at ang na-record na audio/video sa recording page ng flowpick.net."
     },
     "faq4Q": {
         "message": "Bakit walang bilang na lumalabas sa icon?"
@@ -124,5 +124,26 @@
     },
     "needMoreHelpDesc": {
         "message": "Kung hindi nalutas ng nabanggit sa itaas ang problema mo, malayang makakuha ng suporta sa mga sumusunod na channel"
+    },
+    "privacyTitle": {
+        "message": "Privacy at paggamit ng data"
+    },
+    "privacySummary": {
+        "message": "Binabasa ng FlowPick ang mga address at pamagat ng pahina, address ng resource, at ilang request header para makita, ma-preview, at ma-download ang media. Nasa browser ang mga resulta."
+    },
+    "privacyWebsite": {
+        "message": "Kapag nagsimula ka ng pag-download sa website o batch download, matatanggap ng pahina ng flowpick.net ang mga napiling resource address, pangalan ng file, address ng pinagmulang pahina, at kinakailangang request header. Maaaring kasama ang signed URL, Cookie, Authorization, o iba pang access token."
+    },
+    "privacyRecording": {
+        "message": "Kapag sinimulan mo ang pag-record, ipapasa ang pamagat ng napiling tab at ang na-record na audio/video sa recording page ng flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Iba ang pagpasa ng data sa isang web page sa pag-upload sa server. Hiwalay at opsyonal na aksyon ang cloud upload. Basahin ang mga abiso ng site bago gumamit ng cloud services."
+    },
+    "privacyControls": {
+        "message": "Burahin ang mga resulta sa listahan. Baguhin ang mga kategorya o ibukod ang mga domain sa Settings. I-disable o i-uninstall ang FlowPick para ihinto ang lahat ng access."
+    },
+    "privacyPolicy": {
+        "message": "Buong patakaran sa privacy"
     }
 }

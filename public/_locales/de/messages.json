@@ -3,7 +3,7 @@
         "message": "FlowPick: Video-, Audio- & Bild-Downloader"
     },
     "extDescription": {
-        "message": "Automatische Erkennung und Download von M3U8/HLS-Streams, Videos, Audio und Bildern. Integrierter Player. Stapel-Download. 100% lokal und privat."
+        "message": "Medien auf Webseiten erkennen und ansehen. Videos, Audio, Bilder und HLS/DASH-Streams mit FlowPick herunterladen."
     },
     "title":{
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "Erfasst die Erweiterung meine privaten Daten?"
     },
     "faq3A":{
-        "message": "Nein. Diese Erweiterung läuft vollständig lokal und sendet keine Daten an externe Server. Alle Erkennungs- und Download-Vorgänge werden in Ihrem Browser abgeschlossen."
+        "message": "FlowPick liest Seitenadressen, Titel, Ressourcenadressen und ausgewählte Anfrageheader, um Medien zu erkennen, anzuzeigen und herunterzuladen. Ergebnisse werden im Browser gespeichert. Wenn Sie einen Website-Download oder einen Stapel starten, erhält die Seite flowpick.net ausgewählte Ressourcenadressen, Dateinamen, Quellseitenadressen und benötigte Anfrageheader. Diese können signierte URLs, Cookies, Authorization oder andere Zugriffstoken enthalten. Bei einer Aufnahme werden beim Start der Aufnahme der Titel des gewählten Tabs und die aufgenommenen Audio-/Videodaten an die Aufnahmeseite von flowpick.net übergeben."
     },
     "faq4Q":{
         "message": "Warum zeigt das Symbol keine Erkennungsanzahl?"
@@ -343,5 +343,26 @@
     },
     "changelogFixes":{
         "message": "• MSE-Hooks werden jetzt bei Bedarf injiziert: Sie werden nur installiert, wenn eine Aufnahme explizit gestartet wird – beim normalen Surfen werden Seiten nicht mehr gehookt, was Overhead und Kompatibilitätsprobleme reduziert.\n• Netzwerk- und DOM-Abfangbereich auf Seiten eingeschränkt, um die Beeinflussung von Websites weiter zu verringern.\n• Einen Wettlauf bei Proxy-Header-Regeln behoben, der gleichzeitige Downloads fehlschlagen lassen konnte."
+    },
+    "privacyTitle": {
+        "message": "Datenschutz und Datennutzung"
+    },
+    "privacySummary": {
+        "message": "FlowPick liest Seitenadressen, Titel, Ressourcenadressen und ausgewählte Anfrageheader, um Medien zu erkennen, anzuzeigen und herunterzuladen. Ergebnisse werden im Browser gespeichert."
+    },
+    "privacyWebsite": {
+        "message": "Wenn Sie einen Website-Download oder einen Stapel starten, erhält die Seite flowpick.net ausgewählte Ressourcenadressen, Dateinamen, Quellseitenadressen und benötigte Anfrageheader. Diese können signierte URLs, Cookies, Authorization oder andere Zugriffstoken enthalten."
+    },
+    "privacyRecording": {
+        "message": "Bei einer Aufnahme werden beim Start der Aufnahme der Titel des gewählten Tabs und die aufgenommenen Audio-/Videodaten an die Aufnahmeseite von flowpick.net übergeben."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Die Übergabe an eine Webseite ist kein Server-Upload. Ein Cloud-Upload ist eine separate optionale Aktion. Lesen Sie vor der Nutzung von Cloud-Diensten die Hinweise der Website."
+    },
+    "privacyControls": {
+        "message": "Löschen Sie Ergebnisse in der Liste. Ändern Sie Kategorien oder schließen Sie Domains in den Einstellungen aus. Deaktivieren oder deinstallieren Sie FlowPick, um alle Zugriffe zu beenden."
+    },
+    "privacyPolicy": {
+        "message": "Vollständige Datenschutzerklärung"
     }
 }

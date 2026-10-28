@@ -61,6 +61,15 @@
         <p class="text-gray-500 dark:text-gray-400 mt-3 text-base">{{ t('welcomeSubtitle') }}</p>
       </div>
 
+      <section class="mb-8 rounded-2xl border border-blue-200 dark:border-blue-800 p-6 text-sm leading-relaxed">
+        <h2 class="font-semibold mb-2">{{ t('privacyTitle') }}</h2>
+        <p>{{ t('privacySummary') }}</p>
+        <p class="mt-2">{{ t('privacyWebsite') }}</p>
+        <p class="mt-2">{{ t('privacyRecording') }}</p>
+        <p class="mt-2">{{ t('privacyControls') }}</p>
+        <a href="/privacy-policy.html" class="inline-block mt-3 text-blue-600 dark:text-blue-400 underline">{{ t('privacyPolicy') }}</a>
+      </section>
+
       <section class="mb-14">
         <div class="bg-white dark:bg-gray-800/60 rounded-2xl border border-blue-200 dark:border-blue-900/60 p-6">
           <div class="flex items-center justify-between gap-3 mb-5">

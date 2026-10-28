@@ -3,7 +3,7 @@
         "message": "FlowPick - médiaszimatoló és letöltő"
     },
     "extDescription": {
-        "message": "M3U8/HLS streamek, videók, hangok és képek automatikus észlelése és letöltése. Beépített lejátszó. Kötegelt letöltés. 100% helyi és privát."
+        "message": "Webes média felismerése és előnézete. Videók, hangok, képek és HLS/DASH-adatfolyamok letöltése a FlowPickkel."
     },
     "welcomeSubtitle": {
         "message": "Okos médiaszimatoló és letöltő"
@@ -81,7 +81,7 @@
         "message": "Gyűjti a bővítmény a személyes adataimat?"
     },
     "faq3A": {
-        "message": "Nem. Ez a bővítmény teljesen helyileg működik, és nem küld adatokat külső szervereknek. Minden észlelési és letöltési művelet a böngészőjében zajlik."
+        "message": "A FlowPick a média felismeréséhez, előnézetéhez és letöltéséhez olvassa az oldalak címét, nevét, az erőforrások címét és egyes kérésfejléceket. Az eredményeket a böngésző tárolja. Webes vagy csoportos letöltés indításakor a flowpick.net oldal megkapja a kiválasztott erőforráscímeket, fájlneveket, forrásoldalcímeket és a szükséges kérésfejléceket. Ezek aláírt URL-eket, Cookie, Authorization vagy más hozzáférési tokeneket is tartalmazhatnak. A felvétel indításakor a kiválasztott lap címe és a rögzített hang/videó a flowpick.net felvételi oldalára kerül."
     },
     "faq4Q": {
         "message": "Miért nem mutat az ikon darabszámot?"
@@ -124,5 +124,26 @@
     },
     "needMoreHelpDesc": {
         "message": "Ha a fenti tartalom nem oldotta meg a problémáját, a következő csatornákon kérhet támogatást"
+    },
+    "privacyTitle": {
+        "message": "Adatvédelem és adathasználat"
+    },
+    "privacySummary": {
+        "message": "A FlowPick a média felismeréséhez, előnézetéhez és letöltéséhez olvassa az oldalak címét, nevét, az erőforrások címét és egyes kérésfejléceket. Az eredményeket a böngésző tárolja."
+    },
+    "privacyWebsite": {
+        "message": "Webes vagy csoportos letöltés indításakor a flowpick.net oldal megkapja a kiválasztott erőforráscímeket, fájlneveket, forrásoldalcímeket és a szükséges kérésfejléceket. Ezek aláírt URL-eket, Cookie, Authorization vagy más hozzáférési tokeneket is tartalmazhatnak."
+    },
+    "privacyRecording": {
+        "message": "A felvétel indításakor a kiválasztott lap címe és a rögzített hang/videó a flowpick.net felvételi oldalára kerül."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Az adatok weboldalnak történő átadása nem azonos a szerverre feltöltéssel. A felhőbe feltöltés külön választható művelet. Felhőszolgáltatás használata előtt olvassa el a webhely tájékoztatóját."
+    },
+    "privacyControls": {
+        "message": "Törölje az eredményeket a listából. A beállításokban módosíthatja a kategóriákat vagy kizárhat domaineket. Minden hozzáférés leállításához tiltsa le vagy távolítsa el a FlowPicket."
+    },
+    "privacyPolicy": {
+        "message": "Teljes adatvédelmi szabályzat"
     }
 }

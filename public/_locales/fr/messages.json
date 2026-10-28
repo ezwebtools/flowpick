@@ -3,7 +3,7 @@
         "message": "FlowPick - Détecteur et téléchargeur multimédia"
     },
     "extDescription": {
-        "message": "Détecte et télécharge automatiquement les flux M3U8/HLS, vidéos, audios et images. Lecteur intégré. Téléchargement par lots. 100% local et privé."
+        "message": "Détectez et prévisualisez les médias web. Téléchargez vidéos, audio, images et flux HLS/DASH avec FlowPick."
     },
     "title": {
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "L'extension collecte-t-elle mes données privées ?"
     },
     "faq3A": {
-        "message": "Non. Cette extension fonctionne entièrement en local et n'envoie aucune donnée à des serveurs externes. Toutes les opérations de détection et de téléchargement sont effectuées dans votre navigateur."
+        "message": "FlowPick lit les adresses des pages, leurs titres, les adresses des ressources et certains en-têtes de requête pour détecter, prévisualiser et télécharger des médias. Les résultats sont conservés dans le navigateur. Au lancement d’un téléchargement web ou d’un lot, la page flowpick.net reçoit les adresses sélectionnées, les noms de fichiers, les adresses des pages sources et les en-têtes nécessaires. Ils peuvent contenir des URL signées, Cookie, Authorization ou d’autres jetons d’accès. Au démarrage d’un enregistrement, le titre de l’onglet choisi et les données audio/vidéo enregistrées sont transmis à la page d’enregistrement de flowpick.net."
     },
     "faq4Q": {
         "message": "Pourquoi l'icône n'affiche-t-elle pas le compteur de détection ?"
@@ -343,5 +343,26 @@
     },
     "changelogFixes": {
         "message": "• Les hooks MSE sont désormais injectés à la demande : ils ne sont installés que lorsqu'un enregistrement est explicitement démarré ; la navigation courante ne hook plus les pages, réduisant la surcharge et les problèmes de compatibilité.\n• Réduction de la portée de l'interception réseau et DOM sur les pages, diminuant encore les interférences avec les sites.\n• Correction d'un conflit de règles d'en-têtes proxy pouvant faire échouer des téléchargements simultanés."
+    },
+    "privacyTitle": {
+        "message": "Confidentialité et utilisation des données"
+    },
+    "privacySummary": {
+        "message": "FlowPick lit les adresses des pages, leurs titres, les adresses des ressources et certains en-têtes de requête pour détecter, prévisualiser et télécharger des médias. Les résultats sont conservés dans le navigateur."
+    },
+    "privacyWebsite": {
+        "message": "Au lancement d’un téléchargement web ou d’un lot, la page flowpick.net reçoit les adresses sélectionnées, les noms de fichiers, les adresses des pages sources et les en-têtes nécessaires. Ils peuvent contenir des URL signées, Cookie, Authorization ou d’autres jetons d’accès."
+    },
+    "privacyRecording": {
+        "message": "Au démarrage d’un enregistrement, le titre de l’onglet choisi et les données audio/vidéo enregistrées sont transmis à la page d’enregistrement de flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Transmettre des données à une page web diffère d’un envoi au serveur. L’envoi dans le cloud est une action facultative distincte. Consultez les informations du site avant d’utiliser ses services cloud."
+    },
+    "privacyControls": {
+        "message": "Effacez les résultats dans la liste. Modifiez les catégories ou excluez des domaines dans les paramètres. Désactivez ou désinstallez FlowPick pour arrêter tout accès."
+    },
+    "privacyPolicy": {
+        "message": "Politique de confidentialité complète"
     }
 }

@@ -3,7 +3,7 @@
         "message": "FlowPick - Pendeteksi dan Pengunduh Media"
     },
     "extDescription": {
-        "message": "Deteksi dan unduh streaming M3U8/HLS, video, audio, dan gambar. Pemutar bawaan dan pengunduhan massal."
+        "message": "Deteksi dan pratinjau media di halaman web. Unduh video, audio, gambar, dan streaming HLS/DASH dengan FlowPick."
     },
     "title": {
         "message": "FlowPick"
@@ -210,7 +210,7 @@
         "message": "Apakah ekstensi mengumpulkan data pribadi saya?"
     },
     "faq3A": {
-        "message": "Tidak. Ekstensi ini sepenuhnya berjalan secara lokal dan tidak mengirim data apa pun ke server eksternal. Semua operasi deteksi dan unduhan selesai di peramban Anda."
+        "message": "FlowPick membaca alamat dan judul halaman, alamat sumber daya, serta header permintaan tertentu untuk mendeteksi, mempratinjau, dan mengunduh media. Hasil disimpan di browser. Saat Anda memulai unduhan melalui situs atau unduhan batch, halaman flowpick.net menerima alamat sumber daya yang dipilih, nama file, alamat halaman asal, dan header yang diperlukan. Data ini dapat mencakup URL bertanda tangan, Cookie, Authorization, atau token akses lain. Saat Anda memulai perekaman, judul tab yang dipilih dan rekaman audio/video diteruskan ke halaman perekaman flowpick.net."
     },
     "faq4Q": {
         "message": "Mengapa ikon tidak menampilkan jumlah deteksi?"
@@ -352,5 +352,26 @@
     },
     "density": {
         "message": "Kepadatan"
+    },
+    "privacyTitle": {
+        "message": "Privasi dan penggunaan data"
+    },
+    "privacySummary": {
+        "message": "FlowPick membaca alamat dan judul halaman, alamat sumber daya, serta header permintaan tertentu untuk mendeteksi, mempratinjau, dan mengunduh media. Hasil disimpan di browser."
+    },
+    "privacyWebsite": {
+        "message": "Saat Anda memulai unduhan melalui situs atau unduhan batch, halaman flowpick.net menerima alamat sumber daya yang dipilih, nama file, alamat halaman asal, dan header yang diperlukan. Data ini dapat mencakup URL bertanda tangan, Cookie, Authorization, atau token akses lain."
+    },
+    "privacyRecording": {
+        "message": "Saat Anda memulai perekaman, judul tab yang dipilih dan rekaman audio/video diteruskan ke halaman perekaman flowpick.net."
+    },
+    "privacyWebsiteBoundary": {
+        "message": "Meneruskan data ke halaman web berbeda dengan mengunggahnya ke server. Unggahan ke cloud adalah tindakan opsional terpisah. Baca pemberitahuan situs sebelum memakai layanan cloud."
+    },
+    "privacyControls": {
+        "message": "Hapus hasil dari daftar. Ubah kategori atau kecualikan domain di Pengaturan. Nonaktifkan atau hapus FlowPick untuk menghentikan semua akses."
+    },
+    "privacyPolicy": {
+        "message": "Kebijakan privasi lengkap"
     }
 }
