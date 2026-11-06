@@ -1320,6 +1320,58 @@ export default defineBackground(() => {
       sendResponse({ ok: epoch !== undefined, stale: epoch === undefined, sessionId: epoch })
       return
     }
+    if (msg.type === 'MATCH_PAGE_MEDIA_PICK') {
+      const tabId = sender.tab?.id
+      const frameId = sender.frameId
+      if (tabId === undefined || frameId === undefined || !msg.pageContext
+        || !pageSessions.accepts(tabId, frameId, msg.pageContext, msg.sessionId, sender.documentId)) {
+        sendResponse({ status: 'inactive' })
+        return
+      }
+      if (msg.kind === 'image') {
+        // Check the current rules even if the list still contains an older capture.
+        if (isDomainExcluded(msg.pageContext.url, currentSettings)
+          || (sender.tab?.url && isDomainExcluded(sender.tab.url, currentSettings))
+          || (typeof msg.url === 'string' && isDomainExcluded(msg.url, currentSettings))) {
+          sendResponse({ status: 'domainExcluded' })
+          return
+        }
+        if (!currentSettings.sniffingRules.image.enabled) {
+          sendResponse({ status: 'imageDisabled' })
+          return
+        }
+      }
+      const media = tabMap.get(tabId)
+      const entry = typeof msg.url === 'string' ? media?.get(msg.url) : undefined
+      const group = entry && (entry.category === 'stream' ? 'streaming' : getFormatGroup(entry.format))
+      // The store merges identical URLs across frames. Its shared card may
+      // carry another frame's request context, so only focus sole ownership.
+      const belongsToFrame = (item: MediaEntry | undefined) => item?.sourceFrameIds?.length
+        ? item.sourceFrameIds.length === 1 && item.sourceFrameIds[0] === frameId
+        : item?.frameId === frameId
+      const card = entry?.groupMasterId ? media?.get(entry.groupMasterId) : entry
+      const matchesKind = msg.blobPlayer === true
+        ? (msg.kind === 'video' || msg.kind === 'audio') && (entry?.format === 'm3u8' || entry?.format === 'mpd')
+        : msg.kind === 'image' ? group === 'image'
+          : msg.kind === 'audio' ? group === 'audio'
+            // A native <video> can play a standalone audio file as well.
+            : msg.kind === 'video' && (group === 'video' || group === 'streaming' || group === 'audio')
+      if (!belongsToFrame(entry) || !belongsToFrame(card) || !matchesKind || entry?.captureId || entry?.groupRole === 'segment'
+        || entry?.groupRole === 'audio' || entry?.groupRole === 'subtitle') {
+        // The explicitly picked image stays in the panel only. In particular,
+        // it must never be added to tabMap or broadcast as a sniffed resource.
+        if (msg.kind === 'image' && msg.imageLoaded === true && typeof msg.url === 'string'
+          && /^https?:\/\//i.test(msg.url)) {
+          const format = detectMediaFromUrl(msg.url)
+          sendResponse({ status: 'manualImage', url: msg.url, format: format && getFormatGroup(format) === 'image' ? format : '' })
+          return
+        }
+        sendResponse({ status: msg.blobPlayer === true || frameId !== 0 ? 'unconfirmed' : 'missing' })
+        return
+      }
+      sendResponse({ status: 'matched', url: msg.url })
+      return
+    }
     if (captureTypes.includes(msg.type)) {
       const tabId = sender.tab?.id
       if (tabId === undefined || !msg.pageContext

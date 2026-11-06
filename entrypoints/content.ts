@@ -1,4 +1,5 @@
 import { createPageReporter } from '../utils/page-reporter'
+import { installPageMediaPicker } from '../utils/page-media-picker'
 import { pageIdentity } from '../utils/page-session'
 import { isRecordingBridgeMessage, localRecordingBuffer } from '../utils/recording-bridge'
 import { isQueuePage } from '../utils/download-queue'
@@ -19,6 +20,7 @@ export default defineContentScript({
     const reporter = createPageReporter(() => {
       window.postMessage({ type: 'FLOWPICK_RESCAN', url: location.href }, '*')
     })
+    installPageMediaPicker(reporter.context)
     void reporter.sync()
     window.addEventListener('pageshow', () => void reporter.sync())
     if (!document.querySelector('script[data-m3u8-injected]')) {

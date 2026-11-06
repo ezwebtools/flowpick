@@ -11,6 +11,7 @@
   import { loadDash, loadHls, loadMpegts, useStreamThumbnails } from './composables/useStreamThumbnails'
   import { useMediaViewModels } from './composables/useMediaViewModels'
   import { createHlsProxyLoader } from './utils/hlsProxyLoader'
+  import type { PageMediaPick } from '../../utils/page-media-picker'
   const SettingsView = defineAsyncComponent(() => import('./components/SettingsView.vue'))
 
   const props = withDefaults(defineProps<{ mode?: 'popup' | 'sidepanel' }>(), { mode: 'popup' })
@@ -232,6 +233,8 @@
       }).catch((error) => {
         console.warn('[FlowPick] settings load failed:', error)
         return false
+      }).finally(() => {
+        settingsLoadPromise = null
       })
     }
     return settingsLoadPromise
@@ -242,11 +245,16 @@
   let resetConfirmTimer: ReturnType<typeof setTimeout> | null = null
   
   // ── Media filtering ──────────────────────────────────────────────
+  const pickedMediaUrl = ref<string>()
+  const manualImage = shallowRef<MediaItem>()
+  const pickStatus = ref<PageMediaPick['status'] | 'active'>()
+  const browsingPageStreams = ref(false)
+  let pendingPick: { id: string; tabId: number; frameIds: number[] } | undefined
   const {
-    activeTab, typeFilter, sizeFilter, dimensionFilter, resolutionFilter, sortOrder,
+    activeTab: filterTab, typeFilter, sizeFilter, dimensionFilter, resolutionFilter, sortOrder,
     mediaCatalog, sizeFilteredMediaList, tabCounts, typeOptions,
     searchQuery, useRegex, regexValid, searchError, clearSearch,
-    filteredMediaList, filteredImageList,
+    filteredMediaList: normallyFilteredMedia, filteredImageList: normallyFilteredImages,
   } = useMediaFilters<MediaItem>({
     mediaList,
     settings,
@@ -263,6 +271,119 @@
     getFormatLabel: format => getFormatLabel(format),
   })
 
+  const pickedCard = computed(() => {
+    if (!pickedMediaUrl.value) return
+    const item = mediaByUrl.value.get(pickedMediaUrl.value)
+    return item?.groupMasterId ? mediaByUrl.value.get(item.groupMasterId) ?? item : item
+  })
+  const activeTab = computed({
+    get: () => {
+      const item = pickedCard.value
+      if (item) {
+        const type = getMediaType(item.format, item.category)
+        if (type === 'stream' || type === 'image' || type === 'video' || type === 'audio') return type
+      }
+      return filterTab.value
+    },
+    set: tab => {
+      resetPagePick()
+      filterTab.value = tab
+    },
+  })
+  const filteredMediaList = computed(() => {
+    const item = pickedCard.value
+    if (!item) return normallyFilteredMedia.value
+    return mediaList.value.filter(candidate => candidate === item
+      || (candidate.groupRole === 'variant' && candidate.groupMasterId === item.url))
+  })
+  const filteredImageList = computed(() => {
+    if (manualImage.value) return [manualImage.value]
+    return pickedCard.value && activeTab.value === 'image' ? [pickedCard.value] : normallyFilteredImages.value
+  })
+
+  function resetPagePick() {
+    if (pendingPick) {
+      cancelPagePickFrames(pendingPick)
+      pendingPick = undefined
+    }
+    pickedMediaUrl.value = undefined
+    if (manualImage.value?.url === previewImageUrl.value) closePreview()
+    manualImage.value = undefined
+    pickStatus.value = undefined
+    browsingPageStreams.value = false
+  }
+
+  function cancelPagePickFrames(request: NonNullable<typeof pendingPick>) {
+    for (const frameId of request.frameIds) {
+      void browser.tabs.sendMessage(request.tabId, { type: 'CANCEL_PAGE_MEDIA_PICK', id: request.id }, { frameId }).catch(() => {})
+    }
+  }
+
+  function browsePageStreams() {
+    resetPagePick()
+    browsingPageStreams.value = true
+    filterTab.value = 'stream'
+    clearSearch()
+    resetListFilters()
+    scrollTop.value = 0
+    if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+  }
+
+  async function startPagePick() {
+    resetPagePick()
+    if (currentTabId === undefined) {
+      pickStatus.value = 'unavailable'
+      return
+    }
+    const request: NonNullable<typeof pendingPick> = { id: crypto.randomUUID(), tabId: currentTabId, frameIds: [] }
+    pendingPick = request
+    pickStatus.value = 'active'
+    try {
+      const frames = await browser.webNavigation.getAllFrames({ tabId: request.tabId }).catch(() => null)
+      if (pendingPick !== request) return
+      request.frameIds = [...new Set([0, ...(frames ?? []).map(frame => frame.frameId)])]
+      const result = await Promise.any(request.frameIds.map(async frameId => {
+        const response: PageMediaPick | undefined = await browser.tabs.sendMessage(
+          request.tabId, { type: 'START_PAGE_MEDIA_PICK', id: request.id }, { frameId },
+        )
+        if (!response || response.status === 'inactive') throw new Error('Frame picker closed')
+        return response
+      }))
+      if (pendingPick !== request) return
+      cancelPagePickFrames(request)
+      if (result.status === 'matched') {
+        if (!mediaByUrl.value.has(result.url)) {
+          const list = await browser.runtime.sendMessage({ type: 'GET_LIST', tabId: request.tabId })
+          if (pendingPick !== request) return
+          replaceMediaList(list ?? [])
+        }
+        if (mediaByUrl.value.has(result.url)) {
+          pickedMediaUrl.value = result.url
+          scrollTop.value = 0
+          if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+        }
+        pickStatus.value = pickedCard.value ? 'matched' : 'missing'
+      } else if (result.status === 'manualImage') {
+        manualImage.value = { url: result.url, format: result.format }
+        pickStatus.value = result.status
+        if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+      } else {
+        pickStatus.value = result.status === 'cancelled' ? undefined : result.status
+      }
+    } catch (error) {
+      if (pendingPick === request) pickStatus.value = error instanceof AggregateError ? 'unconfirmed' : 'unavailable'
+    } finally {
+      if (pendingPick === request) pendingPick = undefined
+    }
+  }
+
+  watch(pickedCard, (item, previous) => {
+    if (previous && !item && pickedMediaUrl.value) {
+      pickedMediaUrl.value = undefined
+      pickStatus.value = 'missing'
+    }
+  })
+
   type VisibleTabKey = 'stream' | 'video' | 'audio' | 'image' | 'doc'
   const visibleTabs = computed<Array<{ key: VisibleTabKey, label: string, count: number, activeClass: string }>>(() => {
     const tabs: Array<{ key: VisibleTabKey, label: string, activeClass: string }> = [
@@ -273,17 +394,18 @@
       { key: 'doc', label: t('tabDoc'), activeClass: 'border-indigo-500 text-indigo-600 dark:text-indigo-300 dark:border-indigo-400 dark:bg-indigo-500/15' },
     ]
     return tabs
-      .filter(tab => tabCounts.value[tab.key] > 0)
+      .filter(tab => tabCounts.value[tab.key] > 0 || (tab.key === 'stream' && browsingPageStreams.value))
       .map(tab => ({ ...tab, count: tabCounts.value[tab.key] }))
   })
 
-  watch([visibleTabs, activeTab], () => {
+  watch([visibleTabs, filterTab], () => {
     if (visibleTabs.value.length === 0) return
-    if (!visibleTabs.value.some(tab => tab.key === activeTab.value)) {
-      activeTab.value = visibleTabs.value[0].key
+    if (!visibleTabs.value.some(tab => tab.key === filterTab.value)) {
+      filterTab.value = visibleTabs.value[0].key
     }
   }, { immediate: true })
-  const previewCurrentItem = computed(() => mediaByUrl.value.get(previewImageUrl.value))
+  const previewCurrentItem = computed(() => manualImage.value?.url === previewImageUrl.value
+    ? manualImage.value : mediaByUrl.value.get(previewImageUrl.value))
   // ── 虚拟列表（普通列表）────────────────────────────────────────────
   // “全部”标签的普通卡片与流媒体分组卡片使用相同的外框尺寸。
   // 分组卡片的实际高度为：compact 48 + 16 + 2 = 66，normal 56 + 24 + 2 = 82。
@@ -485,7 +607,8 @@
     if (activeTab.value !== 'image') return []
     const viewTop = scrollTop.value - MASONRY_BUFFER_PX
     const viewBottom = scrollTop.value + containerHeight.value + MASONRY_BUFFER_PX
-    return masonryItems.value.filter(m => m.top + m.height > viewTop && m.top < viewBottom)
+    return masonryItems.value.filter(m => (!pickedCard.value || m.item.url === pickedCard.value.url)
+      && m.top + m.height > viewTop && m.top < viewBottom)
   })
 
   const masonryColWidth = computed(() =>
@@ -506,7 +629,9 @@
   })
 
   watch(flatMediaList, () => {
-    if (activeTab.value === 'image') nextTick(scheduleMasonryBuild)
+    if (activeTab.value !== 'image') return
+    if (pickedCard.value) buildMasonryLayout()
+    else nextTick(scheduleMasonryBuild)
   })
 
   watch(masonryContainerWidth, scheduleMasonryBuild)
@@ -752,6 +877,7 @@
     const newTabId = activeBrowserTab?.id
     const newTabTitle = activeBrowserTab?.title || ''
     if (newTabId === undefined || newTabId === currentTabId) return
+    resetPagePick()
     cancelMetadataBatch()
     failedMetadataKeys.clear()
     resetNativeMediaThumbnailState()
@@ -769,6 +895,7 @@
   // 当 tab 标题变化时（页面刷新、跳转、SPA 路由变化等），同步更新 currentTabTitle
   const onTabUpdated = (tabId: number, changeInfo: { title?: string; status?: string; url?: string }) => {
     if (tabId !== currentTabId) return
+    if (changeInfo.url !== undefined || changeInfo.status === 'loading') resetPagePick()
     // Do not clear from the generic tab loading signal. Infinite-scroll sites
     // can emit transient updates while staying on the same document. The
     // background page-session state machine broadcasts an authoritative empty
@@ -826,6 +953,7 @@
   }, { flush: 'sync' })
 
   onUnmounted(() => {
+    resetPagePick()
     resetNativeMediaThumbnailState()
     browser.runtime.onMessage.removeListener(onMessage)
     containerRO?.disconnect()
@@ -1539,14 +1667,15 @@
     if (key && !current.items.some(({ item }) => getMediaKey(item) === key)) stopAudioPlayback(key)
   })
 
-  watch(activeTab, () => {
+  function resetListFilters() {
     showFilter.value = false
     typeFilter.value = 'any'
     sizeFilter.value = { min: 0, max: 0 }
     dimensionFilter.value = { minWidth: 0, minHeight: 0 }
     resolutionFilter.value = 'any'
     selectedKeys.value = new Set()
-  })
+  }
+  watch(filterTab, resetListFilters)
 
   watch(audioPlayingKey, async (newId, oldId) => {
     if (oldId !== null && oldId !== newId) stopAudioPlayback(oldId)
@@ -2063,7 +2192,7 @@
     try {
       const result = await browser.runtime.sendMessage({
         type: 'OPEN_RESOURCE_DOWNLOAD', url, format, requestHeaders,
-        filename: filename || getDownloadFilename(url, format), resourceKind, sourceTabId: currentTabId,
+        filename: filename || (format ? getDownloadFilename(url, format) : undefined), resourceKind, sourceTabId: currentTabId,
       })
       if (!result?.ok) throw new Error(result?.error || 'download-not-started')
       showToastMsg(t('docDownloadStarted'))
@@ -2071,6 +2200,10 @@
       console.warn('[FlowPick] Direct resource download failed:', error)
       showToastMsg(t('docDownloadFailed'))
     }
+  }
+
+  const downloadManualImage = (item: MediaItem) => {
+    void downloadResourceDirectly(item.url, item.format, undefined, undefined, 'image')
   }
 
   // Masonry layout entries are positional snapshots and can briefly lag
@@ -2320,12 +2453,18 @@
   }
 
   async function openSettings() {
+    resetPagePick()
     if (!settingsLoaded && !(await ensureSettingsLoaded())) {
       showToastMsg(t('settingsLoadFailed'))
       return
     }
     view.value = 'settings'
     showMore.value = false
+  }
+
+  function openPagePickSettings() {
+    settingsLoaded = false
+    return openSettings()
   }
 
   function dismissRulesHint() {
@@ -2427,6 +2566,25 @@
               <span class="text-sm font-bold text-gray-800 dark:text-gray-100">FlowPick</span>
               <span class="text-[10px] text-gray-400 dark:text-gray-500"> | {{ t('subtitle') }}</span>
             </div>
+          </div>
+          <div v-if="mode === 'sidepanel'" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                @click="pickStatus === 'active' ? resetPagePick() : startPagePick()">
+                {{ t(pickStatus === 'active' ? 'pagePickCancel' : 'pagePickStart') }}
+              </button>
+              <button v-if="pickedCard || manualImage" type="button" class="rounded-md px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950"
+                @click="resetPagePick">{{ t('pagePickBack') }}</button>
+            </div>
+            <p v-if="pickStatus && pickStatus !== 'manualImage'" role="status" class="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+              {{ t('pagePick_' + pickStatus) }}
+            </p>
+            <button v-if="pickStatus === 'unconfirmed'" type="button"
+              class="mt-1 text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="browsePageStreams">{{ t('pagePickBrowseStreams') }}</button>
+            <button v-if="pickStatus === 'domainExcluded' || pickStatus === 'imageDisabled'" type="button"
+              class="mt-1 text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="openPagePickSettings">{{ t('pagePickOpenSettings') }}</button>
           </div>
           <div v-if="showRulesHint" class="flex items-start gap-2 px-3 py-2 text-[11px] leading-4 text-blue-800 bg-blue-50 border-b border-blue-100 dark:text-blue-200 dark:bg-blue-950/40 dark:border-blue-900/50">
             <svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
@@ -2638,7 +2796,23 @@
           class="flex-1 overflow-y-auto min-h-0"
           :class="{ 'all-tab-scrollbar': activeTab === 'all' || activeTab === 'video' }"
           @scroll="onListScroll">
-          <div v-if="filteredMediaList.length === 0"
+          <article v-if="manualImage" :key="manualImage.url" data-page-picked
+            class="m-2 space-y-2 rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+            <div class="flex items-center gap-2">
+              <span role="status" class="shrink-0 rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">{{ t('pagePickManualImage') }}</span>
+              <span class="truncate text-xs" :title="getFileName(manualImage.url)">{{ getFileName(manualImage.url) }}</span>
+            </div>
+            <img :src="imageSrc(manualImage.url)" :alt="getFileName(manualImage.url)"
+              class="mx-auto max-h-64 max-w-full rounded object-contain"
+              @error="proxyImage($event, manualImage.url)" />
+            <div class="flex gap-2">
+              <button type="button" class="rounded border border-gray-300 px-2.5 py-1.5 text-xs dark:border-gray-600"
+                @click="previewImage(manualImage.url)">{{ t('preview') }}</button>
+              <button type="button" class="rounded bg-blue-600 px-2.5 py-1.5 text-xs text-white hover:bg-blue-700"
+                @click="downloadManualImage(manualImage)">{{ t('download') }}</button>
+            </div>
+          </article>
+          <div v-else-if="filteredMediaList.length === 0"
             class="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 px-6 py-12">
             <div class="w-20 h-20 mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
               <svg class="w-10 h-10 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2653,6 +2827,7 @@
           <template v-else>
             <div v-if="activeTab === 'image'" class="relative" :style="{ height: masonryTotalHeight + 'px', margin: '8px 0' }">
               <div v-for="mItem in imageVirtualItems" :key="mItem.item.url + mItem.index"
+                :data-page-picked="pickedCard?.url === mItem.item.url || undefined"
                 class="absolute"
                 :style="{
                   top: mItem.top + 'px',
@@ -2724,6 +2899,7 @@
 
             <div v-else-if="activeTab === 'stream'" class="relative" :style="{ height: streamGroupLayout.totalHeight + 'px' }">
               <div v-for="{ group, index: groupIndex, top } in virtualStreamGroups" :key="group.id"
+                :data-page-picked="pickedCard?.url === group.masterItem.url || undefined"
                 :ref="el => observeStreamGroup(el, group.id)"
                 :style="{ position: 'absolute', top: top + 'px', left: '8px', right: '8px' }"
                 :class="[
@@ -3019,6 +3195,7 @@
               </div>
               <div :style="{ height: virtualList.totalHeight + 'px', position: 'relative' }">
                 <div v-for="{ item, index, top } in virtualList.items" :key="mediaView(item).key"
+                  :data-page-picked="pickedCard?.url === item.url || undefined"
                   :style="{ position: 'absolute', top: top + 'px', left: '0', right: '0', height: getItemHeight(item) + 'px' }"
                   @click="toggleSelect(mediaView(item).key)"
                   :class="[
@@ -3301,7 +3478,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </button>
-                <button @click="downloadUrl(previewImageUrl, previewCurrentItem?.format ?? '', previewCurrentItem?.requestHeaders)"
+                <button @click="manualImage && manualImage.url === previewImageUrl ? downloadManualImage(manualImage) : downloadUrl(previewImageUrl, previewCurrentItem?.format ?? '', previewCurrentItem?.requestHeaders)"
                   class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 border border-white/10 hover:border-white/20 text-white/90 hover:text-white backdrop-blur-md active:scale-90 transition-all"
                   :title="t('download')"
                   :aria-label="t('download')">

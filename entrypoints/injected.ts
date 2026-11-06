@@ -1,6 +1,7 @@
 import { pageIdentity } from '../utils/page-session'
 import { isRecordingBridgeMessage } from '../utils/recording-bridge'
 import { isFirefoxFamily } from '../utils/recording-support'
+import { installPlayerMediaPick } from '../utils/player-media-pick'
 
 export default defineUnlistedScript(() => {
   // Repeated page injection must not install duplicate sniffing/MSE proxies.
@@ -16,6 +17,7 @@ export default defineUnlistedScript(() => {
   }
   const pageHook: { ready: boolean } = { ready: false }
   pageWindow.__flowpickPageHook = pageHook
+  installPlayerMediaPick()
   let capturePage = pageIdentity(location.href)
   let pageGeneration = 0
   let routeStartedAt = 0
