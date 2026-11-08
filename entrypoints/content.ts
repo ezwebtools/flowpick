@@ -4,6 +4,7 @@ import { pageIdentity } from '../utils/page-session'
 import { isRecordingBridgeMessage, localRecordingBuffer } from '../utils/recording-bridge'
 import { isQueuePage } from '../utils/download-queue'
 import { allowsSitePageMessage, isSiteOrigin } from '../utils/site-bridge'
+import { installInstagramCapture } from '../utils/instagram-capture'
 
 export default defineContentScript({
   matches: ['*://*/*'],
@@ -17,9 +18,12 @@ export default defineContentScript({
     window.addEventListener('beforeunload', event => {
       if (activeBlobDownloads.size) { event.preventDefault(); event.returnValue = '' }
     })
+    let instagramCapture: ReturnType<typeof installInstagramCapture>
     const reporter = createPageReporter(() => {
       window.postMessage({ type: 'FLOWPICK_RESCAN', url: location.href }, '*')
+      instagramCapture?.rescan()
     })
+    instagramCapture = installInstagramCapture(task => reporter.report({ type: 'PLATFORM_MEDIA_FOUND', task }))
     installPageMediaPicker(reporter.context)
     void reporter.sync()
     window.addEventListener('pageshow', () => void reporter.sync())
@@ -856,6 +860,10 @@ export default defineContentScript({
         return
       }
 
+      if (event.data?.type === 'INSTAGRAM_MEDIA_RESPONSE' && typeof event.data.text === 'string') {
+        instagramCapture?.receive(event.data.text)
+        return
+      }
       if (event.data?.type === 'PLATFORM_MEDIA_DETECTED' && event.data.task) {
         reporter.report({ type: 'PLATFORM_MEDIA_FOUND', task: event.data.task }).catch(() => {})
         return

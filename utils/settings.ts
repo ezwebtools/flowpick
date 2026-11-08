@@ -13,6 +13,8 @@ export interface Settings {
   maxItems: number
   /** 隐藏 HLS/DASH 的分片（如 .ts/.m4s），只显示父级播放列表（m3u8/mpd） */
   hideStreamSegments: boolean
+  /** Open video/audio playback in a dedicated extension tab. */
+  openPlaybackInNewTab: boolean
   /** 捕获 data: URL 内嵌图片（只扫 <img src="data:image/...">），默认关闭 */
   captureDataImages: boolean
   /** data: 图片最小字节阈值（KB），过滤 1x1 像素跟踪图等小图标 */
@@ -42,6 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
   excludeDomains: [],
   maxItems: DEFAULT_MAX_ITEMS,
   hideStreamSegments: true,
+  openPlaybackInNewTab: false,
   captureDataImages: false,
   dataImageMinSizeKB: 50,
 }
@@ -60,6 +63,7 @@ export function createDefaultSettings(): Settings {
     excludeDomains: [...DEFAULT_SETTINGS.excludeDomains],
     maxItems: DEFAULT_SETTINGS.maxItems,
     hideStreamSegments: DEFAULT_SETTINGS.hideStreamSegments,
+    openPlaybackInNewTab: DEFAULT_SETTINGS.openPlaybackInNewTab,
     captureDataImages: DEFAULT_SETTINGS.captureDataImages,
     dataImageMinSizeKB: DEFAULT_SETTINGS.dataImageMinSizeKB,
   }
@@ -79,6 +83,7 @@ export function cloneSettings(settings: Settings): Settings {
     excludeDomains: Array.from(settings.excludeDomains),
     maxItems: settings.maxItems,
     hideStreamSegments: settings.hideStreamSegments,
+    openPlaybackInNewTab: settings.openPlaybackInNewTab,
     captureDataImages: settings.captureDataImages,
     dataImageMinSizeKB: settings.dataImageMinSizeKB,
   }
@@ -125,6 +130,7 @@ export async function loadSettings(): Promise<Settings> {
     excludeDomains: toStringArray(stored.excludeDomains),
     maxItems,
     hideStreamSegments: typeof stored.hideStreamSegments === 'boolean' ? stored.hideStreamSegments : true,
+    openPlaybackInNewTab: stored.openPlaybackInNewTab === true,
     captureDataImages: typeof stored.captureDataImages === 'boolean' ? stored.captureDataImages : false,
     dataImageMinSizeKB: typeof stored.dataImageMinSizeKB === 'number' ? stored.dataImageMinSizeKB : 50,
   }
@@ -138,6 +144,7 @@ export async function saveSettings(settings: Settings): Promise<void> {
       excludeDomains: plainSettings.excludeDomains,
       maxItems: plainSettings.maxItems,
       hideStreamSegments: plainSettings.hideStreamSegments,
+      openPlaybackInNewTab: plainSettings.openPlaybackInNewTab,
       captureDataImages: plainSettings.captureDataImages,
       dataImageMinSizeKB: plainSettings.dataImageMinSizeKB,
     }

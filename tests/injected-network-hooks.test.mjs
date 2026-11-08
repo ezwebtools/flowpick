@@ -22,7 +22,7 @@ const compiled = ts.transpileModule(installer, {
 function install(hostname) {
   const requests = []
   const parsed = []
-  const response = { ok: true, clone: () => ({ json: async () => ({ data: { id: 1 } }) }) }
+  const response = { ok: true, clone: () => ({ json: async () => ({ data: { id: 1 } }), text: async () => '{"data":{"id":1}}' }) }
   const nativePromise = Promise.resolve(response)
   function nativeFetch(...args) { requests.push({ receiver: this, args }); return nativePromise }
   class XHR {
@@ -43,6 +43,8 @@ function install(hostname) {
     isDouyinMediaApi: value => /\/aweme\/.*detail/.test(value),
     parseBilibiliPlayurl: (...args) => parsed.push(args),
     parseDouyinAwemeResponse: (...args) => parsed.push(args),
+    isInstagramMediaApi: value => /\/graphql|\/api\/v1\//.test(value),
+    parseInstagramResponse: (...args) => parsed.push(args),
   })
   vm.runInContext(`${compiled}\ninstallNetworkHooks()`, context)
   return { window, XHR, nativeFetch, nativeOpen, nativeSend, nativePromise, response, requests, parsed }
@@ -97,4 +99,22 @@ test('supported platform XHR hooks preserve arguments and parse successful respo
   xhr.listeners.load.call(xhr)
   assert.equal(env.parsed.length, 1)
   assert.equal(env.parsed[0][1], url)
+})
+
+test('Instagram Fetch and JSON XHR responses reach its adapter without changing page responses', async () => {
+  const env = install('www.instagram.com')
+  const url = 'https://www.instagram.com/graphql/query'
+  assert.equal(await env.window.fetch(url, { method: 'POST' }), env.response)
+  assert.equal(env.parsed.length, 1)
+  assert.equal(env.parsed[0][0], '{"data":{"id":1}}')
+  const xhr = new env.XHR()
+  xhr.open('POST', '/api/v1/feed/reels_media/')
+  xhr.send(null)
+  xhr.status = 200
+  xhr.responseType = 'json'
+  xhr.response = { items: [] }
+  xhr.listeners.load.call(xhr)
+  assert.equal(env.parsed[1][0], '{"items":[]}')
+  assert.equal(env.window.fetch('https://cdninstagram.com/video.mp4'), env.nativePromise)
+  assert.equal(env.parsed.length, 2)
 })

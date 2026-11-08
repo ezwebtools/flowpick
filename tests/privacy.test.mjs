@@ -88,6 +88,20 @@ test('batch downloads pass selected tasks directly to the existing queue', async
   assert.equal(b.queues[0].items[0].sourceUrl, 'https://source.example/watch')
 })
 
+test('both quality downloads deliver the same separate audio to their own downloader pages', async () => {
+  const b = backend()
+  const audioUrl = 'https://scontent.cdninstagram.com/common-audio.mp4'
+  for (const quality of ['720p', '360p']) {
+    const url = `https://scontent.cdninstagram.com/${quality}.mp4`
+    await b.send({ type: 'OPEN_DOWNLOAD_PAGE', url, format: 'mp4', filename: quality, audioUrl })
+    const [tabId] = [...b.env.pendingDownloads.keys()]
+    const payload = await b.send({ type: 'FLOWPICK_DOWNLOAD_READY' }, { id: 'test', url: 'https://flowpick.net/video-downloader', tab: { id: tabId } })
+    assert.equal(payload.url, url)
+    assert.equal(payload.audioUrl, audioUrl)
+    assert.equal((await b.send({ type: 'FLOWPICK_DOWNLOAD_READY' }, { tab: { id: tabId } })).ok, false)
+  }
+})
+
 test('recording opens its actual recording page without a privacy interstitial', async () => {
   const b = backend()
   const result = await b.send({ type: 'OPEN_RECORDING_PAGE', sourceTabId: 5, mode: 'mse' })

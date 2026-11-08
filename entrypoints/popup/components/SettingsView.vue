@@ -106,6 +106,26 @@
             </div>
           </div>
 
+          <!-- Playback -->
+          <div class="bg-gray-50 dark:bg-gray-800/80 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-700/50 shadow-sm">
+            <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700/70 flex items-center gap-2">
+              <div class="w-1.5 h-4 bg-blue-500 rounded-full"></div>
+              <p class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{{ t('playbackSettings') }}</p>
+            </div>
+            <div class="px-4 py-4 flex items-center justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <p id="playback-tab-label" class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('openPlaybackInNewTab') }}</p>
+                <p id="playback-tab-description" class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">{{ t('openPlaybackInNewTabDesc') }}</p>
+              </div>
+              <button type="button" role="switch" :aria-checked="settings.openPlaybackInNewTab"
+                aria-labelledby="playback-tab-label" aria-describedby="playback-tab-description"
+                @click="settings.openPlaybackInNewTab = !settings.openPlaybackInNewTab; emit('save')"
+                :class="['relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800', settings.openPlaybackInNewTab ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600']">
+                <span :class="['pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-md transition-transform', settings.openPlaybackInNewTab ? 'translate-x-4' : 'translate-x-0']" />
+              </button>
+            </div>
+          </div>
+
           <!-- Sniffing Groups -->
           <div class="bg-gray-50 dark:bg-gray-800/80 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-700/50 shadow-sm">
             <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700/70 flex items-center gap-2">

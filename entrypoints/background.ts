@@ -14,6 +14,9 @@ import { openDownloadQueue, readDownloadQueue, removeDownloadQueue } from '../ut
 import { mayCaptureRequestHeaders } from '../utils/privacy'
 import { ProxyContextGate } from '../utils/proxy-context-gate'
 import { allowsSiteRuntimeMessage, proxyRequestKey } from '../utils/site-bridge'
+import { createMediaPlayerTabs } from '../utils/media-player-tabs'
+import { normalizeInstagramMediaUrl } from '../utils/instagram-media'
+import { isAllowedInstagramMediaUrl, instagramTrackIdentity } from '../utils/instagram-player'
 
 const metadataBatchControllers = new Map<string, AbortController>()
 const proxyContexts = new ProxyContextGate()
@@ -105,6 +108,8 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
 }
 
 export default defineBackground(() => {
+  const mediaPlayerTabs = createMediaPlayerTabs(browser)
+  browser.tabs.onRemoved.addListener(tabId => { void mediaPlayerTabs.remove(tabId).catch(() => {}) })
   const chromeGlobal = (globalThis as any).chrome
   const nativeBrowser = (globalThis as any).browser
   const isFirefox = !!(nativeBrowser?.sidebarAction)
@@ -910,7 +915,9 @@ export default defineBackground(() => {
         return undefined
       }
 
-      const requestKey = `${effectiveTabId}:${details.frameId}:${details.url}`
+      const mediaUrl = normalizeInstagramMediaUrl(details.url, tabPageUrls.get(effectiveTabId))
+      const instagramByteRequest = mediaUrl !== details.url
+      const requestKey = `${effectiveTabId}:${details.frameId}:${mediaUrl}`
       if (processedRequests.has(requestKey)) return undefined
 
       if (details.statusCode === 416) {
@@ -963,12 +970,16 @@ export default defineBackground(() => {
       if (hasContentRange && rangeTotal !== undefined) {
         contentLength = rangeTotal
       }
+      if (instagramByteRequest && rangeTotal === undefined) {
+        // HTTP 200 here describes only bytestart..byteend, not the full file.
+        contentLength = undefined
+      }
 
       // A 206 response is normally a player preview/byte-range chunk, not an
       // independently downloadable file. Only accept it when the response
       // starts at zero and covers almost the whole resource; otherwise drop it
       // instead of turning every preview chunk into a media card.
-      if (hasContentRange && !isRangeAcceptable) {
+      if (hasContentRange && !isRangeAcceptable && !instagramByteRequest) {
         pendingRequestHeaders.delete(details.requestId)
         return undefined
       }
@@ -985,7 +996,7 @@ export default defineBackground(() => {
         const pageUrl = tabPageUrls.get(effectiveTabId)
         if (settings && pageUrl && isDomainExcluded(pageUrl, settings)) return undefined
         if (settings && !isFormatAllowed(detectedFormat, settings)) return undefined
-        addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined)
+        addMedia(mediaUrl, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined)
         addProcessedRequest(requestKey)
         pendingRequestHeaders.delete(details.requestId)
         return undefined
@@ -1009,7 +1020,7 @@ export default defineBackground(() => {
 
       // XHR/fetch 触发的播放器资源也要保留响应 Content-Type。抖音常把
       // 分离的 audio/video 作为 XHR 请求；缺少它会使后续的配对逻辑失效。
-      addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined, tabPageTitles.get(effectiveTabId))
+      addMedia(mediaUrl, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined, tabPageTitles.get(effectiveTabId))
       addProcessedRequest(requestKey)
       pendingRequestHeaders.delete(details.requestId)
       return undefined
@@ -1227,6 +1238,13 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'OPEN_MEDIA_PLAYER' || msg.type === 'GET_MEDIA_PLAYER') {
+      const operation = msg.type === 'OPEN_MEDIA_PLAYER'
+        ? mediaPlayerTabs.open(msg, sender)
+        : mediaPlayerTabs.get(String(msg.sessionId || ''), sender)
+      operation.then(sendResponse).catch(error => sendResponse({ ok: false, error: String(error) }))
+      return true
+    }
     if (msg.type === 'OPEN_RESOURCE_DOWNLOAD' || msg.type === 'SAVE_PAGE_BLOB') {
       void handleMessage(msg, sender, sendResponse)
       return true
@@ -2318,6 +2336,11 @@ export default defineBackground(() => {
   }
 
   function addMedia(url: string, tabId: number, format: string, size?: number, category: MediaCategory = 'media', requestHeaders?: Record<string, string>, extra?: { captureId?: string; frameId?: number; trackCount?: number; mseComplete?: boolean }, contentType?: string, tabTitle?: string) {
+    const normalizedUrl = normalizeInstagramMediaUrl(url, tabPageUrls.get(tabId))
+    if (normalizedUrl !== url) {
+      url = normalizedUrl
+      size = undefined
+    }
     const recovered = recentMedia.get(tabId)?.get(url)
     if (recovered && Date.now() - recovered.at < 30_000) {
       size ??= recovered.entry.size
@@ -2326,6 +2349,8 @@ export default defineBackground(() => {
     }
     if (url.startsWith('blob:') || url.startsWith('data:')) return
     if (bilibiliManagedUrls.get(tabId)?.has(url) || platformManagedUrls.get(tabId)?.has(url)) return
+    const instagramIdentity = instagramTrackIdentity(url)
+    if (instagramIdentity && [...(platformManagedUrls.get(tabId) || [])].some(candidate => instagramTrackIdentity(candidate) === instagramIdentity)) return
     if (!tabMap.has(tabId)) {
       tabMap.set(tabId, new Map())
     }
@@ -2792,6 +2817,13 @@ export default defineBackground(() => {
   function isValidPlatformTask(task: unknown, senderUrl?: string): task is PlatformMediaTask {
     if (!task || typeof task !== 'object' || !senderUrl) return false
     const value = task as PlatformMediaTask
+    if (value.provider === 'instagram') {
+      try { if (!/(^|\.)instagram\.com$/i.test(new URL(senderUrl).hostname)) return false } catch { return false }
+      return typeof value.key === 'string' && Array.isArray(value.candidates) && value.candidates.length > 0
+        && value.candidates.every(candidate => !!candidate && isAllowedInstagramMediaUrl(candidate.url))
+        && value.candidates.some(candidate => candidate.role === 'video')
+        && value.candidates.some(candidate => candidate.role === 'audio')
+    }
     try {
       if (!DOUYIN_PAGE_HOST.test(new URL(senderUrl).hostname)) return false
     } catch {
@@ -2882,6 +2914,13 @@ export default defineBackground(() => {
 
     const previousMaster = mediaMap.get(masterUrl)
     const managed = platformManagedUrls.get(tabId) || new Set<string>()
+    if (task.provider === 'instagram') {
+      const identities = new Set(candidates.map(candidate => instagramTrackIdentity(candidate.url)).filter(Boolean))
+      for (const url of mediaMap.keys()) {
+        const identity = instagramTrackIdentity(url)
+        if (identity && identities.has(identity)) { mediaMap.delete(url); managed.add(url) }
+      }
+    }
     for (const [url, entry] of mediaMap) {
       if (entry.groupMasterId === masterUrl) mediaMap.delete(url)
     }
@@ -3118,6 +3157,11 @@ export default defineBackground(() => {
   }
 
   function tryGroupVideoAudio(newUrl: string, tabId: number, contentType: string, newSize?: number) {
+    // Instagram's feed preloads adjacent Reels. Only its manifest can prove
+    // that two otherwise unrelated CDN tracks belong to the same video.
+    if (isAllowedInstagramMediaUrl(newUrl)) {
+      try { if (/(^|\.)instagram\.com$/i.test(new URL(tabPageUrls.get(tabId) || '').hostname)) return } catch {}
+    }
     // X/Twitter exposes a complete HLS master playlist. Pairing its underlying
     // track requests again creates a duplicate synthetic "Separated stream".
     if (isTwitterVideoCdnUrl(newUrl)) return

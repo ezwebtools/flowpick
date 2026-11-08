@@ -1,0 +1,99 @@
+{
+  "require": [
+    [
+      "ScheduledServerJS",
+      "handle",
+      null,
+      [
+        {
+          "__bbox": {
+            "require": [
+              [
+                "RelayPrefetchedStreamCache",
+                "next",
+                [],
+                [
+                  "adp_PolarisClipsTabDesktopContainerQueryRelayPreloader_sample",
+                  {
+                    "__bbox": {
+                      "complete": true,
+                      "result": {
+                        "data": {
+                          "xdt_api__v1__clips__home__connection_v2": {
+                            "edges": [
+                              {
+                                "node": {
+                                  "media": {
+                                    "__typename": "XDTMediaDict",
+                                    "code": "Example-",
+                                    "pk": "sample-primary",
+                                    "video_duration": null,
+                                    "number_of_qualities": 2,
+                                    "video_dash_manifest": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" minBufferTime=\"PT2S\" type=\"static\" mediaPresentationDuration=\"PT13.4S\"><Period id=\"sample\" duration=\"PT13.4S\"><AdaptationSet id=\"sample\" contentType=\"video\" subsegmentAlignment=\"true\" par=\"16:9\"><SupplementalProperty schemeIdUri=\"urn:mpeg:mpegB:cicp:TransferCharacteristics\" value=\"1\"/><Representation id=\"sample\" bandwidth=\"2254942\" codecs=\"avc1.64001f\" mimeType=\"video/mp4\" sar=\"1:1\" FBContentLength=\"3777028\" width=\"1276\" height=\"718\" frameRate=\"15360/512\" FBQualityLabel=\"720p\"><BaseURL>https://scontent.cdninstagram.com/sample-primary-video-0.mp4?oh=sample-signature</BaseURL><SegmentBase indexRange=\"893-960\" timescale=\"15360\"><Initialization range=\"0-892\"/></SegmentBase></Representation><Representation id=\"sample\" bandwidth=\"470826\" codecs=\"avc1.4d001e\" mimeType=\"video/mp4\" sar=\"1:1\" FBContentLength=\"788634\" width=\"636\" height=\"358\" frameRate=\"15360/512\" FBQualityLabel=\"360p\"><BaseURL>https://scontent.cdninstagram.com/sample-primary-video-1.mp4?oh=sample-signature</BaseURL><SegmentBase indexRange=\"888-955\" timescale=\"15360\"><Initialization range=\"0-887\"/></SegmentBase></Representation></AdaptationSet><AdaptationSet id=\"sample\" contentType=\"audio\" subsegmentStartsWithSAP=\"1\" subsegmentAlignment=\"true\"><Representation id=\"sample\" bandwidth=\"61159\" codecs=\"mp4a.40.5\" mimeType=\"audio/mp4\" audioSamplingRate=\"44100\" FBContentLength=\"103176\"><AudioChannelConfiguration schemeIdUri=\"urn:mpeg:dash:23003:3:audio_channel_configuration:2011\" value=\"2\"/><BaseURL>https://scontent.cdninstagram.com/sample-primary-audio.mp4?oh=sample-signature</BaseURL><SegmentBase indexRange=\"824-939\" timescale=\"44100\"><Initialization range=\"0-823\"/></SegmentBase></Representation></AdaptationSet></Period></MPD>\n",
+                                    "video_versions": [
+                                      {
+                                        "url": "https://scontent.cdninstagram.com/sample-primary-video-0.mp4?vs=progressive&_nc_vs=audio-recipe&oh=sample-signature",
+                                        "width": 1276,
+                                        "height": 718
+                                      }
+                                    ],
+                                    "caption": {
+                                      "text": "Sample Reel"
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "node": {
+                                  "media": {
+                                    "__typename": "XDTMediaDict",
+                                    "code": "Neighbor",
+                                    "pk": "sample-neighbor",
+                                    "video_duration": null,
+                                    "number_of_qualities": 2,
+                                    "video_dash_manifest": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" profiles=\"urn:mpeg:dash:profile:isoff-on-demand:2011\" minBufferTime=\"PT2S\" type=\"static\" mediaPresentationDuration=\"PT75.73333S\"><Period id=\"sample\" duration=\"PT75.73333S\"><AdaptationSet id=\"sample\" contentType=\"video\" subsegmentAlignment=\"true\" par=\"9:16\"><SupplementalProperty schemeIdUri=\"urn:mpeg:mpegB:cicp:TransferCharacteristics\" value=\"1\"/><Representation id=\"sample\" bandwidth=\"2136838\" codecs=\"avc1.64001f\" mimeType=\"video/mp4\" sar=\"1:1\" FBContentLength=\"20228736\" width=\"720\" height=\"1280\" frameRate=\"15360/512\" FBQualityLabel=\"720p\"><BaseURL>https://scontent.cdninstagram.com/sample-neighbor-video-0.mp4?oh=sample-signature</BaseURL><SegmentBase indexRange=\"892-1115\" timescale=\"15360\"><Initialization range=\"0-891\"/></SegmentBase></Representation><Representation id=\"sample\" bandwidth=\"494642\" codecs=\"avc1.4d001e\" mimeType=\"video/mp4\" sar=\"1:1\" FBContentLength=\"4682614\" width=\"360\" height=\"640\" frameRate=\"15360/512\" FBQualityLabel=\"360p\"><BaseURL>https://scontent.cdninstagram.com/sample-neighbor-video-1.mp4?oh=sample-signature</BaseURL><SegmentBase indexRange=\"887-1110\" timescale=\"15360\"><Initialization range=\"0-886\"/></SegmentBase></Representation></AdaptationSet><AdaptationSet id=\"sample\" contentType=\"audio\" subsegmentStartsWithSAP=\"1\" subsegmentAlignment=\"true\"><Representation id=\"sample\" bandwidth=\"57561\" codecs=\"mp4a.40.5\" mimeType=\"audio/mp4\" audioSamplingRate=\"44100\" FBContentLength=\"546110\"><AudioChannelConfiguration schemeIdUri=\"urn:mpeg:dash:23003:3:audio_channel_configuration:2011\" value=\"2\"/><BaseURL>https://scontent.cdninstagram.com/sample-neighbor-audio.mp4?oh=sample-signature</BaseURL><SegmentBase indexRange=\"824-1311\" timescale=\"44100\"><Initialization range=\"0-823\"/></SegmentBase></Representation></AdaptationSet></Period></MPD>\n",
+                                    "video_versions": [
+                                      {
+                                        "url": "https://scontent.cdninstagram.com/sample-neighbor-video-0.mp4?vs=progressive&_nc_vs=audio-recipe&oh=sample-signature",
+                                        "width": 1276,
+                                        "height": 718
+                                      }
+                                    ],
+                                    "caption": {
+                                      "text": "Sample Reel"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              ],
+              [
+                "CometResourceScheduler",
+                "registerHighPriHashes",
+                null,
+                [
+                  [
+                    "9PXXM+T",
+                    "4TEY3T8"
+                  ]
+                ]
+              ]
+            ]
+          }
+        },
+        {
+          "__bbox": null
+        },
+        {
+          "__bbox": null
+        }
+      ]
+    ]
+  ]
+}

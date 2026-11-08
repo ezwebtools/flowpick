@@ -12,6 +12,8 @@
   import { useMediaViewModels } from './composables/useMediaViewModels'
   import { createHlsProxyLoader } from './utils/hlsProxyLoader'
   import type { PageMediaPick } from '../../utils/page-media-picker'
+  import { cloneMediaItem } from '../../utils/media-message'
+  import { syncSeparatedAudio } from '../../utils/separated-audio'
   const SettingsView = defineAsyncComponent(() => import('./components/SettingsView.vue'))
 
   const props = withDefaults(defineProps<{ mode?: 'popup' | 'sidepanel' }>(), { mode: 'popup' })
@@ -832,16 +834,16 @@
     group.isVirtual ? getPreferredStreamItem(group) : group.masterItem
 
   const getRecommendedAudioUrl = (variant: StreamVariant): string | undefined =>
-    variant.item.audioUrl || variant.audioItem?.url || variant.audioOptions?.[0]?.url
+    variant.item.audioUrl || variant.audioItem?.url || variant.audioOptions?.[0]?.url || variant.item.audioOptions?.[0]?.url
 
   const downloadStreamVariant = (variant: StreamVariant) => {
-    const item = variant.item
+    const item = cloneMediaItem(variant.item)
     browser.runtime.sendMessage({
       type: 'OPEN_DOWNLOAD_PAGE',
       url: item.url,
       format: item.format,
       filename: getDownloadName(item.url),
-      requestHeaders: item.requestHeaders,
+      requestHeaders: item.requestHeaders ? { ...item.requestHeaders } : undefined,
       audioUrl: getRecommendedAudioUrl(variant),
     })
   }
@@ -1696,7 +1698,11 @@
     return false
   }
 
-  const playUrl = (url: string, format: string, item?: MediaItem) => {
+  const playbackTitle = (item: MediaItem): string => isItemPlaying(item) && !settings.value.openPlaybackInNewTab
+    ? t('stopPlay')
+    : t(settings.value.openPlaybackInNewTab && item.format !== 'mse' && !isImageFormat(item.format) ? 'playInNewTab' : 'play')
+
+  const playUrl = async (url: string, format: string, item?: MediaItem) => {
     if (format === 'mse') {
       if (!item?.captureId || currentTabId === undefined) {
         showToastMsg(t('mseCaptureInvalid'))
@@ -1718,6 +1724,23 @@
       }).catch((error: unknown) => {
         showToastMsg(t('msePlayFailedDetail', String(error)))
       })
+      return
+    }
+    if (!settingsLoaded && !(await ensureSettingsLoaded())) {
+      showToastMsg(t('settingsLoadFailed'))
+      return
+    }
+    if (settings.value.openPlaybackInNewTab && (isStreamFormat(format) || isVideoFormat(format) || isAudioFormat(format))) {
+      if (playingKey.value !== null) stopPlayback(playingKey.value)
+      if (audioPlayingKey.value !== null) stopAudioPlayback(audioPlayingKey.value)
+      try {
+        const media = item ?? { url, format }
+        const result = await browser.runtime.sendMessage({
+          type: 'OPEN_MEDIA_PLAYER', item: cloneMediaItem(media), sourceTabId: currentTabId,
+          title: getDisplayName(url, media),
+        })
+        if (!result?.ok) throw new Error()
+      } catch { showToastMsg(t('playerOpenFailed')) }
       return
     }
     const key = getMediaKey(item ?? { url, format })
@@ -1785,7 +1808,7 @@
       url: item.url,
       format: item.format,
       referrer,
-      requestHeaders: item.requestHeaders,
+      requestHeaders: item.requestHeaders ? { ...item.requestHeaders } : undefined,
     }).catch(() => undefined) as { ok?: boolean; drm?: boolean } | undefined
     return { referrer, drm: response?.drm === true }
   }
@@ -1814,43 +1837,12 @@
     audioEl.preload = 'auto'
     audioEl.src = audioUrl
 
-    const syncTime = () => {
-      if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.18) {
-        audioEl.currentTime = videoEl.currentTime
-      }
-    }
-    const syncPlay = () => {
-      syncTime()
-      audioEl.play().catch(() => {})
-    }
-    const syncPause = () => audioEl.pause()
-    const syncRate = () => { audioEl.playbackRate = videoEl.playbackRate }
-    const onAudioError = () => {
-      // Keep the picture playable if an optional separate audio track fails.
-      console.warn('[FlowPick] separated preview audio failed:', audioUrl)
-    }
-    videoEl.addEventListener('play', syncPlay)
-    videoEl.addEventListener('pause', syncPause)
-    videoEl.addEventListener('seeking', syncTime)
-    videoEl.addEventListener('timeupdate', syncTime)
-    videoEl.addEventListener('ratechange', syncRate)
-    audioEl.addEventListener('error', onAudioError)
-    separatedAudioPlayers.set(key, {
-      element: audioEl,
-      dispose: () => {
-        videoEl.removeEventListener('play', syncPlay)
-        videoEl.removeEventListener('pause', syncPause)
-        videoEl.removeEventListener('seeking', syncTime)
-        videoEl.removeEventListener('timeupdate', syncTime)
-        videoEl.removeEventListener('ratechange', syncRate)
-        audioEl.removeEventListener('error', onAudioError)
-        audioEl.pause()
-        audioEl.removeAttribute('src')
-        audioEl.load()
-      },
+    const dispose = syncSeparatedAudio(videoEl, audioEl, () => {
+      if (playingKey.value !== key) return
+      showToastMsg(t('audioPlayError'))
+      stopPlayback(key)
     })
-    syncRate()
-    if (!videoEl.paused) syncPlay()
+    separatedAudioPlayers.set(key, { element: audioEl, dispose })
   }
 
   watch(playingKey, async (newId, oldId) => {
@@ -2300,7 +2292,9 @@
     if (isStreamFormat(format) || isVideoDownloadFormat(format) || isAudioFormat(format)) {
       // Video and audio stay on the external downloader workflow, which can
       // handle manifests, separate tracks, conversion, and media-specific UI.
-      browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders }).then((result: any) => {
+      const media = mediaByUrl.value.get(url)
+      const audioUrl = media?.audioUrl || media?.audioOptions?.[0]?.url
+      browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders: requestHeaders ? { ...requestHeaders } : undefined, audioUrl }).then((result: any) => {
         if (!result?.ok && !isAudioFormat(format)) showRulesHint.value = true
       }).catch(() => {
         if (!isAudioFormat(format)) showRulesHint.value = true
@@ -2348,11 +2342,14 @@
       if (queueItems.length) {
         const result = await browser.runtime.sendMessage({
           type: 'OPEN_DOWNLOAD_QUEUE', sourceTabId: currentTabId,
-          items: queueItems.map(item => ({
-            url: item.url, format: item.format, filename: getDownloadName(item.url),
-            requestHeaders: item.requestHeaders, audioUrl: item.audioUrl,
-            audioOptions: item.audioOptions, isLive: item.isLiveStream,
-          })),
+          items: queueItems.map(raw => {
+            const item = cloneMediaItem(raw)
+            return {
+              url: item.url, format: item.format, filename: getDownloadName(item.url),
+              requestHeaders: item.requestHeaders, audioUrl: item.audioUrl || item.audioOptions?.[0]?.url,
+              audioOptions: item.audioOptions, isLive: item.isLiveStream,
+            }
+          }),
         })
         if (!result?.ok) throw new Error(result?.error || 'queue-open-failed')
       }
@@ -2568,15 +2565,38 @@
             </div>
           </div>
           <div v-if="mode === 'sidepanel'" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="flex flex-wrap gap-2">
-              <button type="button" class="rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                @click="pickStatus === 'active' ? resetPagePick() : startPagePick()">
-                {{ t(pickStatus === 'active' ? 'pagePickCancel' : 'pagePickStart') }}
-              </button>
-              <button v-if="pickedCard || manualImage" type="button" class="rounded-md px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950"
-                @click="resetPagePick">{{ t('pagePickBack') }}</button>
-            </div>
-            <p v-if="pickStatus && pickStatus !== 'manualImage'" role="status" class="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+            <button type="button"
+              class="group flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900"
+              :class="pickStatus === 'active'
+                ? 'border-blue-400 bg-blue-100 dark:border-blue-500 dark:bg-blue-950/60'
+                : 'border-blue-100 bg-blue-50/70 hover:border-blue-300 hover:bg-blue-100/70 dark:border-blue-900/60 dark:bg-blue-950/30 dark:hover:border-blue-700 dark:hover:bg-blue-950/60'"
+              :aria-pressed="pickStatus === 'active'"
+              aria-describedby="page-pick-description"
+              @click="pickStatus === 'active' ? resetPagePick() : startPagePick()">
+              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white dark:bg-blue-500">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                  <path v-if="pickStatus === 'active'" stroke-linecap="round" d="m6 6 12 12M18 6 6 18" />
+                  <template v-else>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m10 10 4 11 2-5 5-2-11-4Z" />
+                  </template>
+                </svg>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-sm font-semibold text-blue-900 dark:text-blue-100">{{ t(pickStatus === 'active' ? 'pagePickCancel' : 'pagePickTitle') }}</span>
+                <span id="page-pick-description" class="mt-0.5 block text-[11px] leading-4 text-blue-700 dark:text-blue-300">{{ t(pickStatus === 'active' ? 'pagePick_active' : 'pagePickDescription') }}</span>
+              </span>
+              <svg v-if="pickStatus !== 'active'" class="h-4 w-4 shrink-0 text-blue-500 transition-transform group-hover:translate-x-0.5 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m9 5 7 7-7 7" />
+              </svg>
+            </button>
+            <button v-if="pickedCard || manualImage || browsingPageStreams" type="button"
+              class="mt-2 inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-950"
+              @click="resetPagePick">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m10 6-6 6 6 6m-6-6h16" /></svg>
+              {{ t('pagePickBack') }}
+            </button>
+            <p v-if="pickStatus && pickStatus !== 'manualImage'" role="status" class="text-xs text-gray-600 dark:text-gray-300" :class="pickStatus === 'active' ? 'sr-only' : 'mt-2'">
               {{ t('pagePick_' + pickStatus) }}
             </p>
             <button v-if="pickStatus === 'unconfirmed'" type="button"
@@ -3032,7 +3052,7 @@
                       </button>
                       <button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))"
                         :class="['p-1.5 rounded text-white transition-colors', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']"
-                        :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')">
+                        :title="playbackTitle(getPreviewStreamItem(group))">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <template v-if="isItemPlaying(getPreviewStreamItem(group))">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -3170,7 +3190,7 @@
                       <div class="flex items-center gap-1 min-w-0 overflow-hidden whitespace-nowrap"><span :class="getFormatColor(group.masterItem.format)" class="px-1.5 py-px rounded text-[10px] font-bold tracking-wide uppercase flex-shrink-0 leading-tight">{{ getFormatLabel(group.masterItem.format) }}</span><span v-if="group.isVirtual" class="text-[10px] text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-1.5 py-0.5 rounded-full flex-shrink-0 leading-tight">{{ t('separatedStream') }}</span><span v-if="getGroupEstimatedSize(group)" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400">{{ formatItemSize({ format: group.masterItem.format, size: getGroupEstimatedSize(group) } as MediaItem) }}</span></div>
                       <p class="text-[10px] text-gray-400 dark:text-gray-500 truncate">{{ getDomainLabel(getPreferredStreamItem(group).url) }}<span v-if="group.variants.length"> · {{ group.variants.length }} variants</span></p>
                     </div>
-                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreviewStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
+                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="playbackTitle(getPreviewStreamItem(group))"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreviewStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
                     <button v-if="group.isVirtual && group.variants.length" @click.stop="downloadStreamVariant(group.variants[0])" class="p-1.5 rounded text-white bg-green-600 hover:bg-green-500" :title="t('download')">
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                     </button>
@@ -3375,7 +3395,7 @@
                             ? 'bg-red-500 hover:bg-red-400'
                             : 'bg-blue-500 hover:bg-blue-400'
                         ]"
-                        :title="isItemPlaying(item) ? t('stopPlay') : t('play')">
+                        :title="playbackTitle(item)">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                           <template v-if="isItemPlaying(item)">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
