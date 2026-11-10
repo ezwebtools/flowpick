@@ -251,6 +251,10 @@
   const manualImage = shallowRef<MediaItem>()
   const pickStatus = ref<PageMediaPick['status'] | 'active'>()
   const browsingPageStreams = ref(false)
+  const collectingImages = ref(false)
+  const showingImageCollection = ref(false)
+  const collectedImages = shallowRef<MediaItem[]>([])
+  const pickerActive = computed(() => collectingImages.value || pickStatus.value === 'active')
   let pendingPick: { id: string; tabId: number; frameIds: number[] } | undefined
   const {
     activeTab: filterTab, typeFilter, sizeFilter, dimensionFilter, resolutionFilter, sortOrder,
@@ -299,6 +303,7 @@
       || (candidate.groupRole === 'variant' && candidate.groupMasterId === item.url))
   })
   const filteredImageList = computed(() => {
+    if (showingImageCollection.value) return collectedImages.value
     if (manualImage.value) return [manualImage.value]
     return pickedCard.value && activeTab.value === 'image' ? [pickedCard.value] : normallyFilteredImages.value
   })
@@ -313,6 +318,15 @@
     manualImage.value = undefined
     pickStatus.value = undefined
     browsingPageStreams.value = false
+    collectingImages.value = false
+    if (showingImageCollection.value) closePreview()
+    showingImageCollection.value = false
+  }
+
+  function showImageCollection() {
+    resetPagePick()
+    showingImageCollection.value = true
+    if (listContainerRef.value) listContainerRef.value.scrollTop = 0
   }
 
   function cancelPagePickFrames(request: NonNullable<typeof pendingPick>) {
@@ -331,52 +345,84 @@
     if (listContainerRef.value) listContainerRef.value.scrollTop = 0
   }
 
-  async function startPagePick() {
+  async function startPagePick(imagesOnly = false) {
     resetPagePick()
     if (currentTabId === undefined) {
       pickStatus.value = 'unavailable'
       return
     }
-    const request: NonNullable<typeof pendingPick> = { id: crypto.randomUUID(), tabId: currentTabId, frameIds: [] }
+    collectingImages.value = imagesOnly
+    const tabId = currentTabId
+    do {
+      const keepPicking = await pickPageMedia(tabId, imagesOnly)
+      if (!keepPicking || !collectingImages.value || currentTabId !== tabId) break
+    } while (imagesOnly)
+  }
+
+  async function pickPageMedia(tabId: number, imagesOnly: boolean) {
+    const request: NonNullable<typeof pendingPick> = { id: crypto.randomUUID(), tabId, frameIds: [] }
     pendingPick = request
-    pickStatus.value = 'active'
+    if (!imagesOnly || !pickStatus.value) pickStatus.value = 'active'
     try {
       const frames = await browser.webNavigation.getAllFrames({ tabId: request.tabId }).catch(() => null)
       if (pendingPick !== request) return
       request.frameIds = [...new Set([0, ...(frames ?? []).map(frame => frame.frameId)])]
       const result = await Promise.any(request.frameIds.map(async frameId => {
         const response: PageMediaPick | undefined = await browser.tabs.sendMessage(
-          request.tabId, { type: 'START_PAGE_MEDIA_PICK', id: request.id }, { frameId },
+          request.tabId, { type: 'START_PAGE_MEDIA_PICK', id: request.id, imagesOnly }, { frameId },
         )
         if (!response || response.status === 'inactive') throw new Error('Frame picker closed')
         return response
       }))
       if (pendingPick !== request) return
       cancelPagePickFrames(request)
+      if (imagesOnly && result.status === 'cancelled') {
+        showImageCollection()
+        return
+      }
       if (result.status === 'matched') {
         if (!mediaByUrl.value.has(result.url)) {
           const list = await browser.runtime.sendMessage({ type: 'GET_LIST', tabId: request.tabId })
           if (pendingPick !== request) return
           replaceMediaList(list ?? [])
         }
-        if (mediaByUrl.value.has(result.url)) {
+        if (imagesOnly) {
+          const item = mediaByUrl.value.get(result.url)
+          if (item) addCollectedImage(item)
+          pickStatus.value = item ? 'active' : 'missing'
+        } else if (mediaByUrl.value.has(result.url)) {
           pickedMediaUrl.value = result.url
           scrollTop.value = 0
           if (listContainerRef.value) listContainerRef.value.scrollTop = 0
         }
-        pickStatus.value = pickedCard.value ? 'matched' : 'missing'
+        if (!imagesOnly) pickStatus.value = pickedCard.value ? 'matched' : 'missing'
       } else if (result.status === 'manualImage') {
-        manualImage.value = { url: result.url, format: result.format }
-        pickStatus.value = result.status
-        if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+        const item = { url: result.url, format: result.format }
+        if (imagesOnly) {
+          addCollectedImage(item)
+          pickStatus.value = 'active'
+        } else {
+          manualImage.value = item
+          pickStatus.value = result.status
+          if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+        }
       } else {
         pickStatus.value = result.status === 'cancelled' ? undefined : result.status
       }
+      return imagesOnly
     } catch (error) {
-      if (pendingPick === request) pickStatus.value = error instanceof AggregateError ? 'unconfirmed' : 'unavailable'
+      if (pendingPick === request) {
+        collectingImages.value = false
+        pickStatus.value = error instanceof AggregateError ? 'unconfirmed' : 'unavailable'
+      }
     } finally {
       if (pendingPick === request) pendingPick = undefined
     }
+  }
+
+  function addCollectedImage(item: MediaItem) {
+    if (collectedImages.value.some(image => image.url === item.url)) return
+    collectedImages.value = [...collectedImages.value, cloneMediaItem(item)]
   }
 
   watch(pickedCard, (item, previous) => {
@@ -406,8 +452,11 @@
       filterTab.value = visibleTabs.value[0].key
     }
   }, { immediate: true })
-  const previewCurrentItem = computed(() => manualImage.value?.url === previewImageUrl.value
-    ? manualImage.value : mediaByUrl.value.get(previewImageUrl.value))
+  const previewCurrentItem = computed(() => {
+    const url = previewImageUrl.value
+    if (showingImageCollection.value) return collectedImages.value.find(item => item.url === url)
+    return manualImage.value?.url === url ? manualImage.value : mediaByUrl.value.get(url)
+  })
   // ── 虚拟列表（普通列表）────────────────────────────────────────────
   // “全部”标签的普通卡片与流媒体分组卡片使用相同的外框尺寸。
   // 分组卡片的实际高度为：compact 48 + 16 + 2 = 66，normal 56 + 24 + 2 = 82。
@@ -880,6 +929,7 @@
     const newTabTitle = activeBrowserTab?.title || ''
     if (newTabId === undefined || newTabId === currentTabId) return
     resetPagePick()
+    collectedImages.value = []
     cancelMetadataBatch()
     failedMetadataKeys.clear()
     resetNativeMediaThumbnailState()
@@ -897,7 +947,10 @@
   // 当 tab 标题变化时（页面刷新、跳转、SPA 路由变化等），同步更新 currentTabTitle
   const onTabUpdated = (tabId: number, changeInfo: { title?: string; status?: string; url?: string }) => {
     if (tabId !== currentTabId) return
-    if (changeInfo.url !== undefined || changeInfo.status === 'loading') resetPagePick()
+    if (changeInfo.url !== undefined || changeInfo.status === 'loading') {
+      resetPagePick()
+      collectedImages.value = []
+    }
     // Do not clear from the generic tab loading signal. Infinite-scroll sites
     // can emit transient updates while staying on the same document. The
     // background page-session state machine broadcasts an authoritative empty
@@ -2180,6 +2233,7 @@
     requestHeaders?: Record<string, string>,
     filename?: string,
     resourceKind: 'image' | 'audio' | 'document' = 'document',
+    notify = true,
   ) => {
     try {
       const result = await browser.runtime.sendMessage({
@@ -2187,15 +2241,49 @@
         filename: filename || (format ? getDownloadFilename(url, format) : undefined), resourceKind, sourceTabId: currentTabId,
       })
       if (!result?.ok) throw new Error(result?.error || 'download-not-started')
-      showToastMsg(t('docDownloadStarted'))
+      if (notify) showToastMsg(t('docDownloadStarted'))
+      return true
     } catch (error) {
       console.warn('[FlowPick] Direct resource download failed:', error)
-      showToastMsg(t('docDownloadFailed'))
+      if (notify) showToastMsg(t('docDownloadFailed'))
+      return false
     }
   }
 
   const downloadManualImage = (item: MediaItem) => {
     void downloadResourceDirectly(item.url, item.format, undefined, undefined, 'image')
+  }
+
+  async function downloadCollectedImage(item: MediaItem, filename?: string, notify = true) {
+    if (!item.url.startsWith('data:')) {
+      return downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'image', notify)
+    }
+    try {
+      await browser.downloads.download({ url: item.url, filename: filename ?? getDownloadFilename(item.url, item.format) })
+      if (notify) showToastMsg(t('docDownloadStarted'))
+      return true
+    } catch {
+      if (notify) showToastMsg(t('docDownloadFailed'))
+      return false
+    }
+  }
+
+  const collectionDownloading = ref(false)
+  async function downloadImageCollection() {
+    if (collectionDownloading.value || !collectedImages.value.length) return
+    collectionDownloading.value = true
+    try {
+      const directory = sanitizeDirectoryName(currentTabTitle.value)
+      const results = await Promise.all(collectedImages.value.map(item => downloadCollectedImage(
+        item, item.format ? getBatchDownloadFilename(item.url, item.format, directory) : undefined, false,
+      )))
+      const started = results.filter(Boolean).length
+      showToastMsg(started === results.length
+        ? t('batchDownloadStarted', String(started))
+        : t('pagePickCollectionDownloadResult', [String(started), String(results.length - started)]))
+    } finally {
+      collectionDownloading.value = false
+    }
   }
 
   // Masonry layout entries are positional snapshots and can briefly lag
@@ -2564,48 +2652,6 @@
               <span class="text-[10px] text-gray-400 dark:text-gray-500"> | {{ t('subtitle') }}</span>
             </div>
           </div>
-          <div v-if="mode === 'sidepanel'" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-            <button type="button"
-              class="group flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900"
-              :class="pickStatus === 'active'
-                ? 'border-blue-400 bg-blue-100 dark:border-blue-500 dark:bg-blue-950/60'
-                : 'border-blue-100 bg-blue-50/70 hover:border-blue-300 hover:bg-blue-100/70 dark:border-blue-900/60 dark:bg-blue-950/30 dark:hover:border-blue-700 dark:hover:bg-blue-950/60'"
-              :aria-pressed="pickStatus === 'active'"
-              aria-describedby="page-pick-description"
-              @click="pickStatus === 'active' ? resetPagePick() : startPagePick()">
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white dark:bg-blue-500">
-                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
-                  <path v-if="pickStatus === 'active'" stroke-linecap="round" d="m6 6 12 12M18 6 6 18" />
-                  <template v-else>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="m10 10 4 11 2-5 5-2-11-4Z" />
-                  </template>
-                </svg>
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-semibold text-blue-900 dark:text-blue-100">{{ t(pickStatus === 'active' ? 'pagePickCancel' : 'pagePickTitle') }}</span>
-                <span id="page-pick-description" class="mt-0.5 block text-[11px] leading-4 text-blue-700 dark:text-blue-300">{{ t(pickStatus === 'active' ? 'pagePick_active' : 'pagePickDescription') }}</span>
-              </span>
-              <svg v-if="pickStatus !== 'active'" class="h-4 w-4 shrink-0 text-blue-500 transition-transform group-hover:translate-x-0.5 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
-                <path stroke-linecap="round" stroke-linejoin="round" d="m9 5 7 7-7 7" />
-              </svg>
-            </button>
-            <button v-if="pickedCard || manualImage || browsingPageStreams" type="button"
-              class="mt-2 inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-950"
-              @click="resetPagePick">
-              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m10 6-6 6 6 6m-6-6h16" /></svg>
-              {{ t('pagePickBack') }}
-            </button>
-            <p v-if="pickStatus && pickStatus !== 'manualImage'" role="status" class="text-xs text-gray-600 dark:text-gray-300" :class="pickStatus === 'active' ? 'sr-only' : 'mt-2'">
-              {{ t('pagePick_' + pickStatus) }}
-            </p>
-            <button v-if="pickStatus === 'unconfirmed'" type="button"
-              class="mt-1 text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
-              @click="browsePageStreams">{{ t('pagePickBrowseStreams') }}</button>
-            <button v-if="pickStatus === 'domainExcluded' || pickStatus === 'imageDisabled'" type="button"
-              class="mt-1 text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
-              @click="openPagePickSettings">{{ t('pagePickOpenSettings') }}</button>
-          </div>
           <div v-if="showRulesHint" class="flex items-start gap-2 px-3 py-2 text-[11px] leading-4 text-blue-800 bg-blue-50 border-b border-blue-100 dark:text-blue-200 dark:bg-blue-950/40 dark:border-blue-900/50">
             <svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -2653,7 +2699,22 @@
             </nav>
             
           </div>
-          <div class="flex flex-wrap items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800">
+          <div v-if="!showingImageCollection" class="flex flex-wrap items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800">
+            <button v-if="mode === 'sidepanel'" type="button"
+              class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              :class="pickerActive
+                ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                : 'text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/60'"
+              :title="t(collectingImages ? 'pagePickCollectionDone' : pickerActive ? 'pagePickCancel' : 'pagePickTitle')"
+              :aria-label="t('pagePickTitle')"
+              :aria-pressed="pickerActive"
+              @click="collectingImages ? showImageCollection() : pickerActive ? resetPagePick() : startPagePick()">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                <circle cx="12" cy="12" r="7" />
+                <circle cx="12" cy="12" r="2" />
+                <path stroke-linecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+              </svg>
+            </button>
             <template v-if="selectableMediaList.length > 0">
               <button @click="toggleSelectAll" class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all" :title="selectableMediaList.every(item => selectedKeys.has(getMediaKey(item))) ? t('deselectAll') : t('selectAll')">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
@@ -2719,7 +2780,37 @@
               </svg>
             </button>
           </div>
-          <div class="px-2 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+          <div v-if="mode === 'sidepanel' && (pickStatus || browsingPageStreams || showingImageCollection || collectedImages.length)"
+            class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-gray-100 px-3 py-1.5 dark:border-gray-800">
+            <button v-if="pickedCard || manualImage || browsingPageStreams || showingImageCollection" type="button"
+              class="inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-950"
+              @click="resetPagePick">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m10 6-6 6 6 6m-6-6h16" /></svg>
+              {{ t('pagePickBack') }}
+            </button>
+            <p v-if="pickStatus && pickStatus !== 'manualImage'" role="status" class="text-xs text-gray-600 dark:text-gray-300">
+              {{ t(collectingImages && pickStatus === 'active' ? 'pagePickCollectionHint' : 'pagePick_' + pickStatus) }}
+            </p>
+            <button v-if="(pickStatus === 'active' && !collectingImages) || showingImageCollection" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="startPagePick(true)">{{ t(showingImageCollection ? 'pagePickCollectionContinue' : 'pagePickCollectionStart') }}</button>
+            <span v-if="collectingImages || showingImageCollection" aria-live="polite" class="text-xs font-semibold text-blue-700 dark:text-blue-300">
+              {{ t('pagePickCollectionCount', String(collectedImages.length)) }}
+            </span>
+            <button v-if="collectingImages" type="button"
+              class="rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              @click="showImageCollection">{{ t('pagePickCollectionDone') }}</button>
+            <button v-else-if="!showingImageCollection && collectedImages.length" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="showImageCollection">{{ t('pagePickCollectionCount', String(collectedImages.length)) }}</button>
+            <button v-if="pickStatus === 'unconfirmed' && !collectingImages" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="browsePageStreams">{{ t('pagePickBrowseStreams') }}</button>
+            <button v-if="pickStatus === 'domainExcluded' || pickStatus === 'imageDisabled'" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="openPagePickSettings">{{ t('pagePickOpenSettings') }}</button>
+          </div>
+          <div v-if="!showingImageCollection" class="px-2 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
             <div class="relative flex-1">
               <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -2755,7 +2846,7 @@
             leave-from-class="opacity-100 max-h-32"
             leave-to-class="opacity-0 max-h-0"
           >
-            <div v-if="showFilter" class="px-2 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 overflow-hidden">
+            <div v-if="showFilter && !showingImageCollection" class="px-2 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 overflow-hidden">
               <div class="flex flex-wrap gap-3 text-xs">
                 <div class="flex items-center gap-1.5">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('filterType') }}:</span>
@@ -2816,7 +2907,32 @@
           class="flex-1 overflow-y-auto min-h-0"
           :class="{ 'all-tab-scrollbar': activeTab === 'all' || activeTab === 'video' }"
           @scroll="onListScroll">
-          <article v-if="manualImage" :key="manualImage.url" data-page-picked
+          <section v-if="showingImageCollection" class="space-y-3 p-3" :aria-label="t('pagePickCollectionTitle')">
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="text-sm font-semibold">{{ t('pagePickCollectionTitle') }}</h2>
+              <button type="button" class="rounded bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                :disabled="collectionDownloading || !collectedImages.length"
+                @click="downloadImageCollection">{{ t('pagePickCollectionDownload') }}</button>
+            </div>
+            <p v-if="!collectedImages.length" class="text-xs text-gray-500 dark:text-gray-400">{{ t('pagePickCollectionEmpty') }}</p>
+            <div v-else class="grid grid-cols-2 gap-2">
+              <article v-for="item in collectedImages" :key="item.url"
+                class="min-w-0 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+                <button type="button" class="block w-full cursor-zoom-in bg-gray-100 dark:bg-gray-800"
+                  :aria-label="t('preview')" @click="previewImage(item.url)">
+                  <img :src="imageSrc(item.url, item.requestHeaders)" :alt="getFileName(item.url)"
+                    class="aspect-square w-full object-contain" loading="lazy"
+                    @error="proxyImage($event, item.url, item.requestHeaders)" />
+                </button>
+                <div class="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+                  <span class="min-w-0 truncate" :title="getFileName(item.url)">{{ getFileName(item.url) }}</span>
+                  <button type="button" class="shrink-0 text-red-600 hover:underline dark:text-red-400"
+                    @click="collectedImages = collectedImages.filter(image => image.url !== item.url)">{{ t('pagePickCollectionRemove') }}</button>
+                </div>
+              </article>
+            </div>
+          </section>
+          <article v-else-if="manualImage" :key="manualImage.url" data-page-picked
             class="m-2 space-y-2 rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
             <div class="flex items-center gap-2">
               <span role="status" class="shrink-0 rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">{{ t('pagePickManualImage') }}</span>
@@ -3498,7 +3614,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </button>
-                <button @click="manualImage && manualImage.url === previewImageUrl ? downloadManualImage(manualImage) : downloadUrl(previewImageUrl, previewCurrentItem?.format ?? '', previewCurrentItem?.requestHeaders)"
+                <button @click="showingImageCollection && previewCurrentItem ? downloadCollectedImage(previewCurrentItem) : manualImage && manualImage.url === previewImageUrl ? downloadManualImage(manualImage) : downloadUrl(previewImageUrl, previewCurrentItem?.format ?? '', previewCurrentItem?.requestHeaders)"
                   class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 border border-white/10 hover:border-white/20 text-white/90 hover:text-white backdrop-blur-md active:scale-90 transition-all"
                   :title="t('download')"
                   :aria-label="t('download')">

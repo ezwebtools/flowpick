@@ -48,6 +48,7 @@ export function installPageMediaPicker(getContext: () => PageContext) {
 
       function mediaAt(event: Event) {
         const path = event.composedPath()
+        if (message.imagesOnly === true) return path.find(element => element instanceof HTMLImageElement)
         const media = path.find(
           element => element instanceof HTMLImageElement || element instanceof HTMLMediaElement,
         )

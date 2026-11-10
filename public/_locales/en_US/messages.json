@@ -1,9 +1,9 @@
 {
     "extName": {
-        "message": "FlowPick - Media Sniffer & Downloader"
+        "message": "FlowPick - Video Downloader & Media Sniffer"
     },
     "extDescription": {
-        "message": "Detect and preview webpage media. Download videos, audio, images and HLS/DASH streams with FlowPick."
+        "message": "Detect and download videos, M3U8/HLS and MPD/DASH streams, audio, and images from supported websites. Free, open-source browser extension with local media processing."
     },
     "title":{
         "message": "Flowpick"

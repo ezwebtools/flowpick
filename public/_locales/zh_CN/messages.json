@@ -1,9 +1,9 @@
 {
     "extName": {
-        "message": "FlowPick - 媒体嗅探与下载器"
+        "message": "FlowPick - 视频下载与媒体嗅探工具"
     },
     "extDescription": {
-        "message": "检测和预览网页媒体，下载视频、音频、图片及 HLS/DASH 流媒体，支持批量下载。"
+        "message": "免费开源的网页视频下载插件，支持 M3U8、HLS、MPD、DASH 流媒体检测与下载，同时支持音频提取、图片批量下载和媒体预览。"
     },
     "title":{
         "message": "Flowpick"
