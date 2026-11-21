@@ -52,6 +52,7 @@ visit(ast)
 assert.ok(headersHandler)
 function backend() {
   const seenSizes = []
+  const headerProbes = []
   const env = {
     URL, normalizeInstagramMediaUrl, instagramTrackIdentity: player.exports.instagramTrackIdentity,
     tabPageUrls: new Map([[1, page]]), tabPageTitles: new Map([[1, 'Instagram Reel']]),
@@ -64,6 +65,14 @@ function backend() {
     isSizeAllowed: (_format, size) => { seenSizes.push(size); return size === undefined || size > 100_000 },
     detectMedia: () => 'mp4', detectMediaFromContentType: () => 'mp4',
     getStreamResourceIdentity: () => null,
+    // Two-layer pause control; addMedia consults the combined check.
+    sniffControl: { isPaused: () => false },
+    // Per-tab "the user deleted this" set; addMedia honours it too.
+    dismissedMedia: new Map(),
+    // The container-header queue lives outside addMedia; this test only cares
+    // that addMedia hands the recorded entry over, so a recorder stands in.
+    headerProbes,
+    queueHeaderProbe: (tabId, url, format, entry) => headerProbes.push({ tabId, url, format, size: entry?.size }),
     saveTabList: async () => {}, updateBadge() {}, broadcastDebounced() {}, tryGroupVideoAudio() {},
   }
   env.addProcessedRequest = key => env.processedRequests.add(key)
@@ -72,7 +81,7 @@ function backend() {
     `const onHeaders = ${headersHandler}`,
     'this.onHeaders = onHeaders; this.addMedia = addMedia;',
   ].join('\n')), env)
-  return { env, seenSizes }
+  return { env, seenSizes, headerProbes }
 }
 const details = (url = index, headers = []) => ({
   url, tabId: 1, frameId: 0, requestId: url, type: 'xmlhttprequest', statusCode: 200,

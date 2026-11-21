@@ -3,7 +3,7 @@
         "message": "FlowPick — Сниффер медиа и загрузчик"
     },
     "extDescription": {
-        "message": "Обнаруживайте и просматривайте медиа на сайтах. Скачивайте видео, аудио, изображения и потоки HLS/DASH с FlowPick."
+        "message": "Находите и скачивайте видео, аудио, изображения и потоки HLS/DASH на любых сайтах. Бесплатно, open source, всё в браузере."
     },
     "title":{
         "message": "Flowpick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "Полная политика конфиденциальности"
+    },
+    "cmdDownloadBest": {
+        "message": "Скачать поток наивысшего качества на этой странице"
+    },
+    "cmdOpenQueue": {
+        "message": "Открыть очередь загрузок"
+    },
+    "downloadCompleteTitle": {
+        "message": "Загрузка завершена"
+    },
+    "downloadCompleteBody": {
+        "message": "Сохранено в папке загрузок"
+    },
+    "downloadFailedTitle": {
+        "message": "Загрузка не удалась"
+    },
+    "downloadFailedBody": {
+        "message": "Браузер не смог завершить эту загрузку"
+    },
+    "pauseThisTab":{
+        "message": "Приостановить обнаружение в этой вкладке"
+    },
+    "resumeThisTab":{
+        "message": "Возобновить обнаружение в этой вкладке"
+    },
+    "pauseAllSites":{
+        "message": "Приостановить обнаружение на всех сайтах"
+    },
+    "resumeAllSites":{
+        "message": "Возобновить обнаружение на всех сайтах"
     }
 }

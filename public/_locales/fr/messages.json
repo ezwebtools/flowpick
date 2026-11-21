@@ -3,7 +3,7 @@
         "message": "FlowPick - Détecteur et téléchargeur multimédia"
     },
     "extDescription": {
-        "message": "Détectez et prévisualisez les médias web. Téléchargez vidéos, audio, images et flux HLS/DASH avec FlowPick."
+        "message": "Détectez et téléchargez vidéos, audio, images et flux HLS/DASH sur tous les sites. Gratuit, open source, tout dans le navigateur."
     },
     "title": {
         "message": "FlowPick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "Politique de confidentialité complète"
+    },
+    "cmdDownloadBest": {
+        "message": "Télécharger le flux de la meilleure qualité de cette page"
+    },
+    "cmdOpenQueue": {
+        "message": "Ouvrir la file de téléchargement"
+    },
+    "downloadCompleteTitle": {
+        "message": "Téléchargement terminé"
+    },
+    "downloadCompleteBody": {
+        "message": "Enregistré dans votre dossier de téléchargements"
+    },
+    "downloadFailedTitle": {
+        "message": "Le téléchargement a échoué"
+    },
+    "downloadFailedBody": {
+        "message": "Le navigateur n’a pas pu terminer ce téléchargement"
+    },
+    "pauseThisTab": {
+        "message": "Suspendre la détection pour cet onglet"
+    },
+    "resumeThisTab": {
+        "message": "Reprendre la détection pour cet onglet"
+    },
+    "pauseAllSites": {
+        "message": "Suspendre la détection sur tous les sites"
+    },
+    "resumeAllSites": {
+        "message": "Reprendre la détection sur tous les sites"
     }
 }

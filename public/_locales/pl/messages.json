@@ -3,7 +3,7 @@
         "message": "FlowPick - Wykrywacz i pobieracz multimediów"
     },
     "extDescription": {
-        "message": "Wykrywaj i przeglądaj multimedia na stronach. Pobieraj filmy, dźwięk, obrazy i strumienie HLS/DASH z FlowPick."
+        "message": "Wykrywaj i pobieraj filmy, dźwięk, obrazy i strumienie HLS/DASH z dowolnej strony. Darmowe, open source, wszystko w przeglądarce."
     },
     "title": {
         "message": "FlowPick"
@@ -373,5 +373,35 @@
     },
     "privacyPolicy": {
         "message": "Pełna polityka prywatności"
+    },
+    "cmdDownloadBest": {
+        "message": "Pobierz strumień o najwyższej jakości z tej strony"
+    },
+    "cmdOpenQueue": {
+        "message": "Otwórz kolejkę pobierania"
+    },
+    "downloadCompleteTitle": {
+        "message": "Pobieranie zakończone"
+    },
+    "downloadCompleteBody": {
+        "message": "Zapisano w folderze pobierania"
+    },
+    "downloadFailedTitle": {
+        "message": "Pobieranie nie powiodło się"
+    },
+    "downloadFailedBody": {
+        "message": "Przeglądarka nie mogła ukończyć tego pobierania"
+    },
+    "pauseThisTab": {
+        "message": "Wstrzymaj wykrywanie na tej karcie"
+    },
+    "resumeThisTab": {
+        "message": "Wznów wykrywanie na tej karcie"
+    },
+    "pauseAllSites": {
+        "message": "Wstrzymaj wykrywanie na wszystkich stronach"
+    },
+    "resumeAllSites": {
+        "message": "Wznów wykrywanie na wszystkich stronach"
     }
 }

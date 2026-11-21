@@ -3,7 +3,7 @@
         "message": "FlowPick - Mediasniffer en downloader"
     },
     "extDescription": {
-        "message": "Detecteer media op webpagina’s en bekijk voorbeelden. Download video, audio, afbeeldingen en HLS/DASH-streams met FlowPick."
+        "message": "Detecteer en download video, audio, afbeeldingen en HLS/DASH-streams op elke site. Gratis, open source, alles lokaal in je browser."
     },
     "welcomeSubtitle": {
         "message": "Slimme mediasniffer en downloader"
@@ -145,5 +145,35 @@
     },
     "privacyPolicy": {
         "message": "Volledig privacybeleid"
+    },
+    "cmdDownloadBest": {
+        "message": "Download de stream van de hoogste kwaliteit op deze pagina"
+    },
+    "cmdOpenQueue": {
+        "message": "Downloadwachtrij openen"
+    },
+    "downloadCompleteTitle": {
+        "message": "Download voltooid"
+    },
+    "downloadCompleteBody": {
+        "message": "Opgeslagen in je downloadmap"
+    },
+    "downloadFailedTitle": {
+        "message": "Download mislukt"
+    },
+    "downloadFailedBody": {
+        "message": "De browser kon deze download niet voltooien"
+    },
+    "pauseThisTab": {
+        "message": "Detectie op dit tabblad pauzeren"
+    },
+    "resumeThisTab": {
+        "message": "Detectie op dit tabblad hervatten"
+    },
+    "pauseAllSites": {
+        "message": "Detectie op alle sites pauzeren"
+    },
+    "resumeAllSites": {
+        "message": "Detectie op alle sites hervatten"
     }
 }

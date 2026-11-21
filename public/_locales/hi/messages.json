@@ -3,7 +3,7 @@
         "message": "FlowPick - मीडिया स्निफ़र और डाउनलोडर"
     },
     "extDescription": {
-        "message": "वेब पेज पर मीडिया खोजें और प्रीव्यू देखें। FlowPick से वीडियो, ऑडियो, चित्र और HLS/DASH स्ट्रीम डाउनलोड करें।"
+        "message": "किसी भी साइट से वीडियो, ऑडियो, चित्र और HLS/DASH स्ट्रीम पहचानें और डाउनलोड करें। मुफ़्त, ओपन सोर्स, सब ब्राउज़र में।"
     },
     "welcomeSubtitle": {
         "message": "स्मार्ट मीडिया स्निफ़र और डाउनलोडर"
@@ -145,5 +145,35 @@
     },
     "privacyPolicy": {
         "message": "पूरी गोपनीयता नीति"
+    },
+    "cmdDownloadBest": {
+        "message": "इस पेज पर सबसे उच्च गुणवत्ता वाली स्ट्रीम डाउनलोड करें"
+    },
+    "cmdOpenQueue": {
+        "message": "डाउनलोड कतार खोलें"
+    },
+    "downloadCompleteTitle": {
+        "message": "डाउनलोड पूर्ण"
+    },
+    "downloadCompleteBody": {
+        "message": "डाउनलोड फ़ोल्डर में सहेजा गया"
+    },
+    "downloadFailedTitle": {
+        "message": "डाउनलोड विफल"
+    },
+    "downloadFailedBody": {
+        "message": "ब्राउज़र यह डाउनलोड पूरा नहीं कर सका"
+    },
+    "pauseThisTab": {
+        "message": "इस टैब पर पहचान रोकें"
+    },
+    "resumeThisTab": {
+        "message": "इस टैब पर पहचान फिर शुरू करें"
+    },
+    "pauseAllSites": {
+        "message": "सभी साइटों पर पहचान रोकें"
+    },
+    "resumeAllSites": {
+        "message": "सभी साइटों पर पहचान फिर शुरू करें"
     }
 }

@@ -3,7 +3,7 @@
         "message": "FlowPick: Descargador de Videos, Música y Fotos"
     },
     "extDescription": {
-        "message": "Detecta y previsualiza contenido web. Descarga vídeos, audio, imágenes y streams HLS/DASH con FlowPick."
+        "message": "Detecta y descarga vídeos, audio, imágenes y streams HLS/DASH de cualquier sitio. Gratis, open source, todo local en tu navegador."
     },
     "title":{
         "message": "FlowPick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "Política de privacidad completa"
+    },
+    "cmdDownloadBest": {
+        "message": "Descargar el vídeo de mayor calidad de esta página"
+    },
+    "cmdOpenQueue": {
+        "message": "Abrir la cola de descargas"
+    },
+    "downloadCompleteTitle": {
+        "message": "Descarga completada"
+    },
+    "downloadCompleteBody": {
+        "message": "Guardado en tu carpeta de descargas"
+    },
+    "downloadFailedTitle": {
+        "message": "La descarga falló"
+    },
+    "downloadFailedBody": {
+        "message": "El navegador no pudo completar esta descarga"
+    },
+    "pauseThisTab":{
+        "message": "Pausar detección en esta pestaña"
+    },
+    "resumeThisTab":{
+        "message": "Reanudar detección en esta pestaña"
+    },
+    "pauseAllSites":{
+        "message": "Pausar detección en todos los sitios"
+    },
+    "resumeAllSites":{
+        "message": "Reanudar detección en todos los sitios"
     }
 }

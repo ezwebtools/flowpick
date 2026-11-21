@@ -3,7 +3,7 @@
         "message": "FlowPick - Media Sniffer at Downloader"
     },
     "extDescription": {
-        "message": "Tuklasin at i-preview ang media sa web. Mag-download ng video, audio, larawan at HLS/DASH stream gamit ang FlowPick."
+        "message": "Tuklasin at i-download ang video, audio, larawan at HLS/DASH stream sa kahit anong site. Libre, open source, sa browser lang."
     },
     "welcomeSubtitle": {
         "message": "Smart Media Sniffer at Downloader"
@@ -145,5 +145,35 @@
     },
     "privacyPolicy": {
         "message": "Buong patakaran sa privacy"
+    },
+    "cmdDownloadBest": {
+        "message": "I-download ang pinakamataas na kalidad na stream sa page na ito"
+    },
+    "cmdOpenQueue": {
+        "message": "Buksan ang download queue"
+    },
+    "downloadCompleteTitle": {
+        "message": "Kumpleto na ang download"
+    },
+    "downloadCompleteBody": {
+        "message": "Na-save sa downloads folder"
+    },
+    "downloadFailedTitle": {
+        "message": "Nabigo ang download"
+    },
+    "downloadFailedBody": {
+        "message": "Hindi natapos ng browser ang download na ito"
+    },
+    "pauseThisTab": {
+        "message": "I-pause ang pag-detect sa tab na ito"
+    },
+    "resumeThisTab": {
+        "message": "Ipagpatuloy ang pag-detect sa tab na ito"
+    },
+    "pauseAllSites": {
+        "message": "I-pause ang pag-detect sa lahat ng site"
+    },
+    "resumeAllSites": {
+        "message": "Ipagpatuloy ang pag-detect sa lahat ng site"
     }
 }

@@ -646,6 +646,15 @@ export default defineContentScript({
         window.postMessage({ type: 'FLOWPICK_CHECK_PAGE' }, '*')
         void reporter.sync()
       }
+      // Explicit "rescan now" from the panel. CHECK_PAGE only reacts to a URL
+      // change, so it cannot re-walk a page the user is already on; RESCAN does
+      // that and replays the hook's own retry ladder without a reload.
+      if (msg.type === 'FLOWPICK_RESCAN_PAGE') {
+        window.postMessage({ type: 'FLOWPICK_RESCAN', url: location.href }, '*')
+        instagramCapture?.rescan()
+        void reporter.sync()
+        return Promise.resolve({ ok: true })
+      }
       if (msg.type === 'FLOWPICK_SOURCE_URL' && msg.sourceUrl) {
         window.postMessage({ type: 'FLOWPICK_SOURCE_URL', sourceUrl: msg.sourceUrl }, '*')
       }

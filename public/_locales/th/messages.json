@@ -3,7 +3,7 @@
         "message": "FlowPick - ตัวจับและดาวน์โหลดสื่อ"
     },
     "extDescription": {
-        "message": "ตรวจจับและดูตัวอย่างสื่อบนเว็บ ดาวน์โหลดวิดีโอ เสียง รูปภาพ และสตรีม HLS/DASH ด้วย FlowPick"
+        "message": "ตรวจจับและดาวน์โหลดวิดีโอ เสียง รูปภาพ และสตรีม HLS/DASH จากทุกเว็บไซต์ ฟรี โอเพนซอร์ส ทำงานในเบราว์เซอร์"
     },
     "welcomeSubtitle": {
         "message": "ตัวจับและดาวน์โหลดสื่ออัจฉริยะ"
@@ -145,5 +145,35 @@
     },
     "privacyPolicy": {
         "message": "นโยบายความเป็นส่วนตัวฉบับเต็ม"
+    },
+    "cmdDownloadBest": {
+        "message": "ดาวน์โหลดสตรีมคุณภาพสูงสุดในหน้านี้"
+    },
+    "cmdOpenQueue": {
+        "message": "เปิดคิวดาวน์โหลด"
+    },
+    "downloadCompleteTitle": {
+        "message": "ดาวน์โหลดเสร็จสิ้น"
+    },
+    "downloadCompleteBody": {
+        "message": "บันทึกไปยังโฟลเดอร์ดาวน์โหลดแล้ว"
+    },
+    "downloadFailedTitle": {
+        "message": "ดาวน์โหลดล้มเหลว"
+    },
+    "downloadFailedBody": {
+        "message": "เบราว์เซอร์ดาวน์โหลดนี้ไม่สำเร็จ"
+    },
+    "pauseThisTab": {
+        "message": "หยุดตรวจจับชั่วคราวในแท็บนี้"
+    },
+    "resumeThisTab": {
+        "message": "ตรวจจับต่อในแท็บนี้"
+    },
+    "pauseAllSites": {
+        "message": "หยุดตรวจจับชั่วคราวทุกเว็บไซต์"
+    },
+    "resumeAllSites": {
+        "message": "ตรวจจับต่อทุกเว็บไซต์"
     }
 }

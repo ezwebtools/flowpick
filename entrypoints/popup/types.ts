@@ -24,6 +24,8 @@ export interface RawMediaEntry {
   tabTitle?: string
   /** 直播流标记（HTTP-FLV 无 Content-Length/Duration 时为 true） */
   isLiveStream?: boolean
+  /** Playback confirmed DRM protection for this resource. */
+  drm?: boolean
 }
 
 export interface MediaItem extends Required<Pick<RawMediaEntry, 'url' | 'format'>>, Omit<RawMediaEntry, 'url' | 'format'> {}

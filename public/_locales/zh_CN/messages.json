@@ -3,7 +3,7 @@
         "message": "FlowPick - 视频下载与媒体嗅探工具"
     },
     "extDescription": {
-        "message": "免费开源的网页视频下载插件，支持 M3U8、HLS、MPD、DASH 流媒体检测与下载，同时支持音频提取、图片批量下载和媒体预览。"
+        "message": "免费开源的网页媒体嗅探与下载插件，一键抓取视频、音频、图片及 HLS/DASH 流媒体，全程本地处理。"
     },
     "title":{
         "message": "Flowpick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "完整隐私政策"
+    },
+    "cmdDownloadBest": {
+        "message": "下载当前页面最高画质的流媒体"
+    },
+    "cmdOpenQueue": {
+        "message": "打开下载队列"
+    },
+    "downloadCompleteTitle": {
+        "message": "下载完成"
+    },
+    "downloadCompleteBody": {
+        "message": "已保存到下载文件夹"
+    },
+    "downloadFailedTitle": {
+        "message": "下载失败"
+    },
+    "downloadFailedBody": {
+        "message": "浏览器无法完成这次下载"
+    },
+    "pauseThisTab":{
+        "message": "暂停嗅探此标签页"
+    },
+    "resumeThisTab":{
+        "message": "恢复嗅探此标签页"
+    },
+    "pauseAllSites":{
+        "message": "暂停所有网站嗅探"
+    },
+    "resumeAllSites":{
+        "message": "恢复所有网站嗅探"
     }
 }

@@ -3,7 +3,7 @@
         "message": "FlowPick - Video Downloader & Media Sniffer"
     },
     "extDescription": {
-        "message": "Detect and download videos, M3U8/HLS and MPD/DASH streams, audio, and images from supported websites. Free, open-source browser extension with local media processing."
+        "message": "Sniff and download video, audio, images and HLS/DASH streams on any site. Free, open-source, runs fully in your browser."
     },
     "title":{
         "message": "Flowpick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "Full privacy policy"
+    },
+    "cmdDownloadBest": {
+        "message": "Download the highest-quality stream on this page"
+    },
+    "cmdOpenQueue": {
+        "message": "Open the download queue"
+    },
+    "downloadCompleteTitle": {
+        "message": "Download complete"
+    },
+    "downloadCompleteBody": {
+        "message": "Saved to your downloads folder"
+    },
+    "downloadFailedTitle": {
+        "message": "Download failed"
+    },
+    "downloadFailedBody": {
+        "message": "The browser could not finish this download"
+    },
+    "pauseThisTab":{
+        "message": "Pause sniffing on this tab"
+    },
+    "resumeThisTab":{
+        "message": "Resume sniffing on this tab"
+    },
+    "pauseAllSites":{
+        "message": "Pause sniffing on all sites"
+    },
+    "resumeAllSites":{
+        "message": "Resume sniffing on all sites"
     }
 }

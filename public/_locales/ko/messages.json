@@ -3,7 +3,7 @@
         "message": "FlowPick - 미디어 감지 및 다운로드"
     },
     "extDescription": {
-        "message": "웹페이지 미디어를 감지하고 미리 보세요. 동영상, 오디오, 이미지와 HLS/DASH 스트림을 다운로드하세요."
+        "message": "모든 사이트의 동영상·오디오·이미지·HLS/DASH 스트림을 감지해 다운로드. 무료 오픈소스, 모든 처리는 브라우저에서."
     },
     "title":{
         "message": "FlowPick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "개인정보 처리방침 전문"
+    },
+    "cmdDownloadBest": {
+        "message": "이 페이지에서 최고 화질 스트림 다운로드"
+    },
+    "cmdOpenQueue": {
+        "message": "다운로드 대기열 열기"
+    },
+    "downloadCompleteTitle": {
+        "message": "다운로드 완료"
+    },
+    "downloadCompleteBody": {
+        "message": "다운로드 폴더에 저장했습니다"
+    },
+    "downloadFailedTitle": {
+        "message": "다운로드 실패"
+    },
+    "downloadFailedBody": {
+        "message": "브라우저가 이 다운로드를 완료하지 못했습니다"
+    },
+    "pauseThisTab":{
+        "message": "이 탭의 감지 일시중지"
+    },
+    "resumeThisTab":{
+        "message": "이 탭의 감지 재개"
+    },
+    "pauseAllSites":{
+        "message": "모든 사이트의 감지 일시중지"
+    },
+    "resumeAllSites":{
+        "message": "모든 사이트의 감지 재개"
     }
 }

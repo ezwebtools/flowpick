@@ -1,4 +1,16 @@
-export interface ResourceDownloadJob {
+/**
+ * Cleanup for the legacy per-resource download job records.
+ *
+ * The jobs themselves are gone: image/document/audio saves go straight to
+ * `downloads.download` and live resources go to the hosted downloader, so
+ * nothing writes a `resource_download_*` key any more. Only the sweep remains,
+ * because a profile that ran an older build can still carry those keys (they
+ * hold captured request headers) and they must not outlive the tab.
+ */
+
+const prefix = 'resource_download_'
+
+interface ResourceDownloadJob {
   url: string
   filename: string
   format: string
@@ -8,23 +20,8 @@ export interface ResourceDownloadJob {
   tabId?: number
   createdAt: number
 }
-const prefix = 'resource_download_'
+
 const storage = () => browser.storage.session ?? browser.storage.local
-
-export async function openResourceDownload(job: Omit<ResourceDownloadJob, 'createdAt'>) {
-  if (!/^https?:$/.test(new URL(job.url).protocol)) throw new Error('unsupported-download-url')
-  // The legacy /download.html entrypoint is absent. Live resources use the
-  // existing hosted downloader, with the data use described in the privacy policy.
-  return await browser.runtime.sendMessage({
-    type: 'OPEN_DOWNLOAD_PAGE', url: job.url, format: job.format,
-    filename: job.filename, requestHeaders: job.requestHeaders,
-  })
-}
-
-export async function readResourceDownload(key: string): Promise<ResourceDownloadJob | undefined> {
-  if (!key.startsWith(prefix)) return
-  return (await storage().get(key))[key] as ResourceDownloadJob | undefined
-}
 
 export async function removeResourceDownloads(tabId: number) {
   const data = await storage().get(null)

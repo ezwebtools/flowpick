@@ -3,7 +3,7 @@
         "message": "FlowPick - Detector și descărcător de media"
     },
     "extDescription": {
-        "message": "Detectați și previzualizați media pe web. Descărcați videoclipuri, audio, imagini și fluxuri HLS/DASH cu FlowPick."
+        "message": "Detectați și descărcați videoclipuri, audio, imagini și fluxuri HLS/DASH de pe orice site. Gratuit, open source, totul în browser."
     },
     "welcomeSubtitle": {
         "message": "Detector și descărcător media inteligent"
@@ -145,5 +145,35 @@
     },
     "privacyPolicy": {
         "message": "Politica de confidențialitate completă"
+    },
+    "cmdDownloadBest": {
+        "message": "Descarcă fluxul de cea mai înaltă calitate de pe această pagină"
+    },
+    "cmdOpenQueue": {
+        "message": "Deschide coada de descărcări"
+    },
+    "downloadCompleteTitle": {
+        "message": "Descărcare finalizată"
+    },
+    "downloadCompleteBody": {
+        "message": "Salvat în folderul de descărcări"
+    },
+    "downloadFailedTitle": {
+        "message": "Descărcarea a eșuat"
+    },
+    "downloadFailedBody": {
+        "message": "Browserul nu a putut finaliza această descărcare"
+    },
+    "pauseThisTab": {
+        "message": "Pauzează detectarea în acest tab"
+    },
+    "resumeThisTab": {
+        "message": "Reia detectarea în acest tab"
+    },
+    "pauseAllSites": {
+        "message": "Pauzează detectarea pe toate site-urile"
+    },
+    "resumeAllSites": {
+        "message": "Reia detectarea pe toate site-urile"
     }
 }

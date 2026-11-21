@@ -3,7 +3,7 @@
         "message": "FlowPick: Video-, Audio- & Bild-Downloader"
     },
     "extDescription": {
-        "message": "Medien auf Webseiten erkennen und ansehen. Videos, Audio, Bilder und HLS/DASH-Streams mit FlowPick herunterladen."
+        "message": "Videos, Audio, Bilder und HLS/DASH-Streams auf jeder Website erkennen und herunterladen. Kostenlos, Open Source, läuft im Browser."
     },
     "title":{
         "message": "FlowPick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "Vollständige Datenschutzerklärung"
+    },
+    "cmdDownloadBest": {
+        "message": "Den Stream mit der höchsten Qualität auf dieser Seite herunterladen"
+    },
+    "cmdOpenQueue": {
+        "message": "Download-Warteschlange öffnen"
+    },
+    "downloadCompleteTitle": {
+        "message": "Download abgeschlossen"
+    },
+    "downloadCompleteBody": {
+        "message": "Im Download-Ordner gespeichert"
+    },
+    "downloadFailedTitle": {
+        "message": "Download fehlgeschlagen"
+    },
+    "downloadFailedBody": {
+        "message": "Der Browser konnte diesen Download nicht abschließen"
+    },
+    "pauseThisTab":{
+        "message": "Erkennung für diesen Tab pausieren"
+    },
+    "resumeThisTab":{
+        "message": "Erkennung für diesen Tab fortsetzen"
+    },
+    "pauseAllSites":{
+        "message": "Erkennung auf allen Seiten pausieren"
+    },
+    "resumeAllSites":{
+        "message": "Erkennung auf allen Seiten fortsetzen"
     }
 }

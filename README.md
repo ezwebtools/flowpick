@@ -8,6 +8,25 @@
 [![Stars](https://img.shields.io/github/stars/ezwebtools/flowpick)](stargazers)
 [![Platform](https://img.shields.io/badge/platform-Chrome%20%7C%20Edge%20%7C%20Firefox-blue.svg)](#installation)
 [![Website](https://img.shields.io/badge/website-flowpick.net-4B8BBE.svg)](https://flowpick.net)
+[![Online Tools](https://img.shields.io/badge/online%20tools-20%20free%20media%20tools-2ea44f.svg)](https://flowpick.net/tools)
+
+> 🧰 **Need a downloader without installing anything?** The same project ships 20 free browser-based tools — [M3U8/HLS](https://flowpick.net/m3u8-downloader), [DASH/MPD](https://flowpick.net/dash-downloader), [video](https://flowpick.net/video-downloader) and [audio](https://flowpick.net/audio-downloader) downloaders, trimmers, converters, manifest analyzers and on-device AI tools. All at **[flowpick.net/tools](https://flowpick.net/tools)**. See the [Online Tools](#-online-tools-free-browser-based) section below.
+
+---
+
+## 📸 Screenshots
+
+| Streams, with variants and estimated size | Images |
+|---|---|
+| ![Stream tab](docs/screenshots/popup-streams.png) | ![Image tab](docs/screenshots/popup-images.png) |
+
+| Dark theme | Settings |
+|---|---|
+| ![Dark theme](docs/screenshots/popup-dark.png) | ![Settings](docs/screenshots/settings.png) |
+
+| Export menu (selection-aware) | Keyboard cheatsheet (`?`) |
+|---|---|
+| ![Export menu](docs/screenshots/popup-export-menu.png) | ![Keyboard cheatsheet](docs/screenshots/popup-keyboard-help.png) |
 
 ---
 
@@ -64,7 +83,7 @@ Fine-grained control over sniffing behavior:
 
 - **Per-type Toggle** — Independently enable/disable sniffing for streaming/video/audio/image/document/subtitle
 - **Minimum Capture Size** — Set file size thresholds per type to filter out fragments
-- **Domain Exclusion** — Exclude specific domains to avoid unwanted captures
+- **Domain Exclusion** — Exclude specific domains to avoid unwanted captures. One entry covers that host and everything under it, so `example.com` also silences `www.example.com` and `m.example.com` (while `notexample.com` stays untouched); `*.example.com` and a pasted `https://example.com/path` are accepted too
 - **Hide Stream Segments** — Hide HLS/DASH .ts/.m4s segments and show only the playlist entry (m3u8/mpd) to keep the list clean
 - **data: Image Capture** — Detect `<img src="data:image/...">` inline base64 images, with a configurable min size to filter 1×1 tracking pixels
 - **Per-tab Item Limit** — Configurable 10–5000 items per tab; oldest items are evicted automatically to avoid memory bloat
@@ -96,16 +115,108 @@ Automatically fetched and displayed:
 
 ### 🌐 More Features
 
-- **Side Panel Mode** — Supports Chrome Side Panel and Firefox Sidebar for a more spacious panel, easier for long lists
+- **Side Panel Mode** — Supports Chrome Side Panel and Firefox Sidebar for a more spacious panel, easier for long lists. The popup's ⋯ menu carries an **Open in side panel** entry, so you no longer have to know that the toolbar icon is what switches modes; if the browser refuses the request the panel says so and points at the icon
 - **Welcome Guide** — First-run 6-step tutorial and 9 FAQ entries
-- **Downloader Page Redirect** — One-click jump to dedicated flowpick.net downloaders (m3u8 / dash / video) with multi-language routing
-- **M3U8 Extension Integration** — Detects and integrates with external M3U8 download extensions
+- **Downloader Page Redirect** — One-click jump to the matching flowpick.net downloader (m3u8 / dash / audio / video), the batch [download queue](https://flowpick.net/download-queue), or the [recording page](https://flowpick.net/recording), with automatic multi-language routing
+- **Website Handshake** — Pages on flowpick.net detect the installed extension (`script[data-m3u8-injected]`) and can hand a stream URL back to it for download, see [useM3u8Ext.ts](utils/useM3u8Ext.ts)
 - **Tab Isolation** — Independent media list per browser tab
 - **Badge Counter** — Real-time capture count on the extension icon
 - **Theme** — System / Light / Dark themes
 - **List Density** — Compact / Comfortable display densities
-- **i18n** — English, Simplified Chinese, Traditional Chinese, Japanese, German, Spanish, Korean (7 languages, can follow system)
-- **Keyboard Shortcuts** — Configurable shortcut to open the panel
+- **i18n** — 23 languages (EN / zh-CN / zh-TW / JA / KO / DE / ES / FR / RU / PT-BR / IT / PL / TR / NL / ID / VI / TH / HI / UK / RO / CS / HU / FIL) plus a "follow system" option
+- **Keyboard Shortcuts** — Three real, user-rebindable commands: open the panel (`Alt+Shift+F`), download the best stream on the current page (`Alt+Shift+D`), open the [download queue](https://flowpick.net/download-queue) (`Alt+Shift+Q`). Settings shows the binding each browser actually holds
+- **Panel Keyboard Navigation** — `/` to search, `↑`/`↓` to walk the list, `Home`/`End` to jump, `Space` to select, `D` to download, `C` to copy the URL, `Enter` to play/preview, `Esc` to unwind (filter → search → selection). The bindings are visible in the panel itself: a `/` key chip sits inside the search box, and the keyboard button in the footer (or `?`) opens a cheatsheet with every key as a `<kbd>` chip
+- **Rename That Sticks** — Click any file name to rename it; custom names survive closing the panel and are used for the downloaded file
+- **Copy All / Export** — A labelled **Export** button in the toolbar opens Copy URLs / `.txt` list / `.csv` sheet (name, URL, format, dimensions, duration, page title). It acts on the current selection when there is one, otherwise on the filtered list, and the menu header tells you how many rows it will write. The label is deliberately one short word in every language (`Export`, `导出`, `書き出し`, `Экспорт`) because this strip already scrolls on a narrow panel
+- **One Toolbar, Grouped by Task** — The buttons read left to right as selection (select-all, download-selected) → page capture (Record, then grab page resources) → view (sort, filter) → list upkeep (rescan, pause, clear), split by hairline dividers, with Export pinned to the right edge. Select-all and download-selected lead the row because ticking items is what most sessions start with; Record sits right behind them since it is the rescue path when a page refuses to download. Every control is the same height and carries both a tooltip and an `aria-label`; when space runs out the strip scrolls sideways instead of pushing a button onto a second row
+- **Rescan Without Reloading** — The upkeep row re-walks the live page (every frame) and replays the injected hook's own retry ladder, so you can pick up media a lazy player only just requested without losing playback position, scroll depth or authenticated state. It replaced a plain page reload
+- **Two Layers of Pause** — "This tab" and "everything" are separate switches, because one boolean cannot express both: turning detection back on everywhere must not silently resume a tab you paused on purpose, and resuming one tab must not switch the extension back on. The tab layer is a brake for pages that flood the list — the button turns amber, nothing is written to settings, and closing the tab forgets it. The global layer is the AdBlock-style kill switch: right-click the toolbar icon to pause every site, and every tab's icon is repainted to the greyed "blocked" badge
+- **Pause Is Reachable Three Ways** — Right-click any page for "Pause sniffing on this tab", right-click the toolbar icon for the global switch, or use the panel button. The menu label always matches what the click will do: while everything is off, the page item reads "Resume sniffing on all sites" rather than offering a per-tab resume that the global layer would immediately override
+- **A Paused Tab Shows No Count** — A red "12" next to a blocked icon reads as "12 things blocked", which is the opposite of what a pause means, so pausing clears the badge and swaps the icon for a desaturated copy with a diagonal bar. Two signals rather than one: a lone grey tint is indistinguishable from a loading placeholder at 16px
+- **Clear Needs Two Clicks** — Clearing discards a page's whole session with no undo and the button sits next to the refresh icon, so the first click arms it (the button turns solid red) and the second one runs it; a 3-second timeout backs out and says so
+- **Metadata Without Opening the Panel** — Duration and resolution for plain MP4/WebM files are read straight out of the container header: one 128 KB ranged request, no `<video>` element, no DOM, no extra permission. A `moov`-at-the-end file costs one extra tail request, and the same response reports the true byte length, so sizes the sniffer missed get filled in too. Lists therefore open already complete instead of filling in row by row as you scroll. HLS/DASH keep their manifest-based estimate; the **Prefetch media details** switch turns the whole thing off for people who would rather not have the extension contact media servers on its own
+- **Download Completion Feedback** — `downloads.onChanged` is watched for the saves this extension started: with the panel open you get an inline toast, with it closed a system notification named after the file. Failures report too, instead of the flow going quiet after "started". Two Settings switches govern the surrounding behaviour: **Keep the download queue in the background** stops the queue tab from stealing focus, and **Prefetch media details** controls whether sizes are probed ahead of time
+- **DRM Badge** — When playback reveals DRM protection, the row is marked `DRM` (the tooltip explains why) and a download attempt stops immediately with the same message, instead of walking you into a downloader page that cannot succeed
+- **Remove One Row** — Every card has an inline ✕, including the stream cards (Video / Audio / Image / Docs / **Stream** all have one). Deleting a stream takes its quality variants with it, and the URL is remembered for that tab so re-sniffing cannot resurrect it; the whole list still has its own Clear button
+- **Empty States That Say Why** — An empty list has four different causes and now says which one you are looking at: filters/search hid everything (offers a Reset), your sniffing rules dropped the captured rows (offers Adjust rules), the site is on your exclusion list (offers Open Settings), or nothing was detected yet (and says so when detection is paused). Previously all four looked identical
+
+---
+
+## 🧰 Online Tools (free, browser-based)
+
+The downloader pages below are where this extension hands resources off; the rest are standalone browser tools that are handy right after (or instead of) downloading. Browse them all at **[flowpick.net/tools](https://flowpick.net/tools)** — free, no account required. Local-file tools process your media inside the browser tab, so the file itself is not uploaded; only the decoder / WASM / AI model files are fetched the first time a tool needs them. Cloud transfer is a separate, opt-in feature.
+
+![Tools index](docs/screenshots/tools-index.png)
+
+### Download media — the hand-off targets of this extension
+
+When you hit **Download** on a stream / video / audio item, FlowPick opens the matching page and passes the URL, filename, source page and captured request headers over a one-shot message channel (nothing is put into the URL).
+
+| Tool | Link | What it does |
+|---|---|---|
+| **M3U8 / HLS Downloader** | [flowpick.net/m3u8-downloader](https://flowpick.net/m3u8-downloader) | Pick a variant from a public `.m3u8` playlist and merge the HLS segments locally |
+| **DASH / MPD Downloader** | [flowpick.net/dash-downloader](https://flowpick.net/dash-downloader) | Choose video + audio representations from a `.mpd` manifest and process them locally |
+| **Video Downloader** | [flowpick.net/video-downloader](https://flowpick.net/video-downloader) | Save direct MP4 / WebM / MOV / MKV / FLV and other video files |
+| **Audio Downloader** | [flowpick.net/audio-downloader](https://flowpick.net/audio-downloader) | Save direct MP3 / M4A / AAC / WAV / OGG / FLAC audio files |
+| **Download Queue** | [flowpick.net/download-queue](https://flowpick.net/download-queue) | Batch target of the panel's *Download Selected* — queues up to 500 items per window |
+| **Media Recorder** | [flowpick.net/recording](https://flowpick.net/recording) | Target of the MSE / MediaRecorder capture flow |
+
+![M3U8 downloader](docs/screenshots/tool-m3u8-downloader.png)
+
+![Download queue](docs/screenshots/tool-download-queue.png)
+
+### Edit and process
+
+| Tool | Link | What it does |
+|---|---|---|
+| **Video Trimmer** | [flowpick.net/tools/video-trimmer](https://flowpick.net/tools/video-trimmer) | Cut an exact section out of an MP4 / WebM / MOV file and save it |
+| **Audio Extractor** | [flowpick.net/tools/audio-extractor](https://flowpick.net/tools/audio-extractor) | Pull the audio track out of a video, keeping the original quality or re-encoding to MP3 / M4A / WAV / FLAC |
+| **Audio Trimmer** | [flowpick.net/tools/audio-trimmer](https://flowpick.net/tools/audio-trimmer) | Waveform-based precise cutting with exact timestamps |
+| **Audio Volume Booster** | [flowpick.net/tools/audio-volume-booster](https://flowpick.net/tools/audio-volume-booster) | Raise quiet audio, guard peaks, normalize loudness, export WAV |
+
+### Convert formats
+
+| Tool | Link | What it does |
+|---|---|---|
+| **Audio Converter** | [flowpick.net/tools/audio-converter](https://flowpick.net/tools/audio-converter) | Convert to MP3, WAV, M4A, FLAC or OGG in the browser |
+| **TS to MP4 Converter** | [flowpick.net/tools/ts-to-mp4](https://flowpick.net/tools/ts-to-mp4) | Convert / merge MPEG-TS and HLS segments into one MP4, including AES-128 encrypted streams |
+| **WebM to MP4 Converter** | [flowpick.net/tools/webm-to-mp4](https://flowpick.net/tools/webm-to-mp4) | Turn WebM screen recordings into H.264/AAC MP4 |
+| **WebP to MP4 Converter** | [flowpick.net/tools/webp-to-mp4](https://flowpick.net/tools/webp-to-mp4) | Convert animated WebP images into MP4 video |
+
+### Analyze media
+
+Useful when a sniffed stream will not play, or when you want to verify what a download actually produced.
+
+| Tool | Link | What it does |
+|---|---|---|
+| **M3U8 Playlist Analyzer** | [flowpick.net/tools/m3u8-playlist-analyzer](https://flowpick.net/tools/m3u8-playlist-analyzer) | Inspect variants, tracks, segments, codecs, duration and encryption signals of a playlist |
+| **MPD Manifest Analyzer** | [flowpick.net/tools/mpd-manifest-analyzer](https://flowpick.net/tools/mpd-manifest-analyzer) | Parse a DASH manifest: periods, adaptation sets, representations, codecs, bandwidth, segment addressing, DRM |
+| **Media Information Analyzer** | [flowpick.net/tools/video-info](https://flowpick.net/tools/video-info) | Read container, codecs, bitrate, resolution, frame rate and tracks from a local file; export JSON |
+
+### AI tools (on-device inference)
+
+| Tool | Link | What it does |
+|---|---|---|
+| **Audio to Text** | [flowpick.net/tools/audio-to-text](https://flowpick.net/tools/audio-to-text) | Whisper speech recognition on a local audio file; edit the transcript and export TXT / SRT / VTT |
+| **Video to Text** | [flowpick.net/tools/video-to-text](https://flowpick.net/tools/video-to-text) | Same recognition applied directly to a video's primary audio track |
+| **AI Vocal Separator** | [flowpick.net/tools/vocal-separator](https://flowpick.net/tools/vocal-separator) | Split a song into vocal and instrumental stems with Kim Vocal 2, export both as WAV |
+| **Audio Noise Remover** | [flowpick.net/tools/audio-noise-remover](https://flowpick.net/tools/audio-noise-remover) | RNNoise speech denoising with an adjustable wet/dry blend |
+| **Audio Silence Remover** | [flowpick.net/tools/audio-silence-remover](https://flowpick.net/tools/audio-silence-remover) | Find long pauses and either mute them in place or cut them out |
+
+### Docs, guides and changelog
+
+| Resource | Link |
+|---|---|
+| Getting started | [flowpick.net/docs/getting-started](https://flowpick.net/docs/getting-started) |
+| Feature docs (sniffing, audio, images, batch, search, privacy) | [flowpick.net/docs/features/video-sniffing](https://flowpick.net/docs/features/video-sniffing) |
+| Download engine architecture | [flowpick.net/docs/advanced/download-engine](https://flowpick.net/docs/advanced/download-engine) |
+| Online tools guide | [flowpick.net/docs/advanced/online-tools](https://flowpick.net/docs/advanced/online-tools) |
+| Use cases (courses, live replays, podcasts, galleries) | [flowpick.net/docs/usecases/video-platforms](https://flowpick.net/docs/usecases/video-platforms) |
+| Task guides | [flowpick.net/guides](https://flowpick.net/guides) |
+| Blog / release notes | [flowpick.net/blog](https://flowpick.net/blog) · [flowpick.net/changelog](https://flowpick.net/changelog) |
+| Feedback | [github.com/ezwebtools/flowpick/discussions](https://github.com/ezwebtools/flowpick/discussions) |
+
+> 🌏 The site is localized. Prefix any path with `/zh-Hans`, `/zh-Hant`, `/ja`, `/ko` or `/fr` to open that language directly — the extension does this automatically from your browser UI language when it opens a downloader or the recording page.
 
 ---
 
@@ -163,7 +274,7 @@ npm run compile
 node --test tests/
 ```
 
-> **Environment-based site origin**: Web pages hosted on our site (the recording page and the m3u8 / dash / audio / video downloaders) resolve their origin from `utils/site.ts` — `https://localhost:3001` under `wxt dev`, and `https://flowpick.net` in production builds (`wxt build` / `wxt zip`). No manual switching required; run the local website dev server on port 3001 for full functionality during development.
+> **Environment-based site origin**: Web pages hosted on our site (the recording page, the download queue and the m3u8 / dash / audio / video downloaders) resolve their origin from `utils/site.ts` — `http://localhost:3001` under `wxt dev`, and `https://flowpick.net` in production builds (`wxt build` / `wxt zip`). No manual switching required; run the local website dev server on port 3001 for full functionality during development.
 
 ---
 
@@ -172,11 +283,17 @@ node --test tests/
 1. **Auto Sniffing** — FlowPick automatically captures media requests as you browse
 2. **View List** — Click the extension icon to see all detected media for the current tab
 3. **Filter & Sort** — Use tabs and filters to quickly locate target resources
-4. **Preview & Play** — Click play to stream video/audio in-panel, or preview images full-screen
+4. **Preview & Play** — Click play to stream video/audio in-panel, preview images full-screen, or open a dedicated player tab
 5. **Copy URL** — One-click copy media URL to clipboard
-6. **Download** — Click download to save media files directly
+6. **Download** — Where a file goes depends on its type:
+   - **Images / documents / subtitles** — saved directly by the browser's download manager, with the captured Referer and auth headers injected
+   - **Streams, video and audio** — handed to the matching [online tool](https://flowpick.net/tools) (M3U8 / MPD / video / audio downloader) in a new tab
+   - **Multiple selected items** — sent to the [download queue](https://flowpick.net/download-queue)
+   - **MSE-only players and live streams** — recorded, then saved via the recording page
 
 > 💡 **Tip**: Some videos must start playing on the page before they can be detected.
+
+> 🔒 **Privacy note**: Handing a resource to a flowpick.net page sends the selected URL, filename, source page address and the request headers needed to reproduce access (which may include signed tokens, Cookie or Authorization). Nothing is uploaded to a server unless you explicitly use a cloud feature. See [the privacy policy](https://flowpick.net/legal/privacy-policy).
 
 ---
 
@@ -202,11 +319,12 @@ node --test tests/
 ```
 flowpick/
 ├── entrypoints/
-│   ├── background.ts      # Background: network monitoring, media detection, download, proxy fetch, DRM detection
-│   ├── content.ts         # Content script: page injection, message relay, MSE stream capture
-│   ├── douyin.content.ts  # Douyin platform adapter: parses page JSON for multi-bitrate candidates
-│   ├── injected.ts        # Injected script: Fetch/XHR interception, MSE interception
-│   ├── popup/             # Popup panel UI (also drives the side panel)
+│   ├── background.ts       # Background: sniffing, grouping, message bus, download hand-off, proxy fetch, DRM check
+│   ├── content.ts          # Content script: page injection, message relay, MSE stream capture, site bridge
+│   ├── injected.ts         # Page-world hook: fetch/XHR interception, player (hls.js/dash.js/video.js) binding, MSE
+│   ├── douyin.content.ts   # Douyin platform adapter: parses page JSON for multi-bitrate candidates
+│   ├── player-pick.content.ts # MAIN-world element picker for player pages
+│   ├── popup/              # Popup panel UI (also drives the side panel)
 │   │   ├── App.vue        # Main component: list, playback, settings, recording dialog
 │   │   ├── components/
 │   │   │   └── SettingsView.vue  # Settings panel component
@@ -220,27 +338,45 @@ flowpick/
 │   │   ├── types.ts       # Shared popup types
 │   │   ├── main.ts        # Entry point
 │   │   └── style.css      # Styles
+│   ├── player/            # Standalone player tab (own window instead of in-panel playback)
 │   ├── sidepanel/         # Side panel entry (Chrome Side Panel / Firefox Sidebar)
 │   └── welcome/           # Welcome guide: tutorial + FAQ
 ├── utils/
 │   ├── detect.ts          # Media format detection (Content-Type + URL pattern)
 │   ├── settings.ts        # Settings management (sniffing rules, domain exclusion, capture toggles)
-│   ├── storage.ts         # Storage management (per-tab data persistence)
-│   ├── stream-parser.ts   # M3U8/MPD manifest parsing (variants/duration/size estimation)
+│   ├── storage.ts         # Per-tab media list persistence (session storage)
+│   ├── stream-parser.ts   # M3U8/MPD manifest parsing (variants/audio/duration/size estimation)
+│   ├── media-header.ts    # MP4/WebM container-header reader (duration/dimensions, no DOM)
+│   ├── sniff-control.ts   # Two-layer pause state (this tab vs every site) + paused-toolbar visuals
 │   ├── platform-media.ts  # Generic platform adapter interface (PlatformMediaTask)
-│   ├── download-job.ts    # Resource download jobs (image/document/audio/live via download page)
-│   ├── native-download.ts # Waits for downloads.download terminal state with byte verification
-│   ├── page-session.ts    # Page identity (site + path) tracking across navigations
+│   ├── page-session.ts    # Page identity + frame epochs across navigations
 │   ├── page-reporter.ts   # Ordered, acknowledged media-event bridge from content scripts
+│   ├── page-media-picker.ts       # In-page element picker / image collector
+│   ├── player-media-pick.ts       # Player-manifest resolution helpers
+│   ├── dashjs-media-pick.ts       # dash.js instance binding
+│   ├── instagram-capture.ts       # Instagram hydration parsing
+│   ├── instagram-media.ts         # Instagram media URL normalization
+│   ├── instagram-player.ts        # Instagram DASH track extraction
+│   ├── separated-audio.ts         # Keeps a detached audio track in sync with its video
+│   ├── media-player-tabs.ts       # Player tab session registry
+│   ├── media-message.ts           # Plain-object cloning for WebExtension messaging
+│   ├── download-job.ts    # Legacy download-job sweep: drops stale credential records an older build left behind
+│   ├── download-queue.ts  # Batch download queue sessions handed to flowpick.net
+│   ├── native-download.ts # Waits for downloads.download terminal state with byte verification
+│   ├── proxy-context-gate.ts      # Serializes proxy fetches per auth context
+│   ├── privacy.ts         # Header-capture policy
+│   ├── site-bridge.ts     # Origin/frame allow-list for the flowpick.net bridge
 │   ├── recording-bridge.ts        # Recording page <-> injected script messaging bridge
 │   ├── recording-session-store.ts # Recording session persistence & service worker restart recovery
 │   ├── recording-support.ts       # Recording capability detection (Firefox unsupported)
-│   ├── useM3u8Ext.ts      # External M3U8 download extension integration
+│   ├── useM3u8Ext.ts      # Website-side composable that hands a URL back to the extension
 │   ├── site.ts            # Site origin: localhost:3001 in dev, flowpick.net in builds
-│   └── i18n.ts            # i18n + theme/density management (7 languages)
+│   └── i18n.ts            # i18n + theme/density management (23 languages)
 ├── tests/                 # Unit tests (Node.js built-in test runner)
+├── docs/
+│   └── screenshots/       # Images used by these READMEs
 ├── public/
-│   ├── _locales/          # Internationalization (en / zh_CN / zh_TW / ja / de / es / ko)
+│   ├── _locales/          # Extension manifest strings (25 locale folders)
 │   └── icon/              # Extension icons
 ├── wxt.config.ts          # WXT configuration (permissions, Side Panel, Sidebar)
 └── package.json           # Project dependencies
@@ -252,14 +388,16 @@ flowpick/
 
 | Permission | Purpose |
 |------------|---------|
-| `storage` | Store detected media lists and user settings |
-| `tabs` | Manage tab-specific media lists |
-| `webRequest` | Monitor network requests for media detection |
-| `declarativeNetRequest` | Strip Origin/Cookie headers during proxy fetch to bypass hotlink protection |
+| `storage` | Store detected media lists (`storage.session`) and user settings (`storage.local`) |
+| `tabs` | Manage tab-specific media lists, open downloader / player / recording tabs |
+| `webRequest` | Monitor network requests for media detection and captured Referer / Cookie / Authorization headers |
+| `webNavigation` | Track page and frame navigations so a new document starts with a clean list |
+| `declarativeNetRequest` | Session rules that set Referer and strip Origin/cache headers for downloads and the HLS proxy (Chromium) |
 | `downloads` | Enable file download functionality |
 | `notifications` | Download completion and status notifications |
 | `sidePanel` | Chrome side panel mode (Chromium only) |
-| `<all_urls>` | Access all URLs for media detection |
+| `tabCapture` | MediaRecorder (MSR) tab-recording mode (Chromium only) |
+| `<all_urls>` | Detect media on any page and reach any media CDN |
 
 ---
 

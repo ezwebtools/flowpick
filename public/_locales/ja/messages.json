@@ -3,7 +3,7 @@
         "message": "FlowPick - 動画・音楽・画像一括ダウンロード"
     },
     "extDescription": {
-        "message": "ウェブページのメディアを検出・プレビュー。動画、音声、画像、HLS/DASH ストリームをダウンロード。"
+        "message": "動画・音声・画像・HLS/DASH ストリームをあらゆるサイトから検出して保存。無料・オープンソース、処理はブラウザ内で完結。"
     },
     "title":{
         "message": "Flowpick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "プライバシーポリシー全文"
+    },
+    "cmdDownloadBest": {
+        "message": "このページで最高画質のストリームをダウンロード"
+    },
+    "cmdOpenQueue": {
+        "message": "ダウンロードキューを開く"
+    },
+    "downloadCompleteTitle": {
+        "message": "ダウンロード完了"
+    },
+    "downloadCompleteBody": {
+        "message": "ダウンロードフォルダーに保存しました"
+    },
+    "downloadFailedTitle": {
+        "message": "ダウンロードに失敗しました"
+    },
+    "downloadFailedBody": {
+        "message": "ブラウザーがこのダウンロードを完了できませんでした"
+    },
+    "pauseThisTab":{
+        "message": "このタブの検出を一時停止"
+    },
+    "resumeThisTab":{
+        "message": "このタブの検出を再開"
+    },
+    "pauseAllSites":{
+        "message": "すべてのサイトで検出を一時停止"
+    },
+    "resumeAllSites":{
+        "message": "すべてのサイトで検出を再開"
     }
 }

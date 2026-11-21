@@ -3,7 +3,7 @@
         "message": "FlowPick - Sniffer médií a stahovač"
     },
     "extDescription": {
-        "message": "Rozpoznávejte a prohlížejte média na webových stránkách. Stahujte videa, zvuk, obrázky a streamy HLS/DASH s FlowPick."
+        "message": "Rozpoznejte a stahujte videa, zvuk, obrázky i HLS/DASH streamy z libovolného webu. Zdarma, open source, vše v prohlížeči."
     },
     "welcomeSubtitle": {
         "message": "Chytrý sniffer médií a stahovač"
@@ -145,5 +145,35 @@
     },
     "privacyPolicy": {
         "message": "Úplné zásady ochrany soukromí"
+    },
+    "cmdDownloadBest": {
+        "message": "Stáhnout stream v nejvyšší kvalitě na této stránce"
+    },
+    "cmdOpenQueue": {
+        "message": "Otevřít frontu stahování"
+    },
+    "downloadCompleteTitle": {
+        "message": "Stahování dokončeno"
+    },
+    "downloadCompleteBody": {
+        "message": "Uloženo do složky stahování"
+    },
+    "downloadFailedTitle": {
+        "message": "Stahování selhalo"
+    },
+    "downloadFailedBody": {
+        "message": "Prohlížeč toto stahování nedokončil"
+    },
+    "pauseThisTab": {
+        "message": "Pozastavit zjišťování na této kartě"
+    },
+    "resumeThisTab": {
+        "message": "Pokračovat ve zjišťování na této kartě"
+    },
+    "pauseAllSites": {
+        "message": "Pozastavit zjišťování na všech stránkách"
+    },
+    "resumeAllSites": {
+        "message": "Pokračovat ve zjišťování na všech stránkách"
     }
 }

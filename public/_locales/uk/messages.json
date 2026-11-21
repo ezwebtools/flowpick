@@ -3,7 +3,7 @@
         "message": "FlowPick — Сніффер медіа та завантажувач"
     },
     "extDescription": {
-        "message": "Виявляйте та переглядайте медіа на сайтах. Завантажуйте відео, аудіо, зображення й потоки HLS/DASH із FlowPick."
+        "message": "Виявляйте та завантажуйте відео, аудіо, зображення й потоки HLS/DASH з будь-яких сайтів. Безкоштовно, open source, у браузері."
     },
     "welcomeSubtitle": {
         "message": "Розумний сніффер та завантажувач медіа"
@@ -145,5 +145,35 @@
     },
     "privacyPolicy": {
         "message": "Повна політика конфіденційності"
+    },
+    "cmdDownloadBest": {
+        "message": "Завантажити потік найвищої якості на цій сторінці"
+    },
+    "cmdOpenQueue": {
+        "message": "Відкрити чергу завантажень"
+    },
+    "downloadCompleteTitle": {
+        "message": "Завантаження завершено"
+    },
+    "downloadCompleteBody": {
+        "message": "Збережено в папці завантажень"
+    },
+    "downloadFailedTitle": {
+        "message": "Не вдалося завантажити"
+    },
+    "downloadFailedBody": {
+        "message": "Браузер не зміг завершити це завантаження"
+    },
+    "pauseThisTab": {
+        "message": "Призупинити виявлення в цій вкладці"
+    },
+    "resumeThisTab": {
+        "message": "Продовжити виявлення в цій вкладці"
+    },
+    "pauseAllSites": {
+        "message": "Призупинити виявлення на всіх сайтах"
+    },
+    "resumeAllSites": {
+        "message": "Продовжити виявлення на всіх сайтах"
     }
 }

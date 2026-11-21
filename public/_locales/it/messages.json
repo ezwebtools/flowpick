@@ -3,7 +3,7 @@
         "message": "FlowPick - Rilevatore e downloader multimediale"
     },
     "extDescription": {
-        "message": "Rileva e visualizza i media nelle pagine web. Scarica video, audio, immagini e flussi HLS/DASH con FlowPick."
+        "message": "Rileva e scarica video, audio, immagini e flussi HLS/DASH da qualsiasi sito. Gratis, open source, tutto in locale nel browser."
     },
     "title": {
         "message": "FlowPick"
@@ -373,5 +373,35 @@
     },
     "privacyPolicy": {
         "message": "Informativa sulla privacy completa"
+    },
+    "cmdDownloadBest": {
+        "message": "Scarica il flusso di qualità migliore di questa pagina"
+    },
+    "cmdOpenQueue": {
+        "message": "Apri la coda di download"
+    },
+    "downloadCompleteTitle": {
+        "message": "Download completato"
+    },
+    "downloadCompleteBody": {
+        "message": "Salvato nella cartella dei download"
+    },
+    "downloadFailedTitle": {
+        "message": "Download non riuscito"
+    },
+    "downloadFailedBody": {
+        "message": "Il browser non è riuscito a completare questo download"
+    },
+    "pauseThisTab": {
+        "message": "Sospendi rilevamento in questa scheda"
+    },
+    "resumeThisTab": {
+        "message": "Riprendi rilevamento in questa scheda"
+    },
+    "pauseAllSites": {
+        "message": "Sospendi rilevamento su tutti i siti"
+    },
+    "resumeAllSites": {
+        "message": "Riprendi rilevamento su tutti i siti"
     }
 }

@@ -3,7 +3,7 @@
         "message": "FlowPick - Pendeteksi dan Pengunduh Media"
     },
     "extDescription": {
-        "message": "Deteksi dan pratinjau media di halaman web. Unduh video, audio, gambar, dan streaming HLS/DASH dengan FlowPick."
+        "message": "Deteksi dan unduh video, audio, gambar, dan streaming HLS/DASH dari situs mana pun. Gratis, open source, semua di browser."
     },
     "title": {
         "message": "FlowPick"
@@ -373,5 +373,35 @@
     },
     "privacyPolicy": {
         "message": "Kebijakan privasi lengkap"
+    },
+    "cmdDownloadBest": {
+        "message": "Unduh stream kualitas tertinggi di halaman ini"
+    },
+    "cmdOpenQueue": {
+        "message": "Buka antrean unduhan"
+    },
+    "downloadCompleteTitle": {
+        "message": "Unduhan selesai"
+    },
+    "downloadCompleteBody": {
+        "message": "Disimpan ke folder unduhan"
+    },
+    "downloadFailedTitle": {
+        "message": "Unduhan gagal"
+    },
+    "downloadFailedBody": {
+        "message": "Browser tidak dapat menyelesaikan unduhan ini"
+    },
+    "pauseThisTab": {
+        "message": "Jeda pendeteksian di tab ini"
+    },
+    "resumeThisTab": {
+        "message": "Lanjutkan pendeteksian di tab ini"
+    },
+    "pauseAllSites": {
+        "message": "Jeda pendeteksian di semua situs"
+    },
+    "resumeAllSites": {
+        "message": "Lanjutkan pendeteksian di semua situs"
     }
 }

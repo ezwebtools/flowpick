@@ -3,7 +3,7 @@
         "message": "FlowPick - 媒體偵測與下載工具"
     },
     "extDescription": {
-        "message": "偵測及預覽網頁媒體，下載影片、音訊、圖片及 HLS/DASH 串流，支援批次下載。"
+        "message": "免費開源的網頁媒體嗅探與下載工具，一鍵抓取影片、音訊、圖片及 HLS/DASH 串流，全程本機處理。"
     },
     "title":{
         "message": "m3u8影片下載器"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "完整隱私權政策"
+    },
+    "cmdDownloadBest": {
+        "message": "下載目前頁面最高畫質的串流"
+    },
+    "cmdOpenQueue": {
+        "message": "開啟下載佇列"
+    },
+    "downloadCompleteTitle": {
+        "message": "下載完成"
+    },
+    "downloadCompleteBody": {
+        "message": "已儲存到下載資料夾"
+    },
+    "downloadFailedTitle": {
+        "message": "下載失敗"
+    },
+    "downloadFailedBody": {
+        "message": "瀏覽器無法完成這次下載"
+    },
+    "pauseThisTab":{
+        "message": "暫停嗅探此分頁"
+    },
+    "resumeThisTab":{
+        "message": "恢復嗅探此分頁"
+    },
+    "pauseAllSites":{
+        "message": "暫停所有網站嗅探"
+    },
+    "resumeAllSites":{
+        "message": "恢復所有網站嗅探"
     }
 }

@@ -43,6 +43,7 @@ function backend() {
     navigator: { userAgent: 'Edge' }, isFirefoxFamily: () => false,
     crypto: { randomUUID: () => 'test-recording-session' },
     pendingDownloads: new Map(), tabMap: new Map(), getFormatGroup: () => 'video',
+    currentSettings: { queueInBackground: true },
     openDownloadQueue: async (items, windowId) => { queues.push({ items, windowId }); return { ok: true } },
     browser: {
       runtime: { id: 'test', getURL: path => root + path.replace(/^\//, '') },

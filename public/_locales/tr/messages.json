@@ -3,7 +3,7 @@
         "message": "FlowPick - Medya Algılayıcı ve İndirici"
     },
     "extDescription": {
-        "message": "Web sayfalarındaki medyayı algılayın ve önizleyin. FlowPick ile video, ses, resim ve HLS/DASH akışlarını indirin."
+        "message": "Her sitede video, ses, görsel ve HLS/DASH akışlarını algılayın ve indirin. Ücretsiz, açık kaynak, tümü tarayıcınızda."
     },
     "title": {
         "message": "FlowPick"
@@ -364,5 +364,35 @@
     },
     "privacyPolicy": {
         "message": "Tam gizlilik politikası"
+    },
+    "cmdDownloadBest": {
+        "message": "Bu sayfadaki en yüksek kaliteli akışı indir"
+    },
+    "cmdOpenQueue": {
+        "message": "İndirme kuyruğunu aç"
+    },
+    "downloadCompleteTitle": {
+        "message": "İndirme tamamlandı"
+    },
+    "downloadCompleteBody": {
+        "message": "İndirilenler klasörüne kaydedildi"
+    },
+    "downloadFailedTitle": {
+        "message": "İndirme başarısız"
+    },
+    "downloadFailedBody": {
+        "message": "Tarayıcı bu indirmeyi tamamlayamadı"
+    },
+    "pauseThisTab": {
+        "message": "Bu sekmede algılamayı duraklat"
+    },
+    "resumeThisTab": {
+        "message": "Bu sekmede algılamayı sürdür"
+    },
+    "pauseAllSites": {
+        "message": "Tüm sitelerde algılamayı duraklat"
+    },
+    "resumeAllSites": {
+        "message": "Tüm sitelerde algılamayı sürdür"
     }
 }
