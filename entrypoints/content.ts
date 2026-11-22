@@ -1,3 +1,4 @@
+import { withMessageResponse } from '../utils/message-response'
 import { createPageReporter } from '../utils/page-reporter'
 import { installPageMediaPicker } from '../utils/page-media-picker'
 import { pageIdentity } from '../utils/page-session'
@@ -637,7 +638,7 @@ export default defineContentScript({
     }
 
     // 接收 background 发来的消息，通过 postMessage 转发给页面
-    browser.runtime.onMessage.addListener((msg) => {
+    browser.runtime.onMessage.addListener(withMessageResponse((msg) => {
       if (msg.type === 'FLOWPICK_QUEUE_CHANGED' && window.top === window && isQueuePage(location.href)) {
         window.postMessage({ type: 'FLOWPICK_QUEUE_CHANGED' }, location.origin)
       }
@@ -668,6 +669,7 @@ export default defineContentScript({
         const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {}
         if (!recordingConfigPosted) pendingRecordingDeliveries.push(payload)
         else deliverRecordingPayload(payload)
+        return { ok: true }
       }
       if (msg.type === 'FLOWPICK_MSR_REGION_TRACKING_START') {
         if (window.top !== window) return
@@ -696,6 +698,7 @@ export default defineContentScript({
       if (msg.type === 'FLOWPICK_RECORDING_SESSION_STATE') {
         if (msg.state === 'closed' || msg.state === 'stopped' || msg.state === 'source-closed') stopCaptureRegionTracking()
         window.postMessage({ ...msg, type: 'FLOWPICK_RECORDING_SESSION_STATE' }, '*')
+        return { ok: true }
       }
       if (msg.type === 'FLOWPICK_RECORDING_PLAYBACK_STATE') {
         if (mseCaptureActive && captureRegionMode === 'mse') {
@@ -703,6 +706,7 @@ export default defineContentScript({
           scheduleCaptureRegionReport(true)
         }
         window.postMessage({ ...msg, type: 'FLOWPICK_RECORDING_PLAYBACK_STATE' }, '*')
+        return { ok: true }
       }
       if (msg.type === 'FLOWPICK_MEDIA_AUTOPLAY') {
         const tryAutoplay = async () => {
@@ -758,7 +762,7 @@ export default defineContentScript({
           minSizeKB: msg.dataImageMinSizeKB ?? 50,
         }, '*')
       }
-    })
+    }))
 
     window.dispatchEvent(new CustomEvent('m3u8ext:ready'))
 
@@ -881,6 +885,7 @@ export default defineContentScript({
       if (event.data?.type === 'FLOWPICK_MSE_RECORDING_EVENT') {
         const payload: Record<string, unknown> = {
           event: event.data.event,
+          reason: event.data.reason === 'end-of-stream' ? 'end-of-stream' : undefined,
           captureId: event.data.captureId,
           title: event.data.title,
           totalBytes: event.data.totalBytes,

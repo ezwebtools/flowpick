@@ -1770,8 +1770,7 @@ export default defineBackground(() => {
       if (previousSession) await closeRecordingSession(previousSession)
 
       const languageMapping: Record<string, string> = {
-        'zh-CN': 'zh-Hans', 'zh-SG': 'zh-Hans', 'zh-TW': 'zh-Hant', 'zh-HK': 'zh-Hant',
-        'ja': 'ja', 'ko': 'ko', 'fr': 'fr',
+        'zh-CN': 'zh-Hans', 'zh-SG': 'zh-Hans', 'zh-TW': 'zh-Hans', 'zh-HK': 'zh-Hans'
       }
       const langSuffix = languageMapping[browser.i18n.getUILanguage()]
       // 开发环境（wxt dev）指向本地 dev server，生产构建指向 flowpick.net
@@ -2126,11 +2125,8 @@ export default defineBackground(() => {
       const languageMapping: Record<string, string> = {
         'zh-CN': 'zh-Hans',
         'zh-SG': 'zh-Hans',
-        'zh-TW': 'zh-Hant',
-        'zh-HK': 'zh-Hant',
-        'ja': 'ja',
-        'ko': 'ko',
-        'fr': 'fr'
+        'zh-TW': 'zh-Hans',
+        'zh-HK': 'zh-Hans'
       }
 
       const browserLang = browser.i18n.getUILanguage()

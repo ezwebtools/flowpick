@@ -508,12 +508,12 @@ export default defineUnlistedScript(() => {
     }, '*', transfer)
   }
 
-  function completeMseCapture(capture: MseCapture) {
+  function completeMseCapture(capture: MseCapture, reason?: 'end-of-stream') {
     if (capture.complete) return
     capture.complete = true
     capture.title = document.title
     clearTimeout((capture as any)._notifyTimer)
-    emitMseRecordingEvent('complete', capture)
+    emitMseRecordingEvent('complete', capture, reason ? { reason } : {})
     // The recording page owns the streamed bytes. Once completion has been
     // delivered, discard the source-page session metadata as well.
     mseCaptures.delete(capture.captureId)
@@ -695,7 +695,7 @@ export default defineUnlistedScript(() => {
           if (!captureId) return
           const capture = mseCaptures.get(captureId)
           if (!capture) return
-          completeMseCapture(capture)
+          completeMseCapture(capture, args[0] === undefined ? 'end-of-stream' : undefined)
         } catch {}
       },
     })
