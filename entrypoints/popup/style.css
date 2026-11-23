@@ -87,3 +87,7 @@ body {
     transform: translateY(0) !important;
   }
 }
+[data-page-picked] {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}

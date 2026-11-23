@@ -1,0 +1,209 @@
+{
+  "en": [
+    "Privacy and data use",
+    "FlowPick reads page URLs, titles, resource addresses and selected request headers to detect, preview and download media. Detection results are stored in the browser.",
+    "When you start a website download or batch, flowpick.net receives the selected resource URLs, filenames, source page addresses and required request headers. These may include signed URLs, Cookie, Authorization or other access tokens.",
+    "Recording sends the selected tab’s title and recorded audio/video to the flowpick.net recording page when you start recording.",
+    "Giving data to a website page is different from uploading it to a server. Cloud upload is a separate optional action. Review the website’s notices before using cloud services.",
+    "Clear detected items in the list. Use Settings to change resource categories or exclude domains. Disable or uninstall FlowPick to stop all extension access.",
+    "Full privacy policy"
+  ],
+  "zh_CN": [
+    "隐私与数据使用",
+    "FlowPick 为检测、预览和下载媒体，读取网页地址、标题、资源地址及部分请求头。检测结果保存在浏览器中。",
+    "发起网站下载或批量任务时，flowpick.net 页面将接收所选资源地址、文件名、来源网页地址及所需请求头，其中可能包含签名链接、Cookie、Authorization 或其他访问令牌。",
+    "主动开始录制后，所选标签页的标题和录制的音视频将交给 flowpick.net 录制页面。",
+    "向网站页面交接数据与上传服务器不同。云端上传是独立的可选操作；使用云端服务前，请阅读网站的相关说明。",
+    "可在列表清空检测结果，在设置中调整资源类别或排除域名。停用或卸载 FlowPick 可停止扩展的所有访问。",
+    "完整隐私政策"
+  ],
+  "zh_TW": [
+    "隱私與資料使用",
+    "FlowPick 為偵測、預覽及下載媒體，讀取網頁網址、標題、資源網址及部分請求標頭。偵測結果儲存在瀏覽器中。",
+    "發起網站下載或批次任務時，flowpick.net 頁面將接收所選資源網址、檔案名稱、來源網頁網址及所需請求標頭，其中可能包含簽署連結、Cookie、Authorization 或其他存取權杖。",
+    "主動開始錄製後，所選分頁的標題和錄製的影音將交給 flowpick.net 錄製頁面。",
+    "將資料交給網站頁面與上傳伺服器不同。雲端上傳是獨立的選用操作；使用雲端服務前，請閱讀網站的相關說明。",
+    "可在清單清除偵測結果，在設定中調整資源類別或排除網域。停用或解除安裝 FlowPick 可停止擴充功能的所有存取。",
+    "完整隱私權政策"
+  ],
+  "de": [
+    "Datenschutz und Datennutzung",
+    "FlowPick liest Seitenadressen, Titel, Ressourcenadressen und ausgewählte Anfrageheader, um Medien zu erkennen, anzuzeigen und herunterzuladen. Ergebnisse werden im Browser gespeichert.",
+    "Wenn Sie einen Website-Download oder einen Stapel starten, erhält die Seite flowpick.net ausgewählte Ressourcenadressen, Dateinamen, Quellseitenadressen und benötigte Anfrageheader. Diese können signierte URLs, Cookies, Authorization oder andere Zugriffstoken enthalten.",
+    "Bei einer Aufnahme werden beim Start der Aufnahme der Titel des gewählten Tabs und die aufgenommenen Audio-/Videodaten an die Aufnahmeseite von flowpick.net übergeben.",
+    "Die Übergabe an eine Webseite ist kein Server-Upload. Ein Cloud-Upload ist eine separate optionale Aktion. Lesen Sie vor der Nutzung von Cloud-Diensten die Hinweise der Website.",
+    "Löschen Sie Ergebnisse in der Liste. Ändern Sie Kategorien oder schließen Sie Domains in den Einstellungen aus. Deaktivieren oder deinstallieren Sie FlowPick, um alle Zugriffe zu beenden.",
+    "Vollständige Datenschutzerklärung"
+  ],
+  "es": [
+    "Privacidad y uso de datos",
+    "FlowPick lee direcciones de páginas, títulos, direcciones de recursos y determinadas cabeceras de solicitudes para detectar, previsualizar y descargar contenido multimedia. Los resultados se guardan en el navegador.",
+    "Al iniciar una descarga web o un lote, la página flowpick.net recibe las direcciones seleccionadas, los nombres de archivo, las páginas de origen y las cabeceras necesarias. Pueden incluir URL firmadas, Cookie, Authorization u otros tokens de acceso.",
+    "Al iniciar una grabación, se envían el título de la pestaña seleccionada y el audio/vídeo grabado a la página de grabación de flowpick.net.",
+    "Entregar datos a una página web es distinto de subirlos a un servidor. La subida a la nube es una acción opcional independiente. Consulta los avisos del sitio antes de usar servicios en la nube.",
+    "Borra los resultados en la lista. Ajusta las categorías o excluye dominios en Configuración. Desactiva o desinstala FlowPick para detener todo acceso.",
+    "Política de privacidad completa"
+  ],
+  "fr": [
+    "Confidentialité et utilisation des données",
+    "FlowPick lit les adresses des pages, leurs titres, les adresses des ressources et certains en-têtes de requête pour détecter, prévisualiser et télécharger des médias. Les résultats sont conservés dans le navigateur.",
+    "Au lancement d’un téléchargement web ou d’un lot, la page flowpick.net reçoit les adresses sélectionnées, les noms de fichiers, les adresses des pages sources et les en-têtes nécessaires. Ils peuvent contenir des URL signées, Cookie, Authorization ou d’autres jetons d’accès.",
+    "Au démarrage d’un enregistrement, le titre de l’onglet choisi et les données audio/vidéo enregistrées sont transmis à la page d’enregistrement de flowpick.net.",
+    "Transmettre des données à une page web diffère d’un envoi au serveur. L’envoi dans le cloud est une action facultative distincte. Consultez les informations du site avant d’utiliser ses services cloud.",
+    "Effacez les résultats dans la liste. Modifiez les catégories ou excluez des domaines dans les paramètres. Désactivez ou désinstallez FlowPick pour arrêter tout accès.",
+    "Politique de confidentialité complète"
+  ],
+  "ja": [
+    "プライバシーとデータの利用",
+    "FlowPick はメディアの検出・プレビュー・ダウンロードのために、ページの URL、タイトル、リソースの URL、一部のリクエストヘッダーを読み取ります。検出結果はブラウザー内に保存されます。",
+    "ウェブでのダウンロードや一括処理を開始すると、選択したリソースの URL、ファイル名、元ページの URL、必要なリクエストヘッダーが flowpick.net のページに渡されます。署名付き URL、Cookie、Authorization、その他のアクセストークンが含まれる場合があります。",
+    "録画を開始すると、選択したタブのタイトルと録画した映像・音声が flowpick.net の録画ページに渡されます。",
+    "ウェブページへのデータの受け渡しとサーバーへのアップロードは異なります。クラウドへのアップロードは別の任意の操作です。クラウドサービスを利用する前にサイトの説明をご確認ください。",
+    "一覧から検出結果を消去できます。設定でリソースの種類や除外ドメインを変更できます。すべてのアクセスを停止するには FlowPick を無効化または削除してください。",
+    "プライバシーポリシー全文"
+  ],
+  "ko": [
+    "개인정보 및 데이터 사용",
+    "FlowPick은 미디어 감지, 미리보기 및 다운로드를 위해 페이지 주소, 제목, 리소스 주소와 일부 요청 헤더를 읽습니다. 감지 결과는 브라우저에 저장됩니다.",
+    "웹 다운로드나 일괄 작업을 시작하면 선택한 리소스 주소, 파일 이름, 원본 페이지 주소와 필요한 요청 헤더가 flowpick.net 페이지로 전달됩니다. 서명된 URL, Cookie, Authorization 또는 기타 액세스 토큰이 포함될 수 있습니다.",
+    "녹화를 시작하면 선택한 탭의 제목과 녹화한 영상·음성이 flowpick.net 녹화 페이지로 전달됩니다.",
+    "웹페이지에 데이터를 전달하는 것과 서버에 업로드하는 것은 다릅니다. 클라우드 업로드는 별도의 선택적 작업입니다. 클라우드 서비스 이용 전 사이트 안내를 확인하세요.",
+    "목록에서 감지 결과를 지우고 설정에서 리소스 종류나 제외 도메인을 변경할 수 있습니다. 모든 접근을 중단하려면 FlowPick을 사용 중지하거나 삭제하세요.",
+    "개인정보 처리방침 전문"
+  ],
+  "ru": [
+    "Конфиденциальность и данные",
+    "FlowPick читает адреса и заголовки страниц, адреса ресурсов и отдельные заголовки запросов для обнаружения, предпросмотра и скачивания медиа. Результаты хранятся в браузере.",
+    "При запуске веб-загрузки или пакета страница flowpick.net получит адреса выбранных ресурсов, имена файлов, адреса исходных страниц и необходимые заголовки запросов. Они могут содержать подписанные URL, Cookie, Authorization и другие токены доступа.",
+    "При запуске записи заголовок выбранной вкладки и записанные аудио/видео передаются странице записи flowpick.net.",
+    "Передача данных веб-странице отличается от загрузки на сервер. Облачная загрузка — отдельное необязательное действие. Перед использованием облачных услуг прочитайте уведомления сайта.",
+    "Удаляйте результаты в списке. Меняйте категории или исключайте домены в настройках. Отключите или удалите FlowPick, чтобы прекратить любой доступ.",
+    "Полная политика конфиденциальности"
+  ],
+  "pt_BR": [
+    "Privacidade e uso de dados",
+    "O FlowPick lê endereços e títulos de páginas, endereços de recursos e alguns cabeçalhos de requisição para detectar, visualizar e baixar mídia. Os resultados ficam no navegador.",
+    "Ao iniciar um download pelo site ou um lote, a página flowpick.net recebe os endereços selecionados, nomes de arquivos, páginas de origem e cabeçalhos necessários. Eles podem conter URLs assinadas, Cookie, Authorization ou outros tokens de acesso.",
+    "Ao iniciar uma gravação, o título da aba selecionada e o áudio/vídeo gravado são enviados à página de gravação do flowpick.net.",
+    "Entregar dados a uma página é diferente de enviá-los a um servidor. O upload para a nuvem é uma ação opcional separada. Leia os avisos do site antes de usar serviços na nuvem.",
+    "Apague os resultados na lista. Ajuste categorias ou exclua domínios nas Configurações. Desative ou desinstale o FlowPick para encerrar todo acesso.",
+    "Política de privacidade completa"
+  ],
+  "it": [
+    "Privacy e utilizzo dei dati",
+    "FlowPick legge indirizzi e titoli delle pagine, indirizzi delle risorse e alcune intestazioni delle richieste per rilevare, visualizzare e scaricare contenuti multimediali. I risultati restano nel browser.",
+    "Quando avvii un download dal sito o un gruppo di download, la pagina flowpick.net riceve gli indirizzi selezionati, i nomi dei file, gli indirizzi delle pagine di origine e le intestazioni necessarie. Possono includere URL firmati, Cookie, Authorization o altri token di accesso.",
+    "Quando avvii una registrazione, il titolo della scheda scelta e i dati audio/video registrati vengono trasmessi alla pagina di registrazione di flowpick.net.",
+    "Passare dati a una pagina web è diverso dal caricarli su un server. Il caricamento nel cloud è un’azione facoltativa separata. Leggi gli avvisi del sito prima di usare servizi cloud.",
+    "Cancella i risultati nell’elenco. Modifica le categorie o escludi domini nelle impostazioni. Disattiva o disinstalla FlowPick per interrompere ogni accesso.",
+    "Informativa sulla privacy completa"
+  ],
+  "pl": [
+    "Prywatność i użycie danych",
+    "FlowPick odczytuje adresy i tytuły stron, adresy zasobów oraz wybrane nagłówki żądań, aby wykrywać, wyświetlać i pobierać multimedia. Wyniki są przechowywane w przeglądarce.",
+    "Po rozpoczęciu pobierania przez witrynę lub pobierania zbiorczego strona flowpick.net otrzyma wybrane adresy zasobów, nazwy plików, adresy stron źródłowych i wymagane nagłówki żądań. Mogą one zawierać podpisane adresy URL, Cookie, Authorization lub inne tokeny dostępu.",
+    "Po rozpoczęciu nagrywania tytuł wybranej karty i nagrane dane audio/wideo trafią na stronę nagrywania flowpick.net.",
+    "Przekazanie danych stronie internetowej różni się od przesłania ich na serwer. Wysyłanie do chmury jest osobną, opcjonalną czynnością. Przed użyciem usług chmurowych przeczytaj informacje witryny.",
+    "Usuń wyniki z listy. Zmień kategorie lub wyklucz domeny w ustawieniach. Wyłącz lub odinstaluj FlowPick, aby zatrzymać cały dostęp.",
+    "Pełna polityka prywatności"
+  ],
+  "tr": [
+    "Gizlilik ve veri kullanımı",
+    "FlowPick; medyayı algılamak, önizlemek ve indirmek için sayfa adreslerini, başlıklarını, kaynak adreslerini ve belirli istek başlıklarını okur. Sonuçlar tarayıcıda saklanır.",
+    "Web sitesi üzerinden indirme veya toplu işlem başlattığınızda flowpick.net sayfası seçilen kaynak adreslerini, dosya adlarını, kaynak sayfa adreslerini ve gerekli istek başlıklarını alır. Bunlar imzalı URL, Cookie, Authorization veya diğer erişim belirteçlerini içerebilir.",
+    "Kayıt başlatıldığında seçilen sekmenin başlığı ve kaydedilen ses/video flowpick.net kayıt sayfasına aktarılır.",
+    "Bir web sayfasına veri aktarmak, sunucuya yüklemekten farklıdır. Buluta yükleme ayrı ve isteğe bağlı bir işlemdir. Bulut hizmetlerini kullanmadan önce sitenin açıklamalarını okuyun.",
+    "Sonuçları listeden temizleyin. Ayarlardan kategorileri değiştirin veya alan adlarını hariç tutun. Tüm erişimi durdurmak için FlowPick’i devre dışı bırakın veya kaldırın.",
+    "Tam gizlilik politikası"
+  ],
+  "id": [
+    "Privasi dan penggunaan data",
+    "FlowPick membaca alamat dan judul halaman, alamat sumber daya, serta header permintaan tertentu untuk mendeteksi, mempratinjau, dan mengunduh media. Hasil disimpan di browser.",
+    "Saat Anda memulai unduhan melalui situs atau unduhan batch, halaman flowpick.net menerima alamat sumber daya yang dipilih, nama file, alamat halaman asal, dan header yang diperlukan. Data ini dapat mencakup URL bertanda tangan, Cookie, Authorization, atau token akses lain.",
+    "Saat Anda memulai perekaman, judul tab yang dipilih dan rekaman audio/video diteruskan ke halaman perekaman flowpick.net.",
+    "Meneruskan data ke halaman web berbeda dengan mengunggahnya ke server. Unggahan ke cloud adalah tindakan opsional terpisah. Baca pemberitahuan situs sebelum memakai layanan cloud.",
+    "Hapus hasil dari daftar. Ubah kategori atau kecualikan domain di Pengaturan. Nonaktifkan atau hapus FlowPick untuk menghentikan semua akses.",
+    "Kebijakan privasi lengkap"
+  ],
+  "vi": [
+    "Quyền riêng tư và sử dụng dữ liệu",
+    "FlowPick đọc địa chỉ và tiêu đề trang, địa chỉ tài nguyên cùng một số tiêu đề yêu cầu để phát hiện, xem trước và tải nội dung đa phương tiện. Kết quả được lưu trong trình duyệt.",
+    "Khi bạn bắt đầu tải qua trang web hoặc tải hàng loạt, trang flowpick.net sẽ nhận địa chỉ tài nguyên đã chọn, tên tệp, địa chỉ trang nguồn và các tiêu đề yêu cầu cần thiết. Dữ liệu có thể gồm URL có chữ ký, Cookie, Authorization hoặc mã truy cập khác.",
+    "Khi bạn bắt đầu ghi hình, tiêu đề thẻ đã chọn và âm thanh/video được ghi sẽ chuyển tới trang ghi hình flowpick.net.",
+    "Chuyển dữ liệu cho trang web khác với tải lên máy chủ. Tải lên đám mây là thao tác tùy chọn riêng biệt. Hãy đọc thông báo của trang trước khi dùng dịch vụ đám mây.",
+    "Xóa kết quả trong danh sách. Đổi loại tài nguyên hoặc loại trừ tên miền trong Cài đặt. Tắt hoặc gỡ FlowPick để dừng mọi truy cập.",
+    "Chính sách quyền riêng tư đầy đủ"
+  ],
+  "fil": [
+    "Privacy at paggamit ng data",
+    "Binabasa ng FlowPick ang mga address at pamagat ng pahina, address ng resource, at ilang request header para makita, ma-preview, at ma-download ang media. Nasa browser ang mga resulta.",
+    "Kapag nagsimula ka ng pag-download sa website o batch download, matatanggap ng pahina ng flowpick.net ang mga napiling resource address, pangalan ng file, address ng pinagmulang pahina, at kinakailangang request header. Maaaring kasama ang signed URL, Cookie, Authorization, o iba pang access token.",
+    "Kapag sinimulan mo ang pag-record, ipapasa ang pamagat ng napiling tab at ang na-record na audio/video sa recording page ng flowpick.net.",
+    "Iba ang pagpasa ng data sa isang web page sa pag-upload sa server. Hiwalay at opsyonal na aksyon ang cloud upload. Basahin ang mga abiso ng site bago gumamit ng cloud services.",
+    "Burahin ang mga resulta sa listahan. Baguhin ang mga kategorya o ibukod ang mga domain sa Settings. I-disable o i-uninstall ang FlowPick para ihinto ang lahat ng access.",
+    "Buong patakaran sa privacy"
+  ],
+  "uk": [
+    "Конфіденційність і використання даних",
+    "FlowPick читає адреси й назви сторінок, адреси ресурсів та окремі заголовки запитів для виявлення, перегляду й завантаження медіа. Результати зберігаються в браузері.",
+    "Під час запуску вебзавантаження або пакета сторінка flowpick.net отримає вибрані адреси ресурсів, назви файлів, адреси вихідних сторінок і потрібні заголовки запитів. Вони можуть містити підписані URL, Cookie, Authorization або інші токени доступу.",
+    "Під час запуску запису назва вибраної вкладки та записані аудіо/відео передаються сторінці запису flowpick.net.",
+    "Передавання даних вебсторінці відрізняється від завантаження на сервер. Хмарне завантаження — окрема необов’язкова дія. Перед використанням хмарних послуг прочитайте повідомлення сайту.",
+    "Видаляйте результати зі списку. Змінюйте категорії або виключайте домени в налаштуваннях. Вимкніть або видаліть FlowPick, щоб припинити весь доступ.",
+    "Повна політика конфіденційності"
+  ],
+  "nl": [
+    "Privacy en gegevensgebruik",
+    "FlowPick leest pagina-adressen, titels, bronadressen en bepaalde aanvraagheaders om media te detecteren, vooraf te bekijken en te downloaden. Resultaten worden in de browser opgeslagen.",
+    "Wanneer u een websitedownload of batch start, ontvangt de pagina flowpick.net de geselecteerde bronadressen, bestandsnamen, adressen van bronpagina’s en benodigde aanvraagheaders. Deze kunnen ondertekende URL’s, Cookie, Authorization of andere toegangstokens bevatten.",
+    "Bij het starten van een opname worden de titel van het gekozen tabblad en opgenomen audio/video doorgegeven aan de opnamepagina van flowpick.net.",
+    "Gegevens aan een webpagina doorgeven is iets anders dan uploaden naar een server. Uploaden naar de cloud is een afzonderlijke optionele actie. Lees de meldingen van de website voordat u clouddiensten gebruikt.",
+    "Wis resultaten in de lijst. Wijzig categorieën of sluit domeinen uit in Instellingen. Schakel FlowPick uit of verwijder het om alle toegang te stoppen.",
+    "Volledig privacybeleid"
+  ],
+  "ro": [
+    "Confidențialitate și utilizarea datelor",
+    "FlowPick citește adresele și titlurile paginilor, adresele resurselor și anumite antete ale cererilor pentru a detecta, previzualiza și descărca fișiere media. Rezultatele sunt stocate în browser.",
+    "Când începeți o descărcare prin site sau un lot, pagina flowpick.net primește adresele resurselor selectate, numele fișierelor, adresele paginilor sursă și antetele necesare. Acestea pot conține URL-uri semnate, Cookie, Authorization sau alte tokenuri de acces.",
+    "Când începeți o înregistrare, titlul filei selectate și datele audio/video înregistrate sunt transmise paginii de înregistrare flowpick.net.",
+    "Transmiterea datelor unei pagini web diferă de încărcarea pe un server. Încărcarea în cloud este o acțiune opțională separată. Citiți notificările site-ului înainte de a folosi servicii cloud.",
+    "Ștergeți rezultatele din listă. Schimbați categoriile sau excludeți domenii din Setări. Dezactivați sau dezinstalați FlowPick pentru a opri orice acces.",
+    "Politica de confidențialitate completă"
+  ],
+  "cs": [
+    "Soukromí a používání údajů",
+    "FlowPick čte adresy a názvy stránek, adresy zdrojů a vybrané hlavičky požadavků, aby mohl rozpoznat, zobrazit a stáhnout média. Výsledky se ukládají v prohlížeči.",
+    "Při zahájení stahování přes web nebo hromadného stahování stránka flowpick.net obdrží vybrané adresy zdrojů, názvy souborů, adresy zdrojových stránek a potřebné hlavičky požadavků. Mohou obsahovat podepsané URL, Cookie, Authorization nebo jiné přístupové tokeny.",
+    "Při zahájení nahrávání se název vybrané karty a nahraný zvuk/video předají nahrávací stránce flowpick.net.",
+    "Předání údajů webové stránce se liší od nahrání na server. Nahrávání do cloudu je samostatná volitelná akce. Před použitím cloudových služeb si přečtěte oznámení webu.",
+    "Vymažte výsledky v seznamu. Změňte kategorie nebo vylučte domény v nastavení. Pro zastavení veškerého přístupu FlowPick deaktivujte nebo odinstalujte.",
+    "Úplné zásady ochrany soukromí"
+  ],
+  "hu": [
+    "Adatvédelem és adathasználat",
+    "A FlowPick a média felismeréséhez, előnézetéhez és letöltéséhez olvassa az oldalak címét, nevét, az erőforrások címét és egyes kérésfejléceket. Az eredményeket a böngésző tárolja.",
+    "Webes vagy csoportos letöltés indításakor a flowpick.net oldal megkapja a kiválasztott erőforráscímeket, fájlneveket, forrásoldalcímeket és a szükséges kérésfejléceket. Ezek aláírt URL-eket, Cookie, Authorization vagy más hozzáférési tokeneket is tartalmazhatnak.",
+    "A felvétel indításakor a kiválasztott lap címe és a rögzített hang/videó a flowpick.net felvételi oldalára kerül.",
+    "Az adatok weboldalnak történő átadása nem azonos a szerverre feltöltéssel. A felhőbe feltöltés külön választható művelet. Felhőszolgáltatás használata előtt olvassa el a webhely tájékoztatóját.",
+    "Törölje az eredményeket a listából. A beállításokban módosíthatja a kategóriákat vagy kizárhat domaineket. Minden hozzáférés leállításához tiltsa le vagy távolítsa el a FlowPicket.",
+    "Teljes adatvédelmi szabályzat"
+  ],
+  "hi": [
+    "गोपनीयता और डेटा का उपयोग",
+    "FlowPick मीडिया का पता लगाने, प्रीव्यू दिखाने और डाउनलोड करने के लिए पेज के पते, शीर्षक, संसाधन के पते और कुछ अनुरोध हेडर पढ़ता है। परिणाम ब्राउज़र में सहेजे जाते हैं।",
+    "वेबसाइट से डाउनलोड या बैच शुरू करने पर flowpick.net पेज को चुने हुए संसाधन के पते, फ़ाइल नाम, स्रोत पेज के पते और ज़रूरी अनुरोध हेडर मिलेंगे। इनमें हस्ताक्षरित URL, Cookie, Authorization या अन्य ऐक्सेस टोकन हो सकते हैं।",
+    "रिकॉर्डिंग शुरू करने पर चुने हुए टैब का शीर्षक और रिकॉर्ड किया गया ऑडियो/वीडियो flowpick.net के रिकॉर्डिंग पेज को भेजा जाता है।",
+    "वेब पेज को डेटा देना और सर्वर पर अपलोड करना अलग बातें हैं। क्लाउड अपलोड एक अलग वैकल्पिक कार्रवाई है। क्लाउड सेवाएँ इस्तेमाल करने से पहले साइट की सूचनाएँ पढ़ें।",
+    "सूची से परिणाम मिटाएँ। सेटिंग में संसाधन की श्रेणियाँ बदलें या डोमेन बाहर रखें। सभी ऐक्सेस रोकने के लिए FlowPick बंद करें या हटाएँ।",
+    "पूरी गोपनीयता नीति"
+  ],
+  "th": [
+    "ความเป็นส่วนตัวและการใช้ข้อมูล",
+    "FlowPick อ่านที่อยู่และชื่อหน้าเว็บ ที่อยู่ทรัพยากร และส่วนหัวคำขอบางรายการ เพื่อตรวจจับ แสดงตัวอย่าง และดาวน์โหลดสื่อ ผลลัพธ์จะเก็บไว้ในเบราว์เซอร์",
+    "เมื่อเริ่มดาวน์โหลดผ่านเว็บไซต์หรือดาวน์โหลดแบบกลุ่ม หน้า flowpick.net จะได้รับที่อยู่ทรัพยากรที่เลือก ชื่อไฟล์ ที่อยู่หน้าเว็บต้นทาง และส่วนหัวคำขอที่จำเป็น ซึ่งอาจมี URL ที่ลงลายเซ็น, Cookie, Authorization หรือโทเค็นการเข้าถึงอื่น",
+    "เมื่อเริ่มการบันทึก ชื่อแท็บที่เลือกและเสียง/วิดีโอที่บันทึกจะถูกส่งไปยังหน้าบันทึกของ flowpick.net",
+    "การส่งข้อมูลให้หน้าเว็บต่างจากการอัปโหลดไปยังเซิร์ฟเวอร์ การอัปโหลดขึ้นคลาวด์เป็นตัวเลือกแยกต่างหาก โปรดอ่านคำชี้แจงของเว็บไซต์ก่อนใช้บริการคลาวด์",
+    "ล้างผลลัพธ์ในรายการ ปรับหมวดหมู่หรือยกเว้นโดเมนในการตั้งค่า หากต้องการหยุดการเข้าถึงทั้งหมด ให้ปิดใช้งานหรือถอนการติดตั้ง FlowPick",
+    "นโยบายความเป็นส่วนตัวฉบับเต็ม"
+  ]
+}

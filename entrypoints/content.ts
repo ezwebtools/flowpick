@@ -1,7 +1,11 @@
+import { withMessageResponse } from '../utils/message-response'
 import { createPageReporter } from '../utils/page-reporter'
+import { installPageMediaPicker } from '../utils/page-media-picker'
 import { pageIdentity } from '../utils/page-session'
 import { isRecordingBridgeMessage, localRecordingBuffer } from '../utils/recording-bridge'
 import { isQueuePage } from '../utils/download-queue'
+import { allowsSitePageMessage, isSiteOrigin } from '../utils/site-bridge'
+import { installInstagramCapture } from '../utils/instagram-capture'
 
 export default defineContentScript({
   matches: ['*://*/*'],
@@ -15,9 +19,13 @@ export default defineContentScript({
     window.addEventListener('beforeunload', event => {
       if (activeBlobDownloads.size) { event.preventDefault(); event.returnValue = '' }
     })
+    let instagramCapture: ReturnType<typeof installInstagramCapture>
     const reporter = createPageReporter(() => {
       window.postMessage({ type: 'FLOWPICK_RESCAN', url: location.href }, '*')
+      instagramCapture?.rescan()
     })
+    instagramCapture = installInstagramCapture(task => reporter.report({ type: 'PLATFORM_MEDIA_FOUND', task }))
+    installPageMediaPicker(reporter.context)
     void reporter.sync()
     window.addEventListener('pageshow', () => void reporter.sync())
     if (!document.querySelector('script[data-m3u8-injected]')) {
@@ -463,6 +471,7 @@ export default defineContentScript({
 
     window.addEventListener('message', (event) => {
       if (!isRecordingBridgeMessage(event, window, location.origin)) return
+      if (!allowsSitePageMessage(event.data?.type, location.href, window.top === window, event.origin)) return
       if (event.data?.type === 'FLOWPICK_INJECTED_READY') injectedPageHookReady = true
       if (event.data?.type === 'FLOWPICK_PING') {
         window.postMessage({ type: 'FLOWPICK_PONG', version: browser.runtime.getManifest().version }, '*')
@@ -507,7 +516,7 @@ export default defineContentScript({
                 sourceUrl: resp.sourceUrl,
                 requestHeaders: resp.requestHeaders,
                 audioUrl: resp.audioUrl,
-              }, '*')
+              }, location.origin)
             } else if (retries < 20) {
               retries++
               setTimeout(tryFetch, 300)
@@ -629,7 +638,7 @@ export default defineContentScript({
     }
 
     // 接收 background 发来的消息，通过 postMessage 转发给页面
-    browser.runtime.onMessage.addListener((msg) => {
+    browser.runtime.onMessage.addListener(withMessageResponse((msg) => {
       if (msg.type === 'FLOWPICK_QUEUE_CHANGED' && window.top === window && isQueuePage(location.href)) {
         window.postMessage({ type: 'FLOWPICK_QUEUE_CHANGED' }, location.origin)
       }
@@ -638,11 +647,20 @@ export default defineContentScript({
         window.postMessage({ type: 'FLOWPICK_CHECK_PAGE' }, '*')
         void reporter.sync()
       }
+      // Explicit "rescan now" from the panel. CHECK_PAGE only reacts to a URL
+      // change, so it cannot re-walk a page the user is already on; RESCAN does
+      // that and replays the hook's own retry ladder without a reload.
+      if (msg.type === 'FLOWPICK_RESCAN_PAGE') {
+        window.postMessage({ type: 'FLOWPICK_RESCAN', url: location.href }, '*')
+        instagramCapture?.rescan()
+        void reporter.sync()
+        return Promise.resolve({ ok: true })
+      }
       if (msg.type === 'FLOWPICK_SOURCE_URL' && msg.sourceUrl) {
         window.postMessage({ type: 'FLOWPICK_SOURCE_URL', sourceUrl: msg.sourceUrl }, '*')
       }
-      if (msg.type === 'PROXY_FETCH_RESPONSE') {
-        window.postMessage(msg, '*')
+      if (msg.type === 'PROXY_FETCH_RESPONSE' && window.top === window && isSiteOrigin(location.href)) {
+        window.postMessage(msg, location.origin)
       }
       if (msg.type === 'FLOWPICK_NOTIFY_CLICK') {
         window.postMessage({ type: 'FLOWPICK_NOTIFY_CLICK', tag: msg.tag }, '*')
@@ -651,6 +669,7 @@ export default defineContentScript({
         const payload = msg.payload && typeof msg.payload === 'object' ? msg.payload : {}
         if (!recordingConfigPosted) pendingRecordingDeliveries.push(payload)
         else deliverRecordingPayload(payload)
+        return { ok: true }
       }
       if (msg.type === 'FLOWPICK_MSR_REGION_TRACKING_START') {
         if (window.top !== window) return
@@ -679,6 +698,7 @@ export default defineContentScript({
       if (msg.type === 'FLOWPICK_RECORDING_SESSION_STATE') {
         if (msg.state === 'closed' || msg.state === 'stopped' || msg.state === 'source-closed') stopCaptureRegionTracking()
         window.postMessage({ ...msg, type: 'FLOWPICK_RECORDING_SESSION_STATE' }, '*')
+        return { ok: true }
       }
       if (msg.type === 'FLOWPICK_RECORDING_PLAYBACK_STATE') {
         if (mseCaptureActive && captureRegionMode === 'mse') {
@@ -686,6 +706,7 @@ export default defineContentScript({
           scheduleCaptureRegionReport(true)
         }
         window.postMessage({ ...msg, type: 'FLOWPICK_RECORDING_PLAYBACK_STATE' }, '*')
+        return { ok: true }
       }
       if (msg.type === 'FLOWPICK_MEDIA_AUTOPLAY') {
         const tryAutoplay = async () => {
@@ -741,7 +762,7 @@ export default defineContentScript({
           minSizeKB: msg.dataImageMinSizeKB ?? 50,
         }, '*')
       }
-    })
+    }))
 
     window.dispatchEvent(new CustomEvent('m3u8ext:ready'))
 
@@ -818,6 +839,7 @@ export default defineContentScript({
 
     window.addEventListener('message', async (event) => {
       if (!isRecordingBridgeMessage(event, window, location.origin)) return
+      if (!allowsSitePageMessage(event.data?.type, location.href, window.top === window, event.origin)) return
       if (typeof event.data?.pageUrl === 'string' && pageIdentity(event.data.pageUrl) !== pageIdentity(location.href)) return
 
       // injected 脚本加载后主动请求设置，补发避免竞态丢失
@@ -851,6 +873,10 @@ export default defineContentScript({
         return
       }
 
+      if (event.data?.type === 'INSTAGRAM_MEDIA_RESPONSE' && typeof event.data.text === 'string') {
+        instagramCapture?.receive(event.data.text)
+        return
+      }
       if (event.data?.type === 'PLATFORM_MEDIA_DETECTED' && event.data.task) {
         reporter.report({ type: 'PLATFORM_MEDIA_FOUND', task: event.data.task }).catch(() => {})
         return
@@ -859,6 +885,7 @@ export default defineContentScript({
       if (event.data?.type === 'FLOWPICK_MSE_RECORDING_EVENT') {
         const payload: Record<string, unknown> = {
           event: event.data.event,
+          reason: event.data.reason === 'end-of-stream' ? 'end-of-stream' : undefined,
           captureId: event.data.captureId,
           title: event.data.title,
           totalBytes: event.data.totalBytes,
@@ -889,9 +916,9 @@ export default defineContentScript({
             format,
             filename: filename || getFilenameFromUrl(url),
           })
-          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: true }, '*')
+          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: true }, location.origin)
         } catch {
-          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: false }, '*')
+          window.postMessage({ type: 'EXT_DOWNLOAD_RESPONSE', requestId, ok: false }, location.origin)
         }
       }
 
@@ -931,7 +958,7 @@ export default defineContentScript({
               headers,
               text,
               responseType: 'text',
-            }, '*')
+            }, location.origin)
           } else {
             const arrayBuffer = await response.arrayBuffer()
             window.postMessage({
@@ -942,12 +969,12 @@ export default defineContentScript({
               headers,
               buffer: arrayBuffer,
               responseType: 'arraybuffer',
-            }, '*', [arrayBuffer])
+            }, location.origin, [arrayBuffer])
           }
         } catch (err) {
           flowpickFetchControllers.delete(requestId)
           if (err instanceof DOMException && err.name === 'AbortError') return
-          window.postMessage({ type: 'FLOWPICK_FETCH_RESPONSE', requestId, ok: false }, '*')
+          window.postMessage({ type: 'FLOWPICK_FETCH_RESPONSE', requestId, ok: false }, location.origin)
         }
       }
 
@@ -981,7 +1008,7 @@ export default defineContentScript({
               ok: false,
               status: resp?.status,
               error: resp?.error,
-            }, '*')
+            }, location.origin)
             return
           }
           const arrayBuffer = b64ToArrayBuffer(resp.data)
@@ -997,13 +1024,13 @@ export default defineContentScript({
           if (responseType === 'text') {
             msg.text = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer))
           }
-          window.postMessage(msg, '*', [arrayBuffer])
+          window.postMessage(msg, location.origin, [arrayBuffer])
         }).catch(() => {
           window.postMessage({
             type: 'FLOWPICK_PROXY_FETCH_RESPONSE',
             requestId,
             ok: false,
-          }, '*')
+          }, location.origin)
         })
       }
 
@@ -1027,7 +1054,7 @@ export default defineContentScript({
         // 页面据此判定扩展已接管，避免再退化为网页通知造成重复。
         const { title, body, tag, pageUrl } = event.data
         browser.runtime.sendMessage({ type: 'FLOWPICK_NOTIFY', title, body, tag, pageUrl: pageUrl || window.location.href })
-          .then(() => window.postMessage({ type: 'FLOWPICK_NOTIFY_ACK', tag }, '*'))
+          .then(() => window.postMessage({ type: 'FLOWPICK_NOTIFY_ACK', tag }, location.origin))
           .catch(() => { /* 扩展未处理：页面将回退到网页通知 */ })
       }
     })

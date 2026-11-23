@@ -41,6 +41,11 @@ export interface MediaEntry {
   tabTitle?: string
   /** 直播流标记（HTTP-FLV/MPEG-TS 无 Content-Length/Duration 时为 true） */
   isLiveStream?: boolean
+  /**
+   * Playback confirmed DRM protection (EME or a manifest ContentProtection tag).
+   * Only used to mark the card as not downloadable; the entry itself stays.
+   */
+  drm?: boolean
 }
 
 function tabKey(tabId: number) {

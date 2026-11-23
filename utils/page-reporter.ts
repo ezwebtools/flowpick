@@ -64,6 +64,7 @@ export function createPageReporter(onReady: () => void) {
   }
 
   return {
+    context,
     report: (payload: Record<string, unknown>) => enqueue(payload),
     sync: () => enqueue(),
     observeNavigation,

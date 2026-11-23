@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@variant dark (&:where(.dark, .dark *));
+
+:root { font-family: Inter, system-ui, sans-serif; color-scheme: light dark; }
+body { margin: 0; background: #f8fafc; }
+.dark body { background: #030712; }
+button { cursor: pointer; }
+button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 4px; }

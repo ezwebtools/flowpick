@@ -4,13 +4,19 @@
   import type { MediaPlayerClass as DashPlayer } from 'dashjs'
   import type mpegts from 'mpegts.js'
   import { loadAppearance, saveAppearance, applyTheme, currentLocale, currentTheme, currentDensity, t } from '../../utils/i18n'
-  import { loadSettings, createDefaultSettings, cloneSettings, type Settings } from '../../utils/settings'
+  import { loadSettings, createDefaultSettings, cloneSettings, domainMatches, type Settings } from '../../utils/settings'
   import { useMediaStore } from './composables/useMediaStore'
   import type { ListUpdatedMessage, MediaItem, MetadataBatchRequest, MetadataBatchResponse, RawMediaEntry } from './types'
   import { useMediaFilters } from './composables/useMediaFilters'
+  import { useKeyboardNav } from './composables/useKeyboardNav'
+  import { buildUrlListText, buildCsv, downloadTextFile } from './utils/media-export'
   import { loadDash, loadHls, loadMpegts, useStreamThumbnails } from './composables/useStreamThumbnails'
   import { useMediaViewModels } from './composables/useMediaViewModels'
   import { createHlsProxyLoader } from './utils/hlsProxyLoader'
+  import type { PageMediaPick } from '../../utils/page-media-picker'
+  import { cloneMediaItem } from '../../utils/media-message'
+  import { containerProbeFormat } from '../../utils/media-header'
+  import { syncSeparatedAudio } from '../../utils/separated-audio'
   const SettingsView = defineAsyncComponent(() => import('./components/SettingsView.vue'))
 
   const props = withDefaults(defineProps<{ mode?: 'popup' | 'sidepanel' }>(), { mode: 'popup' })
@@ -76,6 +82,8 @@
         audioUrl: typeof item.audioUrl === 'string' ? item.audioUrl : undefined,
         audioOptions: Array.isArray(item.audioOptions) ? item.audioOptions : undefined,
         tabTitle: typeof item.tabTitle === 'string' ? item.tabTitle : undefined,
+        isLiveStream: item.isLiveStream === true ? true : undefined,
+        drm: item.drm === true ? true : undefined,
       }
     }
     return { url: '', format: 'm3u8' }
@@ -111,13 +119,40 @@
     }).catch(() => {})
   }
 
+  // DRM is discovered at playback time, which is exactly the moment the user
+  // gives up on that row. Remember it on the entry so the card can say "this one
+  // will not download" before the next attempt, and so the knowledge survives a
+  // panel reopen too.
+  const reportDrm = (item: MediaItem, tabId = currentTabId) => {
+    if (tabId === undefined || !item.url) return
+    patchMediaItem(getMediaKey(item), { drm: true })
+    browser.runtime.sendMessage({
+      type: 'UPDATE_MEDIA_META',
+      tabId,
+      url: item.url,
+      drm: true,
+    }).catch(() => {})
+  }
+
   // ── List view state ──────────────────────────────────────────────
   const view = ref<View>('list')
   const showMore = ref(false)
+  // Export used to live three levels down inside the footer "more" menu, where
+  // nobody found it. Both menus get their own anchored ref so a click anywhere
+  // else closes them — a menu you cannot dismiss is worse than a hidden one.
+  const exportMenuOpen = ref(false)
+  const shortcutHelpOpen = ref(false)
+  const exportMenuRef = ref<HTMLElement | null>(null)
+  const shortcutHelpRef = ref<HTMLElement | null>(null)
+  const moreMenuRef = ref<HTMLElement | null>(null)
   const showRulesHint = ref(true)
   const RULES_HINT_DISMISSED_KEY = 'flowpick_rules_hint_dismissed'
   const showToast = ref(false)
   const toastMessage = ref('')
+  // Two toasts inside two seconds is normal (batch download fans out, then the
+  // queue reply lands). Unguarded timers let the first hide the second early,
+  // so every toast now owns the single handle and clears the previous one.
+  let toastTimer: ReturnType<typeof setTimeout> | null = null
   const {
     mediaList, mediaByKey, mediaIndexByKey, mediaByUrl,
     replace: replaceMediaList,
@@ -214,6 +249,10 @@
   let activeMetadataTaskId: string | null = null
   let metadataRefreshPending = false
   const currentTabTitle = ref('')
+  // Only used to explain an empty list (excluded site). Kept next to the title
+  // for the same reason: both come from the same tab query and are shown to the
+  // user, never used for capture decisions.
+  const currentTabUrl = ref('')
   const version = browser.runtime.getManifest().version
 
   // ── Settings view state ──────────────────────────────────────────
@@ -232,6 +271,8 @@
       }).catch((error) => {
         console.warn('[FlowPick] settings load failed:', error)
         return false
+      }).finally(() => {
+        settingsLoadPromise = null
       })
     }
     return settingsLoadPromise
@@ -242,11 +283,21 @@
   let resetConfirmTimer: ReturnType<typeof setTimeout> | null = null
   
   // ── Media filtering ──────────────────────────────────────────────
+  const pickedMediaUrl = ref<string>()
+  const manualImage = shallowRef<MediaItem>()
+  const pickStatus = ref<PageMediaPick['status'] | 'active'>()
+  const browsingPageStreams = ref(false)
+  const collectingImages = ref(false)
+  const showingImageCollection = ref(false)
+  const collectedImages = shallowRef<MediaItem[]>([])
+  const pickerActive = computed(() => collectingImages.value || pickStatus.value === 'active')
+  let pendingPick: { id: string; tabId: number; frameIds: number[] } | undefined
   const {
-    activeTab, typeFilter, sizeFilter, dimensionFilter, resolutionFilter, sortOrder,
+    activeTab: filterTab, typeFilter, sizeFilter, dimensionFilter, resolutionFilter, sortOrder,
+    includeUnknownSize,
     mediaCatalog, sizeFilteredMediaList, tabCounts, typeOptions,
     searchQuery, useRegex, regexValid, searchError, clearSearch,
-    filteredMediaList, filteredImageList,
+    filteredMediaList: normallyFilteredMedia, filteredImageList: normallyFilteredImages,
   } = useMediaFilters<MediaItem>({
     mediaList,
     settings,
@@ -263,6 +314,161 @@
     getFormatLabel: format => getFormatLabel(format),
   })
 
+  const pickedCard = computed(() => {
+    if (!pickedMediaUrl.value) return
+    const item = mediaByUrl.value.get(pickedMediaUrl.value)
+    return item?.groupMasterId ? mediaByUrl.value.get(item.groupMasterId) ?? item : item
+  })
+  const activeTab = computed({
+    get: () => {
+      const item = pickedCard.value
+      if (item) {
+        const type = getMediaType(item.format, item.category)
+        if (type === 'stream' || type === 'image' || type === 'video' || type === 'audio') return type
+      }
+      return filterTab.value
+    },
+    set: tab => {
+      resetPagePick()
+      filterTab.value = tab
+    },
+  })
+  const filteredMediaList = computed(() => {
+    const item = pickedCard.value
+    if (!item) return normallyFilteredMedia.value
+    return mediaList.value.filter(candidate => candidate === item
+      || (candidate.groupRole === 'variant' && candidate.groupMasterId === item.url))
+  })
+  const filteredImageList = computed(() => {
+    if (showingImageCollection.value) return collectedImages.value
+    if (manualImage.value) return [manualImage.value]
+    return pickedCard.value && activeTab.value === 'image' ? [pickedCard.value] : normallyFilteredImages.value
+  })
+
+  function resetPagePick() {
+    if (pendingPick) {
+      cancelPagePickFrames(pendingPick)
+      pendingPick = undefined
+    }
+    pickedMediaUrl.value = undefined
+    if (manualImage.value?.url === previewImageUrl.value) closePreview()
+    manualImage.value = undefined
+    pickStatus.value = undefined
+    browsingPageStreams.value = false
+    collectingImages.value = false
+    if (showingImageCollection.value) closePreview()
+    showingImageCollection.value = false
+  }
+
+  function showImageCollection() {
+    resetPagePick()
+    showingImageCollection.value = true
+    if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+  }
+
+  function cancelPagePickFrames(request: NonNullable<typeof pendingPick>) {
+    for (const frameId of request.frameIds) {
+      void browser.tabs.sendMessage(request.tabId, { type: 'CANCEL_PAGE_MEDIA_PICK', id: request.id }, { frameId }).catch(() => {})
+    }
+  }
+
+  function browsePageStreams() {
+    resetPagePick()
+    browsingPageStreams.value = true
+    filterTab.value = 'stream'
+    clearSearch()
+    resetListFilters()
+    scrollTop.value = 0
+    if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+  }
+
+  async function startPagePick(imagesOnly = false) {
+    resetPagePick()
+    if (currentTabId === undefined) {
+      pickStatus.value = 'unavailable'
+      return
+    }
+    collectingImages.value = imagesOnly
+    const tabId = currentTabId
+    do {
+      const keepPicking = await pickPageMedia(tabId, imagesOnly)
+      if (!keepPicking || !collectingImages.value || currentTabId !== tabId) break
+    } while (imagesOnly)
+  }
+
+  async function pickPageMedia(tabId: number, imagesOnly: boolean) {
+    const request: NonNullable<typeof pendingPick> = { id: crypto.randomUUID(), tabId, frameIds: [] }
+    pendingPick = request
+    if (!imagesOnly || !pickStatus.value) pickStatus.value = 'active'
+    try {
+      const frames = await browser.webNavigation.getAllFrames({ tabId: request.tabId }).catch(() => null)
+      if (pendingPick !== request) return
+      request.frameIds = [...new Set([0, ...(frames ?? []).map(frame => frame.frameId)])]
+      const result = await Promise.any(request.frameIds.map(async frameId => {
+        const response: PageMediaPick | undefined = await browser.tabs.sendMessage(
+          request.tabId, { type: 'START_PAGE_MEDIA_PICK', id: request.id, imagesOnly }, { frameId },
+        )
+        if (!response || response.status === 'inactive') throw new Error('Frame picker closed')
+        return response
+      }))
+      if (pendingPick !== request) return
+      cancelPagePickFrames(request)
+      if (imagesOnly && result.status === 'cancelled') {
+        showImageCollection()
+        return
+      }
+      if (result.status === 'matched') {
+        if (!mediaByUrl.value.has(result.url)) {
+          const list = await browser.runtime.sendMessage({ type: 'GET_LIST', tabId: request.tabId })
+          if (pendingPick !== request) return
+          replaceMediaList(list ?? [])
+        }
+        if (imagesOnly) {
+          const item = mediaByUrl.value.get(result.url)
+          if (item) addCollectedImage(item)
+          pickStatus.value = item ? 'active' : 'missing'
+        } else if (mediaByUrl.value.has(result.url)) {
+          pickedMediaUrl.value = result.url
+          scrollTop.value = 0
+          if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+        }
+        if (!imagesOnly) pickStatus.value = pickedCard.value ? 'matched' : 'missing'
+      } else if (result.status === 'manualImage') {
+        const item = { url: result.url, format: result.format }
+        if (imagesOnly) {
+          addCollectedImage(item)
+          pickStatus.value = 'active'
+        } else {
+          manualImage.value = item
+          pickStatus.value = result.status
+          if (listContainerRef.value) listContainerRef.value.scrollTop = 0
+        }
+      } else {
+        pickStatus.value = result.status === 'cancelled' ? undefined : result.status
+      }
+      return imagesOnly
+    } catch (error) {
+      if (pendingPick === request) {
+        collectingImages.value = false
+        pickStatus.value = error instanceof AggregateError ? 'unconfirmed' : 'unavailable'
+      }
+    } finally {
+      if (pendingPick === request) pendingPick = undefined
+    }
+  }
+
+  function addCollectedImage(item: MediaItem) {
+    if (collectedImages.value.some(image => image.url === item.url)) return
+    collectedImages.value = [...collectedImages.value, cloneMediaItem(item)]
+  }
+
+  watch(pickedCard, (item, previous) => {
+    if (previous && !item && pickedMediaUrl.value) {
+      pickedMediaUrl.value = undefined
+      pickStatus.value = 'missing'
+    }
+  })
+
   type VisibleTabKey = 'stream' | 'video' | 'audio' | 'image' | 'doc'
   const visibleTabs = computed<Array<{ key: VisibleTabKey, label: string, count: number, activeClass: string }>>(() => {
     const tabs: Array<{ key: VisibleTabKey, label: string, activeClass: string }> = [
@@ -273,17 +479,21 @@
       { key: 'doc', label: t('tabDoc'), activeClass: 'border-indigo-500 text-indigo-600 dark:text-indigo-300 dark:border-indigo-400 dark:bg-indigo-500/15' },
     ]
     return tabs
-      .filter(tab => tabCounts.value[tab.key] > 0)
+      .filter(tab => tabCounts.value[tab.key] > 0 || (tab.key === 'stream' && browsingPageStreams.value))
       .map(tab => ({ ...tab, count: tabCounts.value[tab.key] }))
   })
 
-  watch([visibleTabs, activeTab], () => {
+  watch([visibleTabs, filterTab], () => {
     if (visibleTabs.value.length === 0) return
-    if (!visibleTabs.value.some(tab => tab.key === activeTab.value)) {
-      activeTab.value = visibleTabs.value[0].key
+    if (!visibleTabs.value.some(tab => tab.key === filterTab.value)) {
+      filterTab.value = visibleTabs.value[0].key
     }
   }, { immediate: true })
-  const previewCurrentItem = computed(() => mediaByUrl.value.get(previewImageUrl.value))
+  const previewCurrentItem = computed(() => {
+    const url = previewImageUrl.value
+    if (showingImageCollection.value) return collectedImages.value.find(item => item.url === url)
+    return manualImage.value?.url === url ? manualImage.value : mediaByUrl.value.get(url)
+  })
   // ── 虚拟列表（普通列表）────────────────────────────────────────────
   // “全部”标签的普通卡片与流媒体分组卡片使用相同的外框尺寸。
   // 分组卡片的实际高度为：compact 48 + 16 + 2 = 66，normal 56 + 24 + 2 = 82。
@@ -409,7 +619,13 @@
       const rect = entries[0]?.contentRect
       if (!rect) return
       containerHeight.value = rect.height
-      masonryContainerWidth.value = rect.width || listContainerRef.value?.clientWidth || 460
+      // The masonry column width is derived from this value, so a one-pixel
+      // wobble in the middle of a drag would rebuild the whole layout. Only
+      // commit changes the user can actually see.
+      const nextWidth = Math.round(rect.width) || listContainerRef.value?.clientWidth || 460
+      if (Math.abs(nextWidth - masonryContainerWidth.value) >= 1) {
+        masonryContainerWidth.value = nextWidth
+      }
     })
     containerRO.observe(listContainerRef.value)
     containerHeight.value = listContainerRef.value.clientHeight || containerHeight.value
@@ -485,7 +701,8 @@
     if (activeTab.value !== 'image') return []
     const viewTop = scrollTop.value - MASONRY_BUFFER_PX
     const viewBottom = scrollTop.value + containerHeight.value + MASONRY_BUFFER_PX
-    return masonryItems.value.filter(m => m.top + m.height > viewTop && m.top < viewBottom)
+    return masonryItems.value.filter(m => (!pickedCard.value || m.item.url === pickedCard.value.url)
+      && m.top + m.height > viewTop && m.top < viewBottom)
   })
 
   const masonryColWidth = computed(() =>
@@ -506,10 +723,15 @@
   })
 
   watch(flatMediaList, () => {
-    if (activeTab.value === 'image') nextTick(scheduleMasonryBuild)
+    if (activeTab.value !== 'image') return
+    if (pickedCard.value) buildMasonryLayout()
+    else nextTick(scheduleMasonryBuild)
   })
 
-  watch(masonryContainerWidth, scheduleMasonryBuild)
+  // Rebuild on the derived column width, not the raw container width. The card
+  // geometry only depends on colW, so a resize that does not change colW (such
+  // as the scrollbar gutter appearing) must not trigger a relayout.
+  watch(masonryColWidth, scheduleMasonryBuild)
 
   // ── 流媒体分组树 ─────────────────────────────────────────────────
   interface StreamVariant {
@@ -638,6 +860,84 @@
     return flatMediaList.value
   })
 
+  // Every toolbar icon shares one geometry + one idle/hover recipe, so the row
+  // reads as a single control strip instead of seven unrelated buttons. The
+  // "on" and "danger" variants are complete strings (not add-ons) because
+  // Tailwind would otherwise let stylesheet order decide which colour wins.
+  const TOOLBAR_BUTTON_SHAPE = 'relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2'
+  const toolbarButtonClass = `${TOOLBAR_BUTTON_SHAPE} text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus-visible:ring-blue-500 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100`
+  const toolbarButtonOnClass = `${TOOLBAR_BUTTON_SHAPE} bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 focus-visible:ring-blue-500 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900/70 dark:hover:text-blue-200`
+  const toolbarButtonDangerClass = `${TOOLBAR_BUTTON_SHAPE} text-gray-500 hover:bg-red-50 hover:text-red-600 focus-visible:ring-red-500 dark:text-gray-400 dark:hover:bg-red-950/50 dark:hover:text-red-400`
+// First click on Clear arms the action instead of firing it, so the button has
+// to look unmistakably different from its idle state — otherwise the second
+// click feels like nothing happened the first time.
+const toolbarButtonArmedDangerClass = `${TOOLBAR_BUTTON_SHAPE} bg-red-600 text-white hover:bg-red-500 focus-visible:ring-red-500 dark:bg-red-600 dark:text-white dark:hover:bg-red-500`
+// Paused sniffing is a state the user must notice from across the panel: the
+// list silently stops growing otherwise, which reads as a broken extension.
+const toolbarButtonAttentionClass = `${TOOLBAR_BUTTON_SHAPE} bg-amber-100 text-amber-700 hover:bg-amber-200 hover:text-amber-800 focus-visible:ring-amber-500 dark:bg-amber-950/70 dark:text-amber-300 dark:hover:bg-amber-900/70 dark:hover:text-amber-200`
+
+  // Footer controls reuse the toolbar recipe so the two rows share one hover
+  // and focus language. The cheatsheet toggle carries an extra `?` chip and so
+  // needs an intrinsic width instead of the square icon box.
+  const footerButtonClass = 'flex h-7 shrink-0 items-center justify-center gap-1 rounded-md px-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100'
+
+  // Toolbar state. These live here rather than inline in the template so the
+  // row can stay declarative and so the "is anything on?" checks exist once.
+  const allSelectableSelected = computed(() =>
+    selectableMediaList.value.length > 0
+    && selectableMediaList.value.every(item => selectedKeys.value.has(getMediaKey(item)))
+  )
+
+  // Deliberately excludes `showFilter`: the panel being open is not a filter.
+  const filtersActive = computed(() =>
+    typeFilter.value !== 'any'
+    || sizeFilter.value.min > 0 || sizeFilter.value.max > 0
+    || dimensionFilter.value.minWidth > 0 || dimensionFilter.value.minHeight > 0
+    || resolutionFilter.value !== 'any'
+  )
+
+  // An empty list has several very different causes, and telling them apart is
+  // the whole point of this computed: "you filtered everything out" needs a
+  // reset button, "your sniffing rules dropped it all" needs the rules panel,
+  // and "this site is excluded" needs a settings trip. One generic message
+  // serves none of them.
+  const emptyReason = computed((): 'filtered' | 'domain' | 'rules' | 'type' | 'none' => {
+    if (filtersActive.value || searchQuery.value.trim()) return 'filtered'
+    const host = (() => {
+      try { return new URL(currentTabUrl.value).hostname } catch { return '' }
+    })()
+    if (host && settings.value.excludeDomains.some(domain => domainMatches(host, domain))) return 'domain'
+    // Rows were captured but every one was dropped by the sniffing rules (a
+    // disabled group or the minimum size). Users read this as "it is broken",
+    // so it gets its own message and a link to the rules.
+    if (mediaList.value.length > 0 && mediaCatalog.value.all.length === 0) return 'rules'
+    // Reachable when a tab survives with zero rows — the Stream tab stays
+    // visible while browsing page streams — even though other kinds exist.
+    if (mediaCatalog.value.all.length > 0) return 'type'
+    return 'none'
+  })
+  const emptyTypeLabel = computed(() => {
+    switch (activeTab.value) {
+      case 'video': return t('video')
+      case 'audio': return t('audio')
+      case 'image': return t('image')
+      case 'stream': return t('tabStream')
+      case 'doc': return t('tabDoc')
+      default: return t('notFound')
+    }
+  })
+  // One reset shared by the filter panel and the "nothing matches" empty state,
+  // so the two can never drift apart.
+  const resetFilters = () => {
+    typeFilter.value = 'any'
+    sizeFilter.value = { min: 0, max: 0 }
+    dimensionFilter.value = { minWidth: 0, minHeight: 0 }
+    resolutionFilter.value = 'any'
+    sortOrder.value = 'asc'
+    includeUnknownSize.value = true
+    clearSearch()
+  }
+
   const selectedDownloadItems = computed((): MediaItem[] => {
     if (activeTab.value === 'stream') {
       return groupedStreamList.value
@@ -707,16 +1007,16 @@
     group.isVirtual ? getPreferredStreamItem(group) : group.masterItem
 
   const getRecommendedAudioUrl = (variant: StreamVariant): string | undefined =>
-    variant.item.audioUrl || variant.audioItem?.url || variant.audioOptions?.[0]?.url
+    variant.item.audioUrl || variant.audioItem?.url || variant.audioOptions?.[0]?.url || variant.item.audioOptions?.[0]?.url
 
   const downloadStreamVariant = (variant: StreamVariant) => {
-    const item = variant.item
+    const item = cloneMediaItem(variant.item)
     browser.runtime.sendMessage({
       type: 'OPEN_DOWNLOAD_PAGE',
       url: item.url,
       format: item.format,
       filename: getDownloadName(item.url),
-      requestHeaders: item.requestHeaders,
+      requestHeaders: item.requestHeaders ? { ...item.requestHeaders } : undefined,
       audioUrl: getRecommendedAudioUrl(variant),
     })
   }
@@ -752,23 +1052,31 @@
     const newTabId = activeBrowserTab?.id
     const newTabTitle = activeBrowserTab?.title || ''
     if (newTabId === undefined || newTabId === currentTabId) return
+    resetPagePick()
+    collectedImages.value = []
     cancelMetadataBatch()
     failedMetadataKeys.clear()
     resetNativeMediaThumbnailState()
     const session = ++mediaSession
     currentTabId = newTabId
     currentTabTitle.value = newTabTitle
+    currentTabUrl.value = activeBrowserTab?.url || ''
     const list = (await browser.runtime.sendMessage({ type: 'GET_LIST', tabId: newTabId })) as Array<{url: string, format: string}> | undefined
     if (session !== mediaSession || currentTabId !== newTabId) return
     replaceMediaList(list ?? [])
     reconcileMediaState()
     listLoaded.value = true
+    void loadSniffingState(newTabId)
     fetchAllMetadataBatch(newTabId, session)
   }
 
   // 当 tab 标题变化时（页面刷新、跳转、SPA 路由变化等），同步更新 currentTabTitle
   const onTabUpdated = (tabId: number, changeInfo: { title?: string; status?: string; url?: string }) => {
     if (tabId !== currentTabId) return
+    if (changeInfo.url !== undefined || changeInfo.status === 'loading') {
+      resetPagePick()
+      collectedImages.value = []
+    }
     // Do not clear from the generic tab loading signal. Infinite-scroll sites
     // can emit transient updates while staying on the same document. The
     // background page-session state machine broadcasts an authoritative empty
@@ -776,6 +1084,7 @@
     if (typeof changeInfo.title === 'string' && changeInfo.title && changeInfo.title !== currentTabTitle.value) {
       currentTabTitle.value = changeInfo.title
     }
+    if (typeof changeInfo.url === 'string' && changeInfo.url) currentTabUrl.value = changeInfo.url
   }
 
   const colorSchemeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -789,6 +1098,7 @@
     // the active tab. Firefox sidebars can briefly return no current tab.
     await ensureSettingsLoaded()
     await loadAppearance().catch(error => console.warn('[FlowPick] appearance load failed:', error))
+    await loadCustomNames()
 
     watch(currentTheme, (theme) => {
       applyTheme(theme)
@@ -803,10 +1113,12 @@
     browser.tabs.onUpdated.addListener(onTabUpdated)
     nextTick(() => initContainerObserver())
     window.addEventListener('keydown', onPreviewKeydown)
+    document.addEventListener('pointerdown', onDocumentPointerDown)
 
     const activeBrowserTab = await queryActiveTab()
     currentTabId = activeBrowserTab?.id
     currentTabTitle.value = activeBrowserTab?.title || ''
+    currentTabUrl.value = activeBrowserTab?.url || ''
     if (currentTabId === undefined) {
       listLoaded.value = true
       return
@@ -817,6 +1129,7 @@
     if (session !== mediaSession || currentTabId !== tabId) return
     replaceMediaList(list ?? [])
     listLoaded.value = true
+    void loadSniffingState(tabId)
     fetchAllMetadataBatch(tabId, session)
   })
 
@@ -826,6 +1139,7 @@
   }, { flush: 'sync' })
 
   onUnmounted(() => {
+    resetPagePick()
     resetNativeMediaThumbnailState()
     browser.runtime.onMessage.removeListener(onMessage)
     containerRO?.disconnect()
@@ -834,6 +1148,7 @@
     if (masonryFrameId !== null) cancelAnimationFrame(masonryFrameId)
     window.removeEventListener('keydown', onPreviewKeydown)
     document.removeEventListener('visibilitychange', onAudioVisibilityChange)
+    document.removeEventListener('pointerdown', onDocumentPointerDown)
     colorSchemeMediaQuery.removeEventListener('change', onColorSchemeChange)
     if (props.mode === 'sidepanel') {
       browser.tabs.onActivated.removeListener(loadMediaList)
@@ -857,14 +1172,43 @@
     sharedAudioContext = null
     if (saveTimer) clearTimeout(saveTimer)
     if (resetConfirmTimer) clearTimeout(resetConfirmTimer)
+    if (clearConfirmTimer) clearTimeout(clearConfirmTimer)
+    if (toastTimer) clearTimeout(toastTimer)
     if (textSaveTimer) clearTimeout(textSaveTimer)
+    if (customNamesSaveTimer) clearTimeout(customNamesSaveTimer)
     cancelMetadataBatch()
     disposeMediaStore()
   })
 
   // ── Message handler ───────────────────────────────────────────────
-  function onMessage(msg: ListUpdatedMessage) {
-    handleListUpdate(msg)
+  function onMessage(msg: ListUpdatedMessage | { type: string, state?: string, name?: string }) {
+    if (msg.type === 'DOWNLOAD_STATE_CHANGED') {
+      // The worker only sends this when a panel is attached; with the panel
+      // closed it raises a system notification instead. Reaching here therefore
+      // means the confirmation can be inline — the thing the flow was missing.
+      const failed = (msg as { state?: string }).state === 'interrupted'
+      showToastMsg(failed ? t('docDownloadFailed') : t('downloadComplete'))
+      return
+    }
+    // The global switch lives on the toolbar icon, so an open panel cannot see
+    // it change without being told.
+    if (msg.type === 'SNIFF_STATE_CHANGED') {
+      const update = msg as { global?: boolean, tabPaused?: boolean }
+      if (typeof update.global === 'boolean') {
+        globalPaused.value = update.global
+        // Turning everything off pauses this tab too, whatever its own flag says.
+        if (update.global) sniffingPaused.value = true
+      }
+      if (typeof update.tabPaused === 'boolean') {
+        sniffingPaused.value = globalPaused.value || update.tabPaused
+      } else if (update.global === false) {
+        // The global layer went off and this message carries no tab id, so the
+        // per-tab flag is unknown here. Ask rather than assume the tab is live.
+        void loadSniffingState()
+      }
+      return
+    }
+    handleListUpdate(msg as ListUpdatedMessage)
   }
 
   async function clearCurrentList() {
@@ -878,9 +1222,89 @@
     videoDimensionCache.value.clear()
     audioDurationCache.value.clear()
   }
-  async function refreshPage() {
+
+  // Clearing throws away a page's whole session with no undo, and the button
+  // sits one pixel from the refresh icon. Two clicks in a row is the same
+  // bargain Settings already offers for its reset.
+  const clearConfirm = ref(false)
+  let clearConfirmTimer: ReturnType<typeof setTimeout> | null = null
+  function handleClearClick() {
+    if (!clearConfirm.value) {
+      clearConfirm.value = true
+      if (clearConfirmTimer) clearTimeout(clearConfirmTimer)
+      clearConfirmTimer = setTimeout(() => {
+        clearConfirm.value = false
+        clearConfirmTimer = null
+        showToastMsg(t('clearCanceled'))
+      }, 3000)
+      showToastMsg(t('clearConfirm'))
+      return
+    }
+    clearConfirm.value = false
+    if (clearConfirmTimer) { clearTimeout(clearConfirmTimer); clearConfirmTimer = null }
+    void clearCurrentList()
+  }
+
+  // Re-run detection on the live page instead of reloading it. Reloading was
+  // the only option, and it costs the user their playback position, scroll
+  // depth and any authenticated state the page had built up.
+  const rescanning = ref(false)
+  async function rescanPage() {
+    if (currentTabId === undefined || rescanning.value) return
+    rescanning.value = true
+    try {
+      // The background fans the request out to every frame, because a player in
+      // an iframe owns media the top document never sees. The injected hook then
+      // replays its own retry ladder as lazy players initialise.
+      await browser.runtime.sendMessage({ type: 'RESCAN_TAB', tabId: currentTabId }).catch(() => undefined)
+    } finally {
+      rescanning.value = false
+    }
+  }
+
+  // Pausing is a per-tab, in-memory brake for pages that flood the list. The
+  // panel re-reads it on open so a paused tab still shows as paused.
+  // Two layers, mirroring the worker: this tab, and everything. `sniffingPaused`
+  // is the effective state for this tab (either layer can cause it), while
+  // `globalPaused` says whether the wider switch is what did it — the button has
+  // to show a different state for "you paused here" and "everything is off".
+  const sniffingPaused = ref(false)
+  const globalPaused = ref(false)
+  async function loadSniffingState(tabId = currentTabId) {
+    if (tabId === undefined) { sniffingPaused.value = false; globalPaused.value = false; return }
+    const result = await browser.runtime
+      .sendMessage({ type: 'GET_SNIFFING_STATE', tabId })
+      .catch(() => undefined) as { paused?: boolean, global?: boolean } | undefined
+    sniffingPaused.value = result?.paused === true
+    globalPaused.value = result?.global === true
+  }
+  function toggleSniffing() {
     if (currentTabId === undefined) return
-    await browser.tabs.reload(currentTabId)
+    // A global pause is not this button's to undo: resuming one tab out of a
+    // "everything off" state is ambiguous, and the only unambiguous wording
+    // ("resume all sites") lives on the toolbar icon's menu. So the button
+    // explains where to go instead of doing something surprising.
+    if (globalPaused.value) {
+      showToastMsg(t('pauseAllHint'))
+      return
+    }
+    const paused = !sniffingPaused.value
+    sniffingPaused.value = paused
+    void browser.runtime
+      .sendMessage({ type: 'SET_SNIFFING_PAUSED', tabId: currentTabId, paused })
+      .catch(() => { sniffingPaused.value = !paused })
+  }
+  // Chromium's side panel cannot be opened from a popup's async handler without a
+  // user gesture, so this asks the worker and points the user at the toolbar when
+  // the browser refuses. Without it the only way to get the panel was to know
+  // that the toolbar icon opens it.
+  async function openInSidebar() {
+    if (currentTabId === undefined) return
+    const result = await browser.runtime
+      .sendMessage({ type: 'OPEN_SIDE_PANEL', tabId: currentTabId })
+      .catch(() => undefined) as { ok?: boolean } | undefined
+    if (result?.ok) return
+    showToastMsg(t('openInSidebarUnavailable'))
   }
 
   async function closeSidebarForCurrentTab() {
@@ -934,11 +1358,41 @@
   }
 
   // ── 文件重命名：点击文件名编辑，下载时优先使用自定义名称 ──
+  // The rename only matters if it survives the panel closing, so it is kept in
+  // session storage next to the rest of the per-tab capture state. Names are
+  // keyed by URL, which is stable across a reload of the same page.
+  const CUSTOM_NAMES_KEY = 'flowpick_custom_names'
   const customNames = ref<Map<string, string>>(new Map())
   const editingUrl = ref<string | null>(null)
   const editingName = ref('')
   // 自动聚焦指令
   const vFocus = { mounted: (el: HTMLInputElement) => { el.focus(); el.select() } }
+
+  const nameStorage = () => (browser.storage as any).session ?? browser.storage.local
+  let customNamesSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+  async function loadCustomNames() {
+    try {
+      const stored = (await nameStorage().get(CUSTOM_NAMES_KEY))?.[CUSTOM_NAMES_KEY]
+      if (!stored || typeof stored !== 'object') return
+      const next = new Map<string, string>()
+      for (const [url, name] of Object.entries(stored)) {
+        if (typeof url === 'string' && typeof name === 'string' && name) next.set(url, name)
+      }
+      if (next.size) customNames.value = new Map([...next, ...customNames.value])
+    } catch { /* a lost rename is cosmetic; never block the list */ }
+  }
+
+  /** Debounced so holding Enter on many names does not thrash storage. */
+  function scheduleCustomNamesSave() {
+    if (customNamesSaveTimer) clearTimeout(customNamesSaveTimer)
+    customNamesSaveTimer = setTimeout(() => {
+      customNamesSaveTimer = null
+      const plain: Record<string, string> = {}
+      customNames.value.forEach((name, url) => { plain[url] = name })
+      void nameStorage().set({ [CUSTOM_NAMES_KEY]: plain }).catch(() => undefined)
+    }, 250)
+  }
 
   // 显示名：优先自定义 → tabTitle → currentTabTitle → getFileName（mse 特殊处理）
   const getDisplayName = (url: string, item: MediaItem): string => {
@@ -962,6 +1416,7 @@
       const next = new Map(customNames.value)
       next.set(url, name)
       customNames.value = next
+      scheduleCustomNamesSave()
     }
     editingUrl.value = null
     editingName.value = ''
@@ -1325,6 +1780,10 @@
 
   const fetchAllMetadataBatch = async (tabId = currentTabId, session = mediaSession) => {
     if (tabId === undefined) return
+    // This runs because the user just opened the panel and is looking at the
+    // list, so it is on-demand work, not the "on its own" probing the prefetch
+    // switch turns off. That switch governs the worker's background header
+    // reads; sizes still arrive here for anything the worker did not answer.
     // Keep one metadata batch per tab/session. New list updates are picked up
     // immediately after the current batch finishes instead of creating
     // competing batches for the same page.
@@ -1340,6 +1799,13 @@
       if (isStreamSegment(item)) return []
       // 会话内已失败的资源跳过，不再发起元数据请求
       if (failedMetadataKeys.has(key)) return []
+      // With prefetch on, the worker owns MP4/WebM: it reads the container
+      // header and reports the true total from Content-Range in the same
+      // response. Probing those here as well would send every request twice
+      // right after a panel open, because the worker queue is only two at a
+      // time and has not caught up yet. With prefetch off the worker is silent,
+      // so size falls back to this batch.
+      if (settings.value.prefetchMetadata !== false && containerProbeFormat(item.format)) return []
       const needSize = !item.size
         && !isStreamFormat(item.format)
         && item.format !== 'mse'
@@ -1418,7 +1884,11 @@
   const showToastMsg = (msg: string) => {
     toastMessage.value = msg
     showToast.value = true
-    setTimeout(() => { showToast.value = false }, 2000)
+    if (toastTimer) clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => {
+      showToast.value = false
+      toastTimer = null
+    }, 2000)
   }
 
   const getLocalizedActionError = (result: any, fallbackKey: string): string => {
@@ -1539,14 +2009,15 @@
     if (key && !current.items.some(({ item }) => getMediaKey(item) === key)) stopAudioPlayback(key)
   })
 
-  watch(activeTab, () => {
+  function resetListFilters() {
     showFilter.value = false
     typeFilter.value = 'any'
     sizeFilter.value = { min: 0, max: 0 }
     dimensionFilter.value = { minWidth: 0, minHeight: 0 }
     resolutionFilter.value = 'any'
     selectedKeys.value = new Set()
-  })
+  }
+  watch(filterTab, resetListFilters)
 
   watch(audioPlayingKey, async (newId, oldId) => {
     if (oldId !== null && oldId !== newId) stopAudioPlayback(oldId)
@@ -1567,7 +2038,11 @@
     return false
   }
 
-  const playUrl = (url: string, format: string, item?: MediaItem) => {
+  const playbackTitle = (item: MediaItem): string => isItemPlaying(item) && !settings.value.openPlaybackInNewTab
+    ? t('stopPlay')
+    : t(settings.value.openPlaybackInNewTab && item.format !== 'mse' && !isImageFormat(item.format) ? 'playInNewTab' : 'play')
+
+  const playUrl = async (url: string, format: string, item?: MediaItem) => {
     if (format === 'mse') {
       if (!item?.captureId || currentTabId === undefined) {
         showToastMsg(t('mseCaptureInvalid'))
@@ -1589,6 +2064,23 @@
       }).catch((error: unknown) => {
         showToastMsg(t('msePlayFailedDetail', String(error)))
       })
+      return
+    }
+    if (!settingsLoaded && !(await ensureSettingsLoaded())) {
+      showToastMsg(t('settingsLoadFailed'))
+      return
+    }
+    if (settings.value.openPlaybackInNewTab && (isStreamFormat(format) || isVideoFormat(format) || isAudioFormat(format))) {
+      if (playingKey.value !== null) stopPlayback(playingKey.value)
+      if (audioPlayingKey.value !== null) stopAudioPlayback(audioPlayingKey.value)
+      try {
+        const media = item ?? { url, format }
+        const result = await browser.runtime.sendMessage({
+          type: 'OPEN_MEDIA_PLAYER', item: cloneMediaItem(media), sourceTabId: currentTabId,
+          title: getDisplayName(url, media),
+        })
+        if (!result?.ok) throw new Error()
+      } catch { showToastMsg(t('playerOpenFailed')) }
       return
     }
     const key = getMediaKey(item ?? { url, format })
@@ -1656,7 +2148,7 @@
       url: item.url,
       format: item.format,
       referrer,
-      requestHeaders: item.requestHeaders,
+      requestHeaders: item.requestHeaders ? { ...item.requestHeaders } : undefined,
     }).catch(() => undefined) as { ok?: boolean; drm?: boolean } | undefined
     return { referrer, drm: response?.drm === true }
   }
@@ -1685,43 +2177,12 @@
     audioEl.preload = 'auto'
     audioEl.src = audioUrl
 
-    const syncTime = () => {
-      if (Math.abs(audioEl.currentTime - videoEl.currentTime) > 0.18) {
-        audioEl.currentTime = videoEl.currentTime
-      }
-    }
-    const syncPlay = () => {
-      syncTime()
-      audioEl.play().catch(() => {})
-    }
-    const syncPause = () => audioEl.pause()
-    const syncRate = () => { audioEl.playbackRate = videoEl.playbackRate }
-    const onAudioError = () => {
-      // Keep the picture playable if an optional separate audio track fails.
-      console.warn('[FlowPick] separated preview audio failed:', audioUrl)
-    }
-    videoEl.addEventListener('play', syncPlay)
-    videoEl.addEventListener('pause', syncPause)
-    videoEl.addEventListener('seeking', syncTime)
-    videoEl.addEventListener('timeupdate', syncTime)
-    videoEl.addEventListener('ratechange', syncRate)
-    audioEl.addEventListener('error', onAudioError)
-    separatedAudioPlayers.set(key, {
-      element: audioEl,
-      dispose: () => {
-        videoEl.removeEventListener('play', syncPlay)
-        videoEl.removeEventListener('pause', syncPause)
-        videoEl.removeEventListener('seeking', syncTime)
-        videoEl.removeEventListener('timeupdate', syncTime)
-        videoEl.removeEventListener('ratechange', syncRate)
-        audioEl.removeEventListener('error', onAudioError)
-        audioEl.pause()
-        audioEl.removeAttribute('src')
-        audioEl.load()
-      },
+    const dispose = syncSeparatedAudio(videoEl, audioEl, () => {
+      if (playingKey.value !== key) return
+      showToastMsg(t('audioPlayError'))
+      stopPlayback(key)
     })
-    syncRate()
-    if (!videoEl.paused) syncPlay()
+    separatedAudioPlayers.set(key, { element: audioEl, dispose })
   }
 
   watch(playingKey, async (newId, oldId) => {
@@ -1749,6 +2210,7 @@
     // Manifest 预检之外再监听 EME，覆盖普通 MP4/WebM init data 中的 DRM。
     videoEl.onencrypted = () => {
       if (playingKey.value !== newId) return
+      reportDrm(item)
       showToastMsg(t('drmProtected'))
       stopPlayback(newId)
     }    // 创建 ResizeObserver 监听视频实际高度，实现展开高度自适应
@@ -1835,6 +2297,7 @@
         const playbackContext = await getPlaybackContext(item)
         if (playingKey.value !== newId || !videoEl.isConnected) return
         if (playbackContext.drm) {
+          reportDrm(item)
           showToastMsg(t('drmProtected'))
           stopPlayback(newId)
           return
@@ -1895,6 +2358,7 @@
       const playbackContext = await getPlaybackContext(item)
       if (playingKey.value !== newId || !videoEl.isConnected) return
       if (playbackContext.drm) {
+        reportDrm(item)
         showToastMsg(t('drmProtected'))
         stopPlayback(newId)
         return
@@ -1909,6 +2373,30 @@
 
   const copyUrl = (url: string) => {
     navigator.clipboard.writeText(url).then(() => showToastMsg(t('copyTips')))
+  }
+
+  // Remove one row. The worker remembers dismissed URLs so a re-sniff cannot
+  // bring it back; the local list drops it immediately so the click feels done
+  // without waiting for the broadcast round-trip.
+  const dismissMedia = (item: MediaItem) => {
+    if (currentTabId === undefined) return
+    // A stream master owns its variants and separated audio; deleting the card
+    // means deleting the family, or the children reappear as orphan rows.
+    const urls = new Set<string>([item.url])
+    for (const candidate of mediaList.value) {
+      if (candidate.groupMasterId === item.url) urls.add(candidate.url)
+    }
+    const removedKeys = new Set<string>()
+    for (const candidate of mediaList.value) {
+      if (urls.has(candidate.url)) removedKeys.add(getMediaKey(candidate))
+    }
+    selectedKeys.value = new Set([...selectedKeys.value].filter(key => !removedKeys.has(key)))
+    mediaList.value = mediaList.value.filter(candidate => !removedKeys.has(getMediaKey(candidate)))
+    reconcileMediaState()
+    void browser.runtime
+      .sendMessage({ type: 'DISMISS_MEDIA', tabId: currentTabId, urls: [...urls] })
+      .catch(() => {})
+    showToastMsg(t('mediaRemoved'))
   }
 
   const previewImage = (url: string) => {
@@ -2059,17 +2547,56 @@
     requestHeaders?: Record<string, string>,
     filename?: string,
     resourceKind: 'image' | 'audio' | 'document' = 'document',
+    notify = true,
   ) => {
     try {
       const result = await browser.runtime.sendMessage({
         type: 'OPEN_RESOURCE_DOWNLOAD', url, format, requestHeaders,
-        filename: filename || getDownloadFilename(url, format), resourceKind, sourceTabId: currentTabId,
+        filename: filename || (format ? getDownloadFilename(url, format) : undefined), resourceKind, sourceTabId: currentTabId,
       })
       if (!result?.ok) throw new Error(result?.error || 'download-not-started')
-      showToastMsg(t('docDownloadStarted'))
+      if (notify) showToastMsg(t('docDownloadStarted'))
+      return true
     } catch (error) {
       console.warn('[FlowPick] Direct resource download failed:', error)
-      showToastMsg(t('docDownloadFailed'))
+      if (notify) showToastMsg(t('docDownloadFailed'))
+      return false
+    }
+  }
+
+  const downloadManualImage = (item: MediaItem) => {
+    void downloadResourceDirectly(item.url, item.format, undefined, undefined, 'image')
+  }
+
+  async function downloadCollectedImage(item: MediaItem, filename?: string, notify = true) {
+    if (!item.url.startsWith('data:')) {
+      return downloadResourceDirectly(item.url, item.format, item.requestHeaders, filename, 'image', notify)
+    }
+    try {
+      await browser.downloads.download({ url: item.url, filename: filename ?? getDownloadFilename(item.url, item.format) })
+      if (notify) showToastMsg(t('docDownloadStarted'))
+      return true
+    } catch {
+      if (notify) showToastMsg(t('docDownloadFailed'))
+      return false
+    }
+  }
+
+  const collectionDownloading = ref(false)
+  async function downloadImageCollection() {
+    if (collectionDownloading.value || !collectedImages.value.length) return
+    collectionDownloading.value = true
+    try {
+      const directory = sanitizeDirectoryName(currentTabTitle.value)
+      const results = await Promise.all(collectedImages.value.map(item => downloadCollectedImage(
+        item, item.format ? getBatchDownloadFilename(item.url, item.format, directory) : undefined, false,
+      )))
+      const started = results.filter(Boolean).length
+      showToastMsg(started === results.length
+        ? t('batchDownloadStarted', String(started))
+        : t('pagePickCollectionDownloadResult', [String(started), String(results.length - started)]))
+    } finally {
+      collectionDownloading.value = false
     }
   }
 
@@ -2147,6 +2674,12 @@
   }
 
   const downloadUrl = (url: string, format: string, requestHeaders?: Record<string, string>, captureId?: string, isLiveStream?: boolean, frameId?: number) => {
+    // A DRM-protected row cannot produce a file. Saying so here is cheaper than
+    // letting the user wait for a downloader page that will fail.
+    if (mediaByUrl.value.get(url)?.drm) {
+      showToastMsg(t('drmBadgeHint'))
+      return
+    }
     if (format === 'mse') {
       if (!captureId || currentTabId === undefined) {
         showToastMsg(t('mseCaptureInvalid'))
@@ -2167,7 +2700,9 @@
     if (isStreamFormat(format) || isVideoDownloadFormat(format) || isAudioFormat(format)) {
       // Video and audio stay on the external downloader workflow, which can
       // handle manifests, separate tracks, conversion, and media-specific UI.
-      browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders }).then((result: any) => {
+      const media = mediaByUrl.value.get(url)
+      const audioUrl = media?.audioUrl || media?.audioOptions?.[0]?.url
+      browser.runtime.sendMessage({ type: 'OPEN_DOWNLOAD_PAGE', url, format, filename, requestHeaders: requestHeaders ? { ...requestHeaders } : undefined, audioUrl }).then((result: any) => {
         if (!result?.ok && !isAudioFormat(format)) showRulesHint.value = true
       }).catch(() => {
         if (!isAudioFormat(format)) showRulesHint.value = true
@@ -2215,11 +2750,14 @@
       if (queueItems.length) {
         const result = await browser.runtime.sendMessage({
           type: 'OPEN_DOWNLOAD_QUEUE', sourceTabId: currentTabId,
-          items: queueItems.map(item => ({
-            url: item.url, format: item.format, filename: getDownloadName(item.url),
-            requestHeaders: item.requestHeaders, audioUrl: item.audioUrl,
-            audioOptions: item.audioOptions, isLive: item.isLiveStream,
-          })),
+          items: queueItems.map(raw => {
+            const item = cloneMediaItem(raw)
+            return {
+              url: item.url, format: item.format, filename: getDownloadName(item.url),
+              requestHeaders: item.requestHeaders, audioUrl: item.audioUrl || item.audioOptions?.[0]?.url,
+              audioOptions: item.audioOptions, isLive: item.isLiveStream,
+            }
+          }),
         })
         if (!result?.ok) throw new Error(result?.error || 'queue-open-failed')
       }
@@ -2253,6 +2791,41 @@
   const openHelp = () => {
     showMore.value = false
     browser.tabs.create({ url: 'https://flowpick.net/docs/getting-started' })
+  }
+
+  // Only one popover is open at a time; they overlap in the footer.
+  function closeMenus() {
+    showMore.value = false
+    exportMenuOpen.value = false
+    shortcutHelpOpen.value = false
+  }
+
+  function toggleExportMenu() {
+    const next = !exportMenuOpen.value
+    closeMenus()
+    exportMenuOpen.value = next
+  }
+
+  function toggleShortcutHelp() {
+    const next = !shortcutHelpOpen.value
+    closeMenus()
+    shortcutHelpOpen.value = next
+  }
+
+  function toggleMoreMenu() {
+    const next = !showMore.value
+    closeMenus()
+    showMore.value = next
+  }
+
+  function onDocumentPointerDown(event: MouseEvent) {
+    if (!showMore.value && !exportMenuOpen.value && !shortcutHelpOpen.value) return
+    const target = event.target as Node | null
+    if (!target) return
+    for (const el of [moreMenuRef.value, exportMenuRef.value, shortcutHelpRef.value]) {
+      if (el?.contains(target)) return
+    }
+    closeMenus()
   }
 
   // ── Settings actions ──────────────────────────────────────────────
@@ -2320,12 +2893,18 @@
   }
 
   async function openSettings() {
+    resetPagePick()
     if (!settingsLoaded && !(await ensureSettingsLoaded())) {
       showToastMsg(t('settingsLoadFailed'))
       return
     }
     view.value = 'settings'
     showMore.value = false
+  }
+
+  function openPagePickSettings() {
+    settingsLoaded = false
+    return openSettings()
   }
 
   function dismissRulesHint() {
@@ -2405,7 +2984,140 @@
     } catch {}
     view.value = 'list'
   }
-</script>
+
+  // ── Copy / export the detected URL list ──────────────────────────────
+  // Triaging a page usually ends with "give me every URL I see" — for a
+  // download manager, a spreadsheet, or a bug report. Both actions operate on
+  // the current selection when there is one and on the filtered view otherwise.
+  const exportItems = computed((): MediaItem[] => {
+    if (selectedDownloadItems.value.length) return selectedDownloadItems.value
+    return selectableMediaList.value
+  })
+
+  async function copyAllUrls() {
+    const items = exportItems.value
+    if (!items.length) return
+    try {
+      await navigator.clipboard.writeText(buildUrlListText(items))
+      showToastMsg(t('copyAllUrlsDone', String(items.length)))
+    } catch {
+      showToastMsg(t('copyFailed'))
+    }
+  }
+
+  function exportFileName(extension: string): string {
+    const base = sanitizeDirectoryName(currentTabTitle.value || '') || 'flowpick'
+    return `${base}-urls.${extension}`
+  }
+
+  async function exportUrlList(asCsv = false) {
+    const items = exportItems.value
+    if (!items.length) return
+    const nameOf = (item: MediaItem) => getDisplayName(item.url, item)
+    try {
+      if (asCsv) {
+        await downloadTextFile(exportFileName('csv'), buildCsv(items, nameOf), 'text/csv;charset=utf-8')
+      } else {
+        await downloadTextFile(exportFileName('txt'), buildUrlListText(items))
+      }
+      showToastMsg(t('exportDone', String(items.length)))
+    } catch {
+      showToastMsg(t('exportFailed'))
+    }
+  }
+
+  // Cheatsheet rows for the footer keyboard panel. Keys are rendered as <kbd>
+  // chips, labels come from i18n so the list is usable in every locale.
+  const keyboardCheatsheet = computed(() => [
+    { id: 'search', keys: ['/'], label: t('navSearch') },
+    { id: 'move', keys: ['↑', '↓'], label: t('navMove') },
+    { id: 'select', keys: ['Space'], label: t('navSelect') },
+    { id: 'download', keys: ['D'], label: t('navDownload') },
+    { id: 'preview', keys: ['Enter'], label: t('navPreview') },
+    { id: 'copy', keys: ['C'], label: t('navCopy') },
+    { id: 'close', keys: ['Esc'], label: t('navClose') },
+  ])
+
+  // ── Keyboard navigation ──────────────────────────────────────────────
+  // Rows mirror what the virtualizer actually renders so arrow keys move by
+  // what the user sees, not by raw array index.
+  function navRows() {
+    if (showingImageCollection.value || manualImage.value) return []
+    if (activeTab.value === 'image') {
+      return masonryItems.value.map(entry => ({
+        key: getMediaKey(entry.item), top: entry.top, height: entry.height,
+      }))
+    }
+    if (activeTab.value === 'stream') {
+      return streamGroupLayout.value.items.map(entry => ({
+        key: getMediaKey(entry.group.masterItem), top: entry.top, height: entry.height,
+      }))
+    }
+    const items = flatMediaList.value
+    const { offsets } = virtualMetrics.value
+    const lead = activeTab.value === 'all' ? allStreamGroupsHeight.value : 0
+    const rows = items.map((item, index) => ({
+      key: getMediaKey(item), top: lead + (offsets[index] ?? 0), height: getItemHeight(item),
+    }))
+    if (activeTab.value === 'all') {
+      rows.unshift(...streamGroupLayout.value.items.map(entry => ({
+        key: getMediaKey(entry.group.masterItem), top: entry.top, height: entry.height,
+      })))
+    }
+    return rows
+  }
+
+  function findNavItem(key: string): MediaItem | undefined {
+    const group = groupedStreamList.value.find(entry => getMediaKey(entry.masterItem) === key)
+    if (group) return group.isVirtual ? getPreferredStreamItem(group) : group.masterItem
+    return mediaByKey.value.get(key)
+  }
+
+  const { focusedKey, clearFocus } = useKeyboardNav({
+    active: computed(() => view.value === 'list' && !showRecordingDialog.value && !previewImageUrl.value),
+    rows: navRows,
+    scrollTop: () => scrollTop.value,
+    containerHeight: () => containerHeight.value,
+    scrollTo: y => {
+      const el = listContainerRef.value
+      if (el) el.scrollTop = y
+    },
+    onToggleSelect: key => toggleSelect(key),
+    onDownload: key => {
+      const item = findNavItem(key)
+      if (item) void downloadUrl(item.url, item.format, item.requestHeaders, item.captureId, item.isLiveStream, item.frameId)
+    },
+    onPreview: key => {
+      const item = findNavItem(key)
+      if (item) void playUrl(item.url, item.format, item)
+    },
+    onCopy: key => {
+      const item = findNavItem(key)
+      if (!item) return
+      navigator.clipboard.writeText(item.url).then(() => showToastMsg(t('copyTips'))).catch(() => showToastMsg(t('copyFailed')))
+    },
+    onSearchFocus: () => {
+      showFilter.value = false
+      const input = document.querySelector<HTMLInputElement>('[data-search-input]')
+      input?.focus()
+      input?.select()
+    },
+    onHelp: () => {
+      // "?" is the conventional cheatsheet key and pairs with the hint chip.
+      const next = !shortcutHelpOpen.value
+      closeMenus()
+      shortcutHelpOpen.value = next
+    },
+    onEscape: () => {
+      // The lightbox and the recording dialog set `active` to false, so they
+      // never reach this handler; only list-level layers are unwound here.
+      if (shortcutHelpOpen.value) { shortcutHelpOpen.value = false; return true }
+      if (showFilter.value) { showFilter.value = false; return true }
+      if (searchQuery.value) { clearSearch(); return true }
+      if (focusedKey.value) { clearFocus(); return true }
+      return false
+    },
+  })</script>
 
 <template>
   <div :class="rootContainerClass">
@@ -2420,7 +3132,17 @@
       leave-to-class="opacity-0 -translate-x-4"
     >
       <div v-if="view === 'list'" class="flex flex-col h-full overflow-hidden">
-        <div class="border-b border-gray-200 dark:border-gray-800 sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm z-10 shrink-0">
+        <!--
+          The header owns the highest z-index of the scrolling area on purpose.
+          Cards inside <main> use z-10 (select circle) and z-20 (download
+          button) on positioned elements, and <main> is not a stacking context,
+          so those cards compete with the header in the same stacking context.
+          At z-10 the Export popover was painted underneath them; z-40 keeps the
+          whole header (and every popover anchored inside it) above card chrome
+          and above the footer menus (z-30), while staying below the preview
+          overlay (z-50), toasts and the recording dialog.
+        -->
+        <div class="border-b border-gray-200 dark:border-gray-800 sticky top-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm z-40 shrink-0">
           <div v-if="mode === 'popup'" class="flex items-center px-3 py-2 border-b border-gray-100 dark:border-gray-800">
             <img src="/icon/48.png" alt="FlowPick" class="w-6 h-6 mr-2" />
             <div class="flex items-center gap-1.5">
@@ -2475,73 +3197,235 @@
             </nav>
             
           </div>
-          <div class="flex flex-wrap items-center gap-1 px-3 py-1 border-b border-gray-100 dark:border-gray-800">
-            <template v-if="selectableMediaList.length > 0">
-              <button @click="toggleSelectAll" class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all" :title="selectableMediaList.every(item => selectedKeys.has(getMediaKey(item))) ? t('deselectAll') : t('selectAll')">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+          <!--
+            One row, always. Controls are ordered left to right by what they act
+            on — selection first (select-all, download-selected), then page
+            capture (record, then grab page resources), then view/refine, then
+            list upkeep — with hairline dividers between the groups and Export
+            keeping a fixed slot on the right. The middle scrolls horizontally,
+            so a narrow panel can never push a button onto a second line.
+          -->
+          <div v-if="!showingImageCollection" class="flex items-center gap-1.5 px-2 py-1 border-b border-gray-100 dark:border-gray-800">
+            <div class="toolbar-strip flex min-w-0 flex-1 items-center gap-0.5">
+              <!--
+                Selection leads the row: ticking items is the first thing most
+                sessions do, and download-selected only materialises once there
+                is a selection. Both controls live inside the template so the
+                divider travels with them instead of dangling in front of
+                Record when the list is empty or nothing is selectable.
+              -->
+              <template v-if="selectableMediaList.length || selectedKeys.size">
+                <button v-if="selectableMediaList.length" type="button" @click="toggleSelectAll"
+                  :class="allSelectableSelected ? toolbarButtonOnClass : toolbarButtonClass"
+                  :title="allSelectableSelected ? t('deselectAll') : t('selectAll')"
+                  :aria-label="allSelectableSelected ? t('deselectAll') : t('selectAll')"
+                  :aria-pressed="allSelectableSelected">
+                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path v-if="allSelectableSelected" stroke-linecap="round" stroke-linejoin="round" d="M8.5 12.5l2.5 2.5 4.5-5" />
+                  </svg>
+                </button>
+                <button v-if="selectedKeys.size" type="button" @click="batchDownload"
+                  :disabled="batchSubmitting"
+                  class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus-visible:ring-offset-gray-900"
+                  :title="t('downloadSelected')"
+                  :aria-label="t('downloadSelected')">
+                  <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  <span class="tabular-nums">{{ selectedKeys.size }}</span>
+                </button>
+                <span class="mx-0.5 h-4 w-px shrink-0 bg-gray-200 dark:bg-gray-700" aria-hidden="true"></span>
+              </template>
+
+              <!-- Page capture: for media the sniffer cannot see on its own.
+                   Record comes first because it rescues a page from failure;
+                   the picker only enriches a page that already works. -->
+              <button type="button" @click="openRecordingDialog"
+                :class="showRecordingDialog ? toolbarButtonOnClass : toolbarButtonClass"
+                :title="t('recordingMode')"
+                :aria-label="t('recordingMode')"
+                :aria-pressed="showRecordingDialog">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <rect x="3" y="5" width="14" height="14" rx="2" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m17 10 4-2v8l-4-2" />
+                  <circle cx="10" cy="12" r="2.25" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+              <button v-if="mode === 'sidepanel'" type="button"
+                :class="pickerActive ? toolbarButtonOnClass : toolbarButtonClass"
+                :title="t(collectingImages ? 'pagePickCollectionDone' : pickerActive ? 'pagePickCancel' : 'pagePickTitle')"
+                :aria-label="t('pagePickTitle')"
+                :aria-pressed="pickerActive"
+                @click="collectingImages ? showImageCollection() : pickerActive ? resetPagePick() : startPagePick()">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <circle cx="12" cy="12" r="7" />
+                  <circle cx="12" cy="12" r="2" />
+                  <path stroke-linecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                </svg>
+              </button>
+
+              <span class="mx-0.5 h-4 w-px shrink-0 bg-gray-200 dark:bg-gray-700" aria-hidden="true"></span>
+
+              <!-- View: how the list is ordered and narrowed. -->
+              <button type="button" @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'"
+                :class="sortOrder === 'desc' ? toolbarButtonOnClass : toolbarButtonClass"
+                :title="sortOrder === 'asc' ? t('sortAsc') : t('sortDesc')"
+                :aria-label="sortOrder === 'asc' ? t('sortAsc') : t('sortDesc')">
+                <svg class="h-4 w-4 transition-transform" :class="{ 'rotate-180': sortOrder === 'asc' }" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h11M4 10h7M4 14h7m6-7v11m0 0-3-3m3 3 3-3" />
+                </svg>
+              </button>
+              <button type="button" @click="showFilter = !showFilter"
+                :class="(showFilter || filtersActive) ? toolbarButtonOnClass : toolbarButtonClass"
+                :title="t('filter')"
+                :aria-label="t('filter')"
+                :aria-pressed="showFilter">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                <!-- A dot marks "filters are narrowing the list" even when the panel is shut. -->
+                <span v-if="filtersActive && !showFilter" class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-blue-500 dark:bg-blue-400" aria-hidden="true"></span>
+              </button>
+
+              <span class="mx-0.5 h-4 w-px shrink-0 bg-gray-200 dark:bg-gray-700" aria-hidden="true"></span>
+
+              <!-- List upkeep: re-detect on the live page, pause detection, or
+                   empty this page's list. Rescan replaced a full page reload,
+                   which used to throw away playback position. -->
+              <button type="button" @click="rescanPage"
+                :disabled="rescanning"
+                :class="toolbarButtonClass"
+                :title="t('rescanPage')"
+                :aria-label="t('rescanPage')">
+                <svg class="h-4 w-4" :class="{ 'animate-spin': rescanning }" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                </svg>
+              </button>
+              <button type="button" @click="toggleSniffing"
+                :class="globalPaused ? toolbarButtonDangerClass : sniffingPaused ? toolbarButtonAttentionClass : toolbarButtonClass"
+                :title="t(globalPaused ? 'globalPaused' : sniffingPaused ? 'resumeSniffing' : 'pauseSniffing')"
+                :aria-label="t(globalPaused ? 'globalPaused' : sniffingPaused ? 'resumeSniffing' : 'pauseSniffing')"
+                :aria-pressed="sniffingPaused">
+                <!-- Global: a slash, not a pause bar. "Paused here" and "off
+                     everywhere" are different situations and must not be
+                     distinguished by colour alone. -->
+                <svg v-if="globalPaused" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
                   <circle cx="12" cy="12" r="9" />
-                  <path v-if="selectableMediaList.every(item => selectedKeys.has(getMediaKey(item)))" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4" />
+                  <path stroke-linecap="round" d="M6 18 18 6" />
+                </svg>
+                <svg v-else-if="sniffingPaused" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 5v14l11-7z" />
+                </svg>
+                <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M10 5v14M14 5v14" />
                 </svg>
               </button>
-              <button @click="batchDownload" :disabled="selectedKeys.size === 0 || batchSubmitting"
-                class="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-all disabled:cursor-not-allowed"
-                :class="selectedKeys.size > 0 ? 'bg-blue-500 hover:bg-blue-400 text-white shadow-sm' : 'text-gray-400 dark:text-gray-600 bg-transparent'"
-                :title="t('downloadSelected')">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              <button type="button" @click="handleClearClick"
+                :class="clearConfirm ? toolbarButtonArmedDangerClass : toolbarButtonDangerClass"
+                :title="t(clearConfirm ? 'clearConfirm' : 'clearList')"
+                :aria-label="t(clearConfirm ? 'clearConfirm' : 'clearList')">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
                 </svg>
-                <span v-if="selectedKeys.size > 0">{{ selectedKeys.size }}</span>
               </button>
-              <div class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5 flex-shrink-0"></div>
-            </template>
-            <button
-              @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'"
-              :title="sortOrder === 'asc' ? t('sortAsc') : t('sortDesc')"
-              :class="['flex items-center justify-center w-7 h-7 rounded-md transition-all', sortOrder === 'desc' ? 'text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30' : 'text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800']">
-              <svg class="w-4 h-4 transition-transform" :class="sortOrder === 'asc' ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h13M3 8h9m-9 4h9m5-4v12m0 0l-4-4m4 4l4-4" />
-              </svg>
-            </button>
-            <button @click="clearCurrentList"
-              class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-              :title="t('clearList')">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-              </svg>
-            </button>
-            <button @click="refreshPage"
-              class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 dark:text-gray-500 hover:text-green-500 dark:hover:text-green-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-              :title="t('refreshPage')">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-              </svg>
-            </button>
-            <button @click="openRecordingDialog"
-              type="button"
-              :class="['inline-flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-2 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900', showRecordingDialog ? 'border-blue-500 bg-blue-600 text-white dark:border-blue-400 dark:bg-blue-500' : 'border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 dark:hover:border-blue-600 dark:hover:bg-blue-900/60']"
-              :title="t('recordingRecoveryHint')"
-              :aria-label="t('recordingMode')">
-              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5" aria-hidden="true">
-                <rect x="3" y="5" width="14" height="14" rx="2" />
-                <path stroke-linecap="round" stroke-linejoin="round" d="m17 10 4-2v8l-4-2" />
-                <circle cx="10" cy="12" r="2.25" fill="currentColor" stroke="none" />
-              </svg>
-              <span>{{ t('recordingAction') }}</span>
-            </button>
-            <button @click="showFilter = !showFilter"
-              :class="[
-                'flex items-center justify-center w-7 h-7 rounded-md transition-all',
-                showFilter || typeFilter !== 'any' || sizeFilter.min > 0 || sizeFilter.max > 0 || dimensionFilter.minWidth > 0 || dimensionFilter.minHeight > 0 || resolutionFilter !== 'any'
-                  ? 'text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30'
-                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
-              ]"
-              :title="t('filter')">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-              </svg>
-            </button>
+            </div>
+            <!--
+              Export is the last step of nearly every session, so it stays a
+              real labelled button rather than hiding under a chevron. The
+              label is one short word in every locale: this strip already
+              scrolls on a narrow panel, and "Export" cost 30px less than the
+              two-word labels that came before it.
+            -->
+            <div ref="exportMenuRef" class="relative shrink-0">
+              <button type="button" @click="toggleExportMenu"
+                :disabled="!exportItems.length"
+                :class="[
+                  'inline-flex h-7 items-center gap-1 rounded-md border px-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40',
+                  exportMenuOpen
+                    ? 'border-blue-400 bg-blue-500 text-white dark:border-blue-500'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-blue-700 dark:hover:bg-blue-950/60 dark:hover:text-blue-300'
+                ]"
+                :title="selectedDownloadItems.length ? t('exportAll', String(selectedDownloadItems.length)) : t('exportAll', String(selectableMediaList.length))"
+                :aria-label="t('exportLabel')"
+                :aria-expanded="exportMenuOpen"
+                aria-haspopup="menu">
+                <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                </svg>
+                <span class="whitespace-nowrap">{{ t('exportLabel') }}</span>
+                <svg class="h-2.5 w-2.5 shrink-0 transition-transform duration-200" :class="{ 'rotate-180': exportMenuOpen }" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <Transition
+                enter-active-class="transition-all duration-150 ease-out"
+                enter-from-class="opacity-0 scale-95 -translate-y-1"
+                enter-to-class="opacity-100 scale-100 translate-y-0"
+                leave-active-class="transition-all duration-100 ease-in"
+                leave-from-class="opacity-100 scale-100 translate-y-0"
+                leave-to-class="opacity-0 scale-95 -translate-y-1">
+                <div v-if="exportMenuOpen" role="menu"
+                  class="absolute right-0 top-full z-30 mt-1 w-44 origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                  <p class="border-b border-gray-100 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:border-gray-700 dark:text-gray-500">
+                    {{ selectedDownloadItems.length ? t('exportAll', String(selectedDownloadItems.length)) : t('exportAll', String(selectableMediaList.length)) }}
+                  </p>
+                  <button type="button" role="menuitem" @click="copyAllUrls(); closeMenus()"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    {{ t('copyAllUrls') }}
+                  </button>
+                  <button type="button" role="menuitem" @click="exportUrlList(false); closeMenus()"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    {{ t('exportUrls') }}
+                  </button>
+                  <button type="button" role="menuitem" @click="exportUrlList(true); closeMenus()"
+                    class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">
+                    <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z" />
+                    </svg>
+                    {{ t('exportCsv') }}
+                  </button>
+                </div>
+              </Transition>
+            </div>
           </div>
-          <div class="px-2 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+          <div v-if="mode === 'sidepanel' && (pickStatus || browsingPageStreams || showingImageCollection || collectedImages.length)"
+            class="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-gray-100 px-2 py-1 dark:border-gray-800">
+            <button v-if="pickedCard || manualImage || browsingPageStreams || showingImageCollection" type="button"
+              class="inline-flex items-center gap-1 rounded px-1 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-300 dark:hover:bg-blue-950"
+              @click="resetPagePick">
+              <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m10 6-6 6 6 6m-6-6h16" /></svg>
+              {{ t('pagePickBack') }}
+            </button>
+            <p v-if="pickStatus && pickStatus !== 'manualImage'" role="status" class="text-xs text-gray-600 dark:text-gray-300">
+              {{ t(collectingImages && pickStatus === 'active' ? 'pagePickCollectionHint' : 'pagePick_' + pickStatus) }}
+            </p>
+            <button v-if="(pickStatus === 'active' && !collectingImages) || showingImageCollection" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="startPagePick(true)">{{ t(showingImageCollection ? 'pagePickCollectionContinue' : 'pagePickCollectionStart') }}</button>
+            <span v-if="collectingImages || showingImageCollection" aria-live="polite" class="text-xs font-semibold text-blue-700 dark:text-blue-300">
+              {{ t('pagePickCollectionCount', String(collectedImages.length)) }}
+            </span>
+            <button v-if="collectingImages" type="button"
+              class="rounded bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              @click="showImageCollection">{{ t('pagePickCollectionDone') }}</button>
+            <button v-else-if="!showingImageCollection && collectedImages.length" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="showImageCollection">{{ t('pagePickCollectionCount', String(collectedImages.length)) }}</button>
+            <button v-if="pickStatus === 'unconfirmed' && !collectingImages" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="browsePageStreams">{{ t('pagePickBrowseStreams') }}</button>
+            <button v-if="pickStatus === 'domainExcluded' || pickStatus === 'imageDisabled'" type="button"
+              class="text-xs font-medium text-blue-700 underline underline-offset-2 dark:text-blue-300"
+              @click="openPagePickSettings">{{ t('pagePickOpenSettings') }}</button>
+          </div>
+          <div v-if="!showingImageCollection" class="px-2 py-1 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
             <div class="relative flex-1">
               <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -2549,20 +3433,28 @@
               <input
                 v-model="searchQuery"
                 type="text"
-                :class="['w-full pl-7 pr-14 py-1.5 text-sm rounded-lg border bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:bg-white dark:focus:bg-gray-700 focus:border-transparent transition-all duration-150', regexValid ? 'border-gray-200 dark:border-gray-700 focus:ring-blue-500' : 'border-red-400 focus:ring-red-500']"
+                data-search-input
+                :class="['w-full pl-7 pr-16 py-1 text-[13px] rounded-md border bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:bg-white dark:focus:bg-gray-700 focus:border-transparent transition-all duration-150', regexValid ? 'border-gray-200 dark:border-gray-700 focus:ring-blue-500' : 'border-red-400 focus:ring-red-500']"
                 :placeholder="t('searchPlaceholder')"
               />
               <div class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                <button v-if="searchQuery" @click="clearSearch"
-                  class="flex items-center justify-center w-5 h-5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
-                  :title="t('searchClear')">
-                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <button v-if="searchQuery" @click="clearSearch" type="button"
+                  class="flex h-5 w-5 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-gray-600"
+                  :title="t('searchClear')"
+                  :aria-label="t('searchClear')">
+                  <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
-                <button @click="useRegex = !useRegex"
-                  :class="['flex items-center justify-center w-6 h-5 rounded text-[10px] font-mono font-bold border transition-all duration-150', useRegex ? 'bg-blue-500 text-white border-blue-500' : 'border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:border-blue-400 hover:text-blue-500 dark:hover:text-blue-400']"
-                  :title="t('searchRegexTitle')">
+                <!-- Discoverability: "/" jumps here from anywhere in the panel. -->
+                <kbd v-if="!searchQuery"
+                  class="pointer-events-none select-none rounded border border-gray-300 px-1 font-mono text-[10px] leading-4 text-gray-400 dark:border-gray-600 dark:text-gray-500"
+                  aria-hidden="true">/</kbd>
+                <button @click="useRegex = !useRegex" type="button"
+                  :class="['flex h-5 w-6 items-center justify-center rounded border font-mono text-[10px] font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500', useRegex ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-300 text-gray-400 hover:border-blue-400 hover:text-blue-500 dark:border-gray-600 dark:text-gray-500 dark:hover:text-blue-400']"
+                  :title="t('searchRegexTitle')"
+                  :aria-label="t('searchRegexTitle')"
+                  :aria-pressed="useRegex">
                   .*
                 </button>
               </div>
@@ -2572,12 +3464,12 @@
           <Transition
             enter-active-class="transition-all duration-200 ease-out"
             enter-from-class="opacity-0 max-h-0"
-            enter-to-class="opacity-100 max-h-32"
+            enter-to-class="opacity-100 max-h-48"
             leave-active-class="transition-all duration-150 ease-in"
-            leave-from-class="opacity-100 max-h-32"
+            leave-from-class="opacity-100 max-h-48"
             leave-to-class="opacity-0 max-h-0"
           >
-            <div v-if="showFilter" class="px-2 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 overflow-hidden">
+            <div v-if="showFilter && !showingImageCollection" class="px-2 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 overflow-hidden">
               <div class="flex flex-wrap gap-3 text-xs">
                 <div class="flex items-center gap-1.5">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('filterType') }}:</span>
@@ -2625,7 +3517,12 @@
                     <option value="sd">SD</option>
                   </select>
                 </div>
-                <button @click="typeFilter = 'any'; sizeFilter = { min: 0, max: 0 }; dimensionFilter = { minWidth: 0, minHeight: 0 }; resolutionFilter = 'any'; sortOrder = 'asc'" 
+                <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" v-model="includeUnknownSize"
+                    class="w-3 h-3 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500" />
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('includeUnknownSize') }}</span>
+                </label>
+                <button @click="resetFilters"
                   class="px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-900 dark:hover:text-white rounded transition-all duration-150">
                   {{ t('reset') }}
                 </button>
@@ -2636,9 +3533,53 @@
 
         <main ref="listContainerRef"
           class="flex-1 overflow-y-auto min-h-0"
-          :class="{ 'all-tab-scrollbar': activeTab === 'all' || activeTab === 'video' }"
+          :class="{
+            'all-tab-scrollbar': activeTab === 'all' || activeTab === 'video',
+            'masonry-gutter': activeTab === 'image',
+          }"
           @scroll="onListScroll">
-          <div v-if="filteredMediaList.length === 0"
+          <section v-if="showingImageCollection" class="space-y-3 p-3" :aria-label="t('pagePickCollectionTitle')">
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="text-sm font-semibold">{{ t('pagePickCollectionTitle') }}</h2>
+              <button type="button" class="rounded bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                :disabled="collectionDownloading || !collectedImages.length"
+                @click="downloadImageCollection">{{ t('pagePickCollectionDownload') }}</button>
+            </div>
+            <p v-if="!collectedImages.length" class="text-xs text-gray-500 dark:text-gray-400">{{ t('pagePickCollectionEmpty') }}</p>
+            <div v-else class="grid grid-cols-2 gap-2">
+              <article v-for="item in collectedImages" :key="item.url"
+                class="min-w-0 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+                <button type="button" class="block w-full cursor-zoom-in bg-gray-100 dark:bg-gray-800"
+                  :aria-label="t('preview')" @click="previewImage(item.url)">
+                  <img :src="imageSrc(item.url, item.requestHeaders)" :alt="getFileName(item.url)"
+                    class="aspect-square w-full object-contain" loading="lazy"
+                    @error="proxyImage($event, item.url, item.requestHeaders)" />
+                </button>
+                <div class="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+                  <span class="min-w-0 truncate" :title="getFileName(item.url)">{{ getFileName(item.url) }}</span>
+                  <button type="button" class="shrink-0 text-red-600 hover:underline dark:text-red-400"
+                    @click="collectedImages = collectedImages.filter(image => image.url !== item.url)">{{ t('pagePickCollectionRemove') }}</button>
+                </div>
+              </article>
+            </div>
+          </section>
+          <article v-else-if="manualImage" :key="manualImage.url" data-page-picked
+            class="m-2 space-y-2 rounded-lg bg-gray-50 p-3 dark:bg-gray-800">
+            <div class="flex items-center gap-2">
+              <span role="status" class="shrink-0 rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-200">{{ t('pagePickManualImage') }}</span>
+              <span class="truncate text-xs" :title="getFileName(manualImage.url)">{{ getFileName(manualImage.url) }}</span>
+            </div>
+            <img :src="imageSrc(manualImage.url)" :alt="getFileName(manualImage.url)"
+              class="mx-auto max-h-64 max-w-full rounded object-contain"
+              @error="proxyImage($event, manualImage.url)" />
+            <div class="flex gap-2">
+              <button type="button" class="rounded border border-gray-300 px-2.5 py-1.5 text-xs dark:border-gray-600"
+                @click="previewImage(manualImage.url)">{{ t('preview') }}</button>
+              <button type="button" class="rounded bg-blue-600 px-2.5 py-1.5 text-xs text-white hover:bg-blue-700"
+                @click="downloadManualImage(manualImage)">{{ t('download') }}</button>
+            </div>
+          </article>
+          <div v-else-if="filteredMediaList.length === 0"
             class="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 px-6 py-12">
             <div class="w-20 h-20 mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
               <svg class="w-10 h-10 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2646,13 +3587,51 @@
                   d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
             </div>
-            <p class="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('notFound') }}</p>
-            <p class="text-sm text-center text-gray-500 dark:text-gray-500 leading-relaxed">{{ t('playTips') }}</p>
+            <template v-if="emptyReason === 'filtered'">
+              <p class="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('emptyFilteredTitle') }}</p>
+              <p class="text-sm text-center text-gray-500 dark:text-gray-500 leading-relaxed mb-3">{{ t('playTips') }}</p>
+              <button type="button" @click="resetFilters"
+                class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800">
+                {{ t('emptyFilteredAction') }}
+              </button>
+            </template>
+            <template v-else-if="emptyReason === 'domain'">
+              <p class="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('emptyDomainTitle') }}</p>
+              <p class="text-sm text-center text-gray-500 dark:text-gray-500 leading-relaxed mb-3">{{ t('emptyDomainHint') }}</p>
+              <button type="button" @click="openSettings"
+                class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800">
+                {{ t('pagePickOpenSettings') }}
+              </button>
+            </template>
+            <template v-else-if="emptyReason === 'rules'">
+              <p class="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('emptyRulesTitle') }}</p>
+              <p class="text-sm text-center text-gray-500 dark:text-gray-500 leading-relaxed mb-3">{{ t('emptyRulesHint') }}</p>
+              <button type="button" @click="openSettings"
+                class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800">
+                {{ t('rulesHintAction') }}
+              </button>
+            </template>
+            <template v-else-if="emptyReason === 'type'">
+              <p class="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('emptyTypeTitle', emptyTypeLabel) }}</p>
+              <p class="text-sm text-center text-gray-500 dark:text-gray-500 leading-relaxed mb-3">{{ t('emptyTypeHint') }}</p>
+              <button type="button" @click="activeTab = 'all'"
+                class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800">
+                {{ t('emptyTypeAction') }}
+              </button>
+            </template>
+            <template v-else>
+              <p class="text-base font-medium text-gray-600 dark:text-gray-400 mb-2">{{ t('notFound') }}</p>
+              <p class="text-sm text-center text-gray-500 dark:text-gray-500 leading-relaxed">{{ t('playTips') }}</p>
+              <p v-if="sniffingPaused" class="mt-3 rounded-md bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                {{ t(globalPaused ? 'emptyGlobalPausedHint' : 'emptyPausedHint') }}
+              </p>
+            </template>
           </div>
 
           <template v-else>
             <div v-if="activeTab === 'image'" class="relative" :style="{ height: masonryTotalHeight + 'px', margin: '8px 0' }">
               <div v-for="mItem in imageVirtualItems" :key="mItem.item.url + mItem.index"
+                :data-page-picked="pickedCard?.url === mItem.item.url || undefined"
                 class="absolute"
                 :style="{
                   top: mItem.top + 'px',
@@ -2664,7 +3643,9 @@
                   @click="previewImage(mItem.item.url)"
                   :class="[
                     'group relative rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shadow-sm hover:shadow-md transition-all duration-200 cursor-zoom-in w-full h-full',
-                    selectedKeys.has(mediaView(mItem.item).key) ? 'ring-2 ring-blue-500 ring-offset-1' : ''
+                    selectedKeys.has(mediaView(mItem.item).key)
+                      ? 'ring-2 ring-blue-500 ring-offset-1'
+                      : focusedKey === mediaView(mItem.item).key ? 'ring-2 ring-indigo-400 ring-offset-1' : ''
                   ]">
                   <img :src="imageSrc(mItem.item.url)" :alt="mediaView(mItem.item).fileName"
                     class="w-full h-full object-cover"
@@ -2710,6 +3691,14 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
                           </svg>
                         </button>
+                        <button @click="dismissMedia(mItem.item)"
+                          class="p-1 rounded bg-white/20 hover:bg-red-500/80 text-white transition-colors"
+                          :title="t('removeItem')"
+                          :aria-label="t('removeItem')">
+                          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2724,13 +3713,16 @@
 
             <div v-else-if="activeTab === 'stream'" class="relative" :style="{ height: streamGroupLayout.totalHeight + 'px' }">
               <div v-for="{ group, index: groupIndex, top } in virtualStreamGroups" :key="group.id"
+                :data-page-picked="pickedCard?.url === group.masterItem.url || undefined"
                 :ref="el => observeStreamGroup(el, group.id)"
                 :style="{ position: 'absolute', top: top + 'px', left: '8px', right: '8px' }"
                 :class="[
                   'rounded-lg border overflow-hidden shadow-sm transition-all',
                   selectedKeys.has(getMediaKey(group.masterItem))
                     ? 'ring-2 ring-blue-400 dark:ring-blue-500 border-blue-200 dark:border-blue-700'
-                    : 'border-gray-200 dark:border-gray-700'
+                    : focusedKey === getMediaKey(group.masterItem)
+                      ? 'ring-2 ring-indigo-400 dark:ring-indigo-400 border-indigo-200 dark:border-indigo-700'
+                      : 'border-gray-200 dark:border-gray-700'
                 ]">
 
                 <!-- 卡片主体：封面 + 信息 + 操作 -->
@@ -2823,6 +3815,7 @@
                       <span :class="getFormatColor(group.masterItem.format)" class="px-1.5 py-px rounded text-[10px] font-bold tracking-wide uppercase flex-shrink-0 leading-tight">
                         {{ getFormatLabel(group.masterItem.format) }}
                       </span>
+                      <span v-if="group.masterItem.drm" :title="t('drmBadgeHint')" class="px-1.5 py-px rounded text-[10px] font-bold tracking-wide bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 flex-shrink-0 leading-tight">{{ t('drmBadge') }}</span>
                       <span v-if="group.isVirtual" class="text-[10px] text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-1.5 py-0.5 rounded-full flex-shrink-0 leading-tight">
                         {{ t('separatedStream') }}
                       </span>
@@ -2856,7 +3849,7 @@
                       </button>
                       <button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))"
                         :class="['p-1.5 rounded text-white transition-colors', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']"
-                        :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')">
+                        :title="playbackTitle(getPreviewStreamItem(group))">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <template v-if="isItemPlaying(getPreviewStreamItem(group))">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -2881,6 +3874,14 @@
                         :title="t('download')">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </button>
+                      <button @click.stop="dismissMedia(group.masterItem)"
+                        class="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                        :title="t('removeItem')"
+                        :aria-label="t('removeItem')">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
                     </div>
@@ -2958,7 +3959,9 @@
                     'rounded-lg border overflow-hidden shadow-sm transition-all',
                     selectedKeys.has(getMediaKey(group.masterItem))
                       ? 'ring-2 ring-blue-400 dark:ring-blue-500 border-blue-200 dark:border-blue-700'
-                      : 'border-gray-200 dark:border-gray-700'
+                      : focusedKey === getMediaKey(group.masterItem)
+                        ? 'ring-2 ring-indigo-400 dark:ring-indigo-400 border-indigo-200 dark:border-indigo-700'
+                        : 'border-gray-200 dark:border-gray-700'
                   ]">
                   <div class="flex gap-2 px-2 bg-white dark:bg-gray-800 cursor-pointer"
                     :class="[group.variants.length ? '' : '', currentDensity === 'compact' ? 'py-2' : 'py-3']"
@@ -2990,16 +3993,19 @@
                       </button>
                     </div>
                     <div class="flex-1 min-w-0 flex flex-col justify-center gap-1">
-                      <div class="flex items-start gap-1 min-w-0"><input v-if="editingUrl === getGroupRenameUrl(group)" v-model="editingName" @click.stop @keyup.enter="saveRename" @keyup.escape="cancelRename" @blur="saveRename" class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 bg-blue-50 dark:bg-blue-900/30 border border-blue-400 dark:border-blue-500 rounded px-1 -mx-1 outline-none flex-1 min-w-0" /><p v-else class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors" :title="group.masterItem.tabTitle || currentTabTitle || group.masterItem.url" @click.stop="startRename(getGroupRenameUrl(group), getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)))">{{ getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)) }}</p><span v-if="group.masterItem.detectedAt" class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0 mt-0.5">{{ getRelativeTime(group.masterItem.detectedAt) }}</span></div>
+                      <div class="flex items-start gap-1 min-w-0"><input v-if="editingUrl === getGroupRenameUrl(group)" v-model="editingName" @click.stop @keyup.enter="confirmRename" @keyup.escape="cancelRename" @blur="confirmRename" class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 bg-blue-50 dark:bg-blue-900/30 border border-blue-400 dark:border-blue-500 rounded px-1 -mx-1 outline-none flex-1 min-w-0" /><p v-else class="font-medium text-[13px] leading-snug text-gray-900 dark:text-gray-100 truncate flex-1 cursor-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors" :title="group.masterItem.tabTitle || currentTabTitle || group.masterItem.url" @click.stop="startRename(getGroupRenameUrl(group), getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)))">{{ getDisplayName(getGroupRenameUrl(group), getGroupRenameItem(group)) }}</p><span v-if="group.masterItem.detectedAt" class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0 mt-0.5">{{ getRelativeTime(group.masterItem.detectedAt) }}</span></div>
                       <div class="flex items-center gap-1 min-w-0 overflow-hidden whitespace-nowrap"><span :class="getFormatColor(group.masterItem.format)" class="px-1.5 py-px rounded text-[10px] font-bold tracking-wide uppercase flex-shrink-0 leading-tight">{{ getFormatLabel(group.masterItem.format) }}</span><span v-if="group.isVirtual" class="text-[10px] text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/30 px-1.5 py-0.5 rounded-full flex-shrink-0 leading-tight">{{ t('separatedStream') }}</span><span v-if="getGroupEstimatedSize(group)" class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700/80 dark:text-gray-400">{{ formatItemSize({ format: group.masterItem.format, size: getGroupEstimatedSize(group) } as MediaItem) }}</span></div>
                       <p class="text-[10px] text-gray-400 dark:text-gray-500 truncate">{{ getDomainLabel(getPreferredStreamItem(group).url) }}<span v-if="group.variants.length"> · {{ group.variants.length }} variants</span></p>
                     </div>
-                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="isItemPlaying(getPreviewStreamItem(group)) ? t('stopPlay') : t('play')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreviewStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
+                    <div class="flex flex-col items-end gap-1 flex-shrink-0"><svg v-if="group.variants.length" :class="['w-3.5 h-3.5 text-gray-400 transition-transform duration-200', expandedGroups.has(group.id) ? 'rotate-90' : '']" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg><span v-else class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 block"></span><div class="flex items-center gap-0.5" @click.stop><button v-if="!group.isVirtual" @click="copyUrl(group.masterItem.url)" class="p-1.5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20" :title="t('copyUrl')"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button><button @click="playUrl(getPreviewStreamItem(group).url, getPreviewStreamItem(group).format, getPreviewStreamItem(group))" :class="['p-1.5 rounded text-white', isItemPlaying(getPreviewStreamItem(group)) ? 'bg-red-500 hover:bg-red-400' : 'bg-blue-600 hover:bg-blue-500']" :title="playbackTitle(getPreviewStreamItem(group))"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><template v-if="isItemPlaying(getPreviewStreamItem(group))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6" /></template><template v-else><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></template></svg></button>
                     <button v-if="group.isVirtual && group.variants.length" @click.stop="downloadStreamVariant(group.variants[0])" class="p-1.5 rounded text-white bg-green-600 hover:bg-green-500" :title="t('download')">
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                     </button>
                     <button v-else @click.stop="downloadUrl(group.masterItem.url, group.masterItem.format, group.masterItem.requestHeaders, group.masterItem.captureId, group.masterItem.isLiveStream, group.masterItem.frameId)" class="p-1.5 rounded text-white bg-green-600 hover:bg-green-500" :title="t('download')">
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    </button>
+                    <button @click.stop="dismissMedia(group.masterItem)" class="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" :title="t('removeItem')" :aria-label="t('removeItem')">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                     </div></div>
                   </div>
@@ -3019,13 +4025,16 @@
               </div>
               <div :style="{ height: virtualList.totalHeight + 'px', position: 'relative' }">
                 <div v-for="{ item, index, top } in virtualList.items" :key="mediaView(item).key"
+                  :data-page-picked="pickedCard?.url === item.url || undefined"
                   :style="{ position: 'absolute', top: top + 'px', left: '0', right: '0', height: getItemHeight(item) + 'px' }"
                   @click="toggleSelect(mediaView(item).key)"
                   :class="[
                     'group relative rounded-lg overflow-hidden bg-white dark:bg-gray-800 transition-all duration-150 cursor-pointer border',
                     selectedKeys.has(mediaView(item).key)
                       ? 'ring-2 ring-blue-400 dark:ring-blue-500 border-blue-200 dark:border-blue-700 shadow-sm shadow-blue-100 dark:shadow-blue-900/30'
-                      : 'border-gray-100 dark:border-gray-700/80 hover:border-gray-200 dark:hover:border-gray-600 hover:shadow-sm'
+                      : focusedKey === mediaView(item).key
+                        ? 'ring-2 ring-indigo-400 dark:ring-indigo-400 border-indigo-200 dark:border-indigo-700'
+                        : 'border-gray-100 dark:border-gray-700/80 hover:border-gray-200 dark:hover:border-gray-600 hover:shadow-sm'
                   ]"
                   @mouseleave="onCardLeave">
                   <div :class="currentDensity === 'compact' ? (activeTab === 'all' ? 'min-h-[64px] py-2' : 'min-h-[66px] py-1.5') : (activeTab === 'all' ? 'min-h-[80px] py-3' : 'min-h-[78px] py-2')" class="flex items-stretch gap-2 px-2">
@@ -3142,6 +4151,7 @@
                           {{ getFormatLabel(item.format) }}
                         </span>
 
+                        <span v-if="item.drm" :title="t('drmBadgeHint')" class="px-1.5 py-px rounded text-[10px] font-bold tracking-wide bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 flex-shrink-0 leading-tight">{{ t('drmBadge') }}</span>
                         <template v-if="item.format === 'mse'">
                           <span class="px-1.5 py-px rounded text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-700/80 dark:text-gray-400 flex-shrink-0 leading-tight">
                             {{ item.trackCount ?? 0 }} track{{ (item.trackCount ?? 0) !== 1 ? 's' : '' }}
@@ -3198,7 +4208,7 @@
                             ? 'bg-red-500 hover:bg-red-400'
                             : 'bg-blue-500 hover:bg-blue-400'
                         ]"
-                        :title="isItemPlaying(item) ? t('stopPlay') : t('play')">
+                        :title="playbackTitle(item)">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                           <template v-if="isItemPlaying(item)">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -3224,6 +4234,14 @@
                         </svg>
                         <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                           <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                      </button>
+                      <button @click="dismissMedia(item)"
+                        class="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 active:scale-90 transition-all"
+                        :title="t('removeItem')"
+                        :aria-label="t('removeItem')">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
                     </div>
@@ -3301,7 +4319,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </button>
-                <button @click="downloadUrl(previewImageUrl, previewCurrentItem?.format ?? '', previewCurrentItem?.requestHeaders)"
+                <button @click="showingImageCollection && previewCurrentItem ? downloadCollectedImage(previewCurrentItem) : manualImage && manualImage.url === previewImageUrl ? downloadManualImage(manualImage) : downloadUrl(previewImageUrl, previewCurrentItem?.format ?? '', previewCurrentItem?.requestHeaders)"
                   class="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 border border-white/10 hover:border-white/20 text-white/90 hover:text-white backdrop-blur-md active:scale-90 transition-all"
                   :title="t('download')"
                   :aria-label="t('download')">
@@ -3314,26 +4332,74 @@
           </Transition>
         </Teleport>
 
-        <footer class="px-3 py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs relative shrink-0 bg-white dark:bg-gray-900">
-          <div class="flex items-center gap-1">
-            <button @click="openSettings"
-              class="p-1.5 rounded text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              :title="t('settings')">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <footer class="px-2 py-1 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2 text-xs relative shrink-0 bg-white dark:bg-gray-900">
+          <div class="flex min-w-0 items-center gap-0.5">
+            <button @click="openSettings" type="button"
+              :class="toolbarButtonClass"
+              :title="t('settings')"
+              :aria-label="t('settings')">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </button>
+            <!--
+              The keyboard cheatsheet used to be one line of plain text at the
+              bottom of the "more" menu. A keyboard glyph reads as "there are
+              shortcuts" at a glance, and it doubles as the toggle.
+            -->
+            <div ref="shortcutHelpRef" class="relative">
+              <button type="button" @click="toggleShortcutHelp"
+                :class="shortcutHelpOpen ? toolbarButtonOnClass : footerButtonClass"
+                :title="t('keyboardNavTitle')"
+                :aria-label="t('keyboardNavTitle')"
+                :aria-expanded="shortcutHelpOpen"
+                aria-haspopup="dialog">
+                <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                  <rect x="2.25" y="6" width="19.5" height="12" rx="2.25" />
+                  <path stroke-linecap="round" d="M6 9.5h.01M9.5 9.5h.01M13 9.5h.01M16.5 9.5h.01M6 12.75h.01M9.5 12.75h.01M13 12.75h.01M16.5 12.75h.01M8 15.75h8" />
+                </svg>
+                <kbd class="shrink-0 rounded border border-current/30 px-1 font-mono text-[10px] leading-4 opacity-80">?</kbd>
+              </button>
+              <Transition
+                enter-active-class="transition-all duration-150 ease-out"
+                enter-from-class="opacity-0 scale-95 translate-y-1"
+                enter-to-class="opacity-100 scale-100 translate-y-0"
+                leave-active-class="transition-all duration-100 ease-in"
+                leave-from-class="opacity-100 scale-100 translate-y-0"
+                leave-to-class="opacity-0 scale-95 translate-y-1">
+                <div v-if="shortcutHelpOpen" role="dialog" :aria-label="t('keyboardNavTitle')"
+                  class="absolute bottom-full left-0 z-30 mb-1 w-60 origin-bottom-left overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+                  <p class="border-b border-gray-100 px-3 py-2 text-[11px] font-semibold text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                    {{ t('keyboardNavTitle') }}
+                  </p>
+                  <dl class="divide-y divide-gray-50 dark:divide-gray-700/60">
+                    <div v-for="row in keyboardCheatsheet" :key="row.id"
+                      class="flex items-center justify-between gap-3 px-3 py-1.5">
+                      <dt class="text-[11px] text-gray-600 dark:text-gray-300">{{ row.label }}</dt>
+                      <dd class="flex shrink-0 items-center gap-1">
+                        <kbd v-for="k in row.keys" :key="k"
+                          class="min-w-[1.35rem] rounded border border-gray-300 bg-gray-50 px-1 text-center font-mono text-[10px] font-semibold leading-4 text-gray-600 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200">{{ k }}</kbd>
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </Transition>
+            </div>
           </div>
 
-          <span class="text-gray-400 dark:text-gray-500">v{{ version }}</span>
+          <!-- Version is reference, not an action: keep it quiet and out of the way. -->
+          <span class="shrink-0 select-none px-1 font-mono text-[10px] text-gray-400 dark:text-gray-500" :title="`v${version}`">v{{ version }}</span>
 
-          <div class="relative">
-            <button @click="showMore = !showMore"
-              class="p-1.5 rounded text-gray-500 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              :title="t('more')">
-              <svg class="w-4 h-4 transition-transform duration-200" :class="{ 'rotate-180': showMore }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          <div ref="moreMenuRef" class="relative">
+            <button type="button" @click="toggleMoreMenu"
+              :class="showMore ? toolbarButtonOnClass : toolbarButtonClass"
+              :title="t('more')"
+              :aria-label="t('more')"
+              :aria-expanded="showMore"
+              aria-haspopup="menu">
+              <svg class="h-4 w-4 transition-transform duration-200" :class="{ 'rotate-180': showMore }" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
             <Transition
@@ -3344,17 +4410,26 @@
               leave-from-class="opacity-100 scale-100 translate-y-0"
               leave-to-class="opacity-0 scale-95 translate-y-1"
             >
-              <div v-if="showMore"
-                class="absolute bottom-full right-0 mb-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden min-w-24 origin-bottom-right">
-                <a href="#" @click.prevent="openFeedback" class="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+              <div v-if="showMore" role="menu"
+                class="absolute bottom-full right-0 z-30 mb-1 min-w-32 origin-bottom-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                <a v-if="mode === 'popup'" href="#" role="menuitem" @click.prevent="closeMenus(); openInSidebar()"
+                  class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700">
+                  <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h3M15 4.5h3a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-3M12 3v18" />
+                  </svg>
+                  <span>{{ t('openInSidebar') }}</span>
+                </a>
+                <a href="#" role="menuitem" @click.prevent="closeMenus(); openFeedback()"
+                  :class="['flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700', mode === 'popup' ? 'border-t border-gray-50 dark:border-gray-700/60' : '']">
+                  <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                   </svg>
                   <span>{{ t('feedback') }}</span>
                 </a>
-                <a href="#" @click.prevent="openHelp" class="flex items-center gap-2 px-3 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <a href="#" role="menuitem" @click.prevent="closeMenus(); openHelp()"
+                  class="flex w-full items-center gap-2 border-t border-gray-50 px-3 py-2 text-left text-xs text-gray-700 transition-colors hover:bg-gray-100 dark:border-gray-700/60 dark:text-gray-200 dark:hover:bg-gray-700">
+                  <svg class="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span>{{ t('help') }}</span>
                 </a>
@@ -3487,6 +4562,7 @@
       enter-to-class="opacity-100 translate-y-0" leave-active-class="transition ease-in duration-200"
       leave-from-class="opacity-100 translate-y-0" leave-to-class="opacity-0 translate-y-2">
       <div v-if="showToast"
+        role="status" aria-live="polite"
         class="fixed bottom-16 left-1/2 -translate-x-1/2 px-4 py-2 bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-800 rounded-lg shadow-lg text-sm flex items-center gap-2 z-[10000] pointer-events-none">
         <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
@@ -3565,5 +4641,35 @@
 .all-tab-scrollbar::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+/* Horizontal overflow only, and only when the icons genuinely do not fit:
+   the strip keeps its single-line height so Export never leaves the row.
+   Children keep their intrinsic size so they scroll instead of squashing. */
+.toolbar-strip {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.toolbar-strip > * {
+  flex-shrink: 0;
+}
+
+.toolbar-strip::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/*
+  Masonry cards are absolutely positioned from `clientWidth`. Without a stable
+  gutter, every image that finishes loading can change the total height, toggle
+  the vertical scrollbar, shrink the content box by ~15px, and force a full
+  relayout — which loads different images and toggles the scrollbar again. That
+  feedback loop is what "shakes" while the panel is being resized.
+*/
+.masonry-gutter {
+  scrollbar-gutter: stable;
 }
 </style>

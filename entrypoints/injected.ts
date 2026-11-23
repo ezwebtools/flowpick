@@ -1,6 +1,8 @@
 import { pageIdentity } from '../utils/page-session'
 import { isRecordingBridgeMessage } from '../utils/recording-bridge'
 import { isFirefoxFamily } from '../utils/recording-support'
+import { installPlayerMediaPick } from '../utils/player-media-pick'
+import { isInstagramMediaApi } from '../utils/instagram-player'
 
 export default defineUnlistedScript(() => {
   // Repeated page injection must not install duplicate sniffing/MSE proxies.
@@ -16,6 +18,7 @@ export default defineUnlistedScript(() => {
   }
   const pageHook: { ready: boolean } = { ready: false }
   pageWindow.__flowpickPageHook = pageHook
+  installPlayerMediaPick()
   let capturePage = pageIdentity(location.href)
   let pageGeneration = 0
   let routeStartedAt = 0
@@ -505,12 +508,12 @@ export default defineUnlistedScript(() => {
     }, '*', transfer)
   }
 
-  function completeMseCapture(capture: MseCapture) {
+  function completeMseCapture(capture: MseCapture, reason?: 'end-of-stream') {
     if (capture.complete) return
     capture.complete = true
     capture.title = document.title
     clearTimeout((capture as any)._notifyTimer)
-    emitMseRecordingEvent('complete', capture)
+    emitMseRecordingEvent('complete', capture, reason ? { reason } : {})
     // The recording page owns the streamed bytes. Once completion has been
     // delivered, discard the source-page session metadata as well.
     mseCaptures.delete(capture.captureId)
@@ -692,7 +695,7 @@ export default defineUnlistedScript(() => {
           if (!captureId) return
           const capture = mseCaptures.get(captureId)
           if (!capture) return
-          completeMseCapture(capture)
+          completeMseCapture(capture, args[0] === undefined ? 'end-of-stream' : undefined)
         } catch {}
       },
     })
@@ -1166,6 +1169,13 @@ export default defineUnlistedScript(() => {
     } catch { return false }
   }
 
+  function parseInstagramResponse(text: string) {
+    if (text.length > 8_000_000 || (!text.includes('video_dash_manifest') && !text.includes('dash_manifest'))) return
+    // XML parsing belongs to the isolated content script. Page-world DOMParser
+    // can be restricted by the site's Trusted Types policy.
+    window.postMessage({ type: 'INSTAGRAM_MEDIA_RESPONSE', pageUrl: location.href, text }, '*')
+  }
+
 
   const originalFetch = window.fetch
 
@@ -1174,7 +1184,7 @@ export default defineUnlistedScript(() => {
     // media requests are observed by background webRequest instead. Keep
     // other pages' Fetch/XHR untouched: routing their requests through an
     // extension script can interact with client-side request blocking.
-    if (!isBilibiliPage && !/(^|\.)(douyin\.com|iesdouyin\.com)$/i.test(location.hostname)) return
+    if (!isBilibiliPage && !/(^|\.)(douyin\.com|iesdouyin\.com|instagram\.com)$/i.test(location.hostname)) return
 
     // ── 拦截 XHR 响应体 ────────────────────────────────────────────────
     const originalXHROpen = XMLHttpRequest.prototype.open
@@ -1211,6 +1221,11 @@ export default defineUnlistedScript(() => {
 
           if (isDouyinMediaApi(fpUrl)) {
             parseDouyinAwemeResponse(JSON.parse(this.responseText), fpUrl, requestPage)
+            return
+          }
+          if (/(^|\.)instagram\.com$/i.test(location.hostname) && isInstagramMediaApi(fpUrl)) {
+            if (this.responseType === 'json') parseInstagramResponse(JSON.stringify(this.response))
+            else if (!this.responseType || this.responseType === 'text') parseInstagramResponse(this.responseText)
             return
           }
 
@@ -1257,6 +1272,13 @@ export default defineUnlistedScript(() => {
           return promise.then(async (response) => {
             if (!response.ok) return response
             try { parseDouyinAwemeResponse(await response.clone().json(), urlStr, requestPage) } catch {}
+            return response
+          })
+        }
+        if (/(^|\.)instagram\.com$/i.test(location.hostname) && isInstagramMediaApi(urlStr)) {
+          return promise.then(async response => {
+            if (!response.ok) return response
+            try { parseInstagramResponse(await response.clone().text()) } catch {}
             return response
           })
         }

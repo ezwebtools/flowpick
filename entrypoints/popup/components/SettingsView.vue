@@ -1,7 +1,8 @@
 <script lang="ts" setup>
-  import { computed } from 'vue'
+  import { computed, onMounted, ref } from 'vue'
   import { currentLocale, currentTheme, currentDensity, t, LOCALE_OPTIONS, type ThemeMode, type DensityMode } from '../../../utils/i18n'
   import type { Settings, SniffingGroup } from '../../../utils/settings'
+  import { SHORTCUT_ROWS, formatShortcut, shortcutFor } from '../../../utils/shortcuts'
 
   defineProps<{ saved: boolean; resetConfirm: boolean }>()
   const emit = defineEmits<{
@@ -21,6 +22,36 @@
     { key: 'document', label: t('document'), icon: '📄' },
     { key: 'subtitle', label: t('subtitleGroup'), icon: '📝' },
   ])
+
+  // Ask the browser which keys are actually bound. A user may unbind one, or
+  // another extension may have taken it, and the row must show that instead of
+  // repeating the manifest default forever.
+  const boundShortcuts = ref<Record<string, string>>({})
+  onMounted(async () => {
+    try {
+      const api = (browser as any).commands
+      const all = await api?.getAll?.()
+      if (!Array.isArray(all)) return
+      const next: Record<string, string> = {}
+      for (const row of SHORTCUT_ROWS) {
+        const bound = shortcutFor(row, all)
+        if (bound !== undefined) next[row.id] = bound
+      }
+      boundShortcuts.value = next
+    } catch { /* keep defaults */ }
+  })
+  const shortcutRows = computed(() => SHORTCUT_ROWS.map(row => {
+    const bound = boundShortcuts.value[row.id]
+    // `undefined` means the browser did not answer (or omitted the command);
+    // an empty string means the user really has no binding.
+    const effective = bound === undefined ? row.fallbackKey : bound
+    return {
+      id: row.id,
+      label: t(row.labelKey),
+      keys: formatShortcut(effective) || t('shortcutUnbound'),
+      unbound: !effective,
+    }
+  }))
 </script>
 
 <template>      <div class="flex flex-col h-full absolute inset-0 z-20 bg-white dark:bg-gray-900">
@@ -103,6 +134,56 @@
                   </option>
                 </select>
               </div>
+            </div>
+          </div>
+
+          <!-- Playback -->
+          <div class="bg-gray-50 dark:bg-gray-800/80 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-700/50 shadow-sm">
+            <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700/70 flex items-center gap-2">
+              <div class="w-1.5 h-4 bg-blue-500 rounded-full"></div>
+              <p class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{{ t('playbackSettings') }}</p>
+            </div>
+            <div class="px-4 py-4 flex items-center justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <p id="playback-tab-label" class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('openPlaybackInNewTab') }}</p>
+                <p id="playback-tab-description" class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">{{ t('openPlaybackInNewTabDesc') }}</p>
+              </div>
+              <button type="button" role="switch" :aria-checked="settings.openPlaybackInNewTab"
+                aria-labelledby="playback-tab-label" aria-describedby="playback-tab-description"
+                @click="settings.openPlaybackInNewTab = !settings.openPlaybackInNewTab; emit('save')"
+                :class="['relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800', settings.openPlaybackInNewTab ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600']">
+                <span :class="['pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-md transition-transform', settings.openPlaybackInNewTab ? 'translate-x-4' : 'translate-x-0']" />
+              </button>
+            </div>
+          </div>
+
+          <!-- Downloads -->
+          <div class="bg-gray-50 dark:bg-gray-800/80 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-700/50 shadow-sm">
+            <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700/70 flex items-center gap-2">
+              <div class="w-1.5 h-4 bg-teal-500 rounded-full"></div>
+              <p class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{{ t('download') }}</p>
+            </div>
+            <div class="px-4 py-4 flex items-center justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('queueInBackground') }}</p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">{{ t('queueInBackgroundDesc') }}</p>
+              </div>
+              <button type="button" role="switch" :aria-checked="settings.queueInBackground"
+                @click="settings.queueInBackground = !settings.queueInBackground; emit('save')"
+                :class="['relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none shadow-inner', settings.queueInBackground ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600']">
+                <span :class="['pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out', settings.queueInBackground ? 'translate-x-4' : 'translate-x-0']" />
+              </button>
+            </div>
+            <div class="px-4 py-4 flex items-center justify-between gap-3 border-t border-gray-200 dark:border-gray-700/70">
+              <div class="flex-1 min-w-0">
+                <p class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ t('prefetchMetadata') }}</p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 leading-relaxed">{{ t('prefetchMetadataDesc') }}</p>
+              </div>
+              <button type="button" role="switch" :aria-checked="settings.prefetchMetadata"
+                @click="settings.prefetchMetadata = !settings.prefetchMetadata; emit('save')"
+                :class="['relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none shadow-inner', settings.prefetchMetadata ? 'bg-teal-500' : 'bg-gray-300 dark:bg-gray-600']">
+                <span :class="['pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out', settings.prefetchMetadata ? 'translate-x-4' : 'translate-x-0']" />
+              </button>
             </div>
           </div>
 
@@ -243,15 +324,27 @@
               <div class="w-1.5 h-4 bg-indigo-500 rounded-full"></div>
               <p class="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{{ t('keyboardShortcuts') }}</p>
             </div>
-            <div class="px-4 py-4 flex items-center justify-between">
-              <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('keyboardShortcutsDesc') }}</p>
-              <button type="button" @click="emit('shortcuts')"
-                class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 active:scale-95 transition-all duration-150">
-                {{ t('open') }}
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </button>
+            <div class="divide-y divide-gray-100 dark:divide-gray-700/50">
+              <div v-for="row in shortcutRows" :key="row.id" class="flex items-center justify-between gap-3 px-4 py-2.5">
+                <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ row.label }}</span>
+                <kbd
+                  :class="['shrink-0 px-2 py-0.5 rounded-md border text-[11px] font-mono font-semibold tracking-wide',
+                           row.unbound
+                             ? 'border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400'
+                             : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300']">
+                  {{ row.keys }}
+                </kbd>
+              </div>
+              <div class="px-4 py-4 flex items-center justify-between gap-3">
+                <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{{ t('keyboardShortcutsDesc') }}</p>
+                <button type="button" @click="emit('shortcuts')"
+                  class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 active:scale-95 transition-all duration-150">
+                  {{ t('shortcutChange') }}
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
 

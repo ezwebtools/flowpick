@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FlowPick Privacy Policy / 隐私政策</title>
+<style>body{max-width:800px;margin:40px auto;padding:0 24px;font:16px/1.8 system-ui,sans-serif;color:#172033}h1{font-size:28px}h2{font-size:21px;margin-top:28px}a{color:#1d4ed8}section+section{border-top:1px solid #cbd5e1;margin-top:48px;padding-top:24px}@media(prefers-color-scheme:dark){body{background:#111827;color:#e2e8f0}a{color:#93c5fd}}</style></head>
+<body>
+<nav><a href="#en">English</a> · <a href="#zh">简体中文</a></nav>
+<section id="en" lang="en">
+<h1>FlowPick extension privacy policy</h1>
+<p>Publisher: Ezwebtools. Updated: October 28, 2026. Applies to FlowPick 1.1.7 and later, including the Microsoft Edge extension. This policy describes the extension and its handoff to flowpick.net; it does not replace the website’s notices about optional server or cloud services.</p>
+<h2>1. What the extension accesses and why</h2>
+<p>FlowPick detects media and downloadable resources on webpages. It accesses page and frame URLs, page titles, resource URLs, media metadata (such as format, size, duration and thumbnails), and selected network request/response information to display detected resources, preview media and perform downloads. Resource addresses and source page addresses may identify browsing activity and may contain access tokens or personal information.</p>
+<p>For requests identified as browser media or likely downloadable resources, FlowPick may retain the Referer, Cookie, Authorization, X-Auth-Token and X-Access-Token headers needed to reproduce access you already have. It does not use this feature to grant access to content you cannot access. Unknown API request credentials are not cached speculatively. Detection may inspect response metadata to identify resources whose addresses lack a file extension.</p>
+<p>Resource previews, thumbnails, size checks and manifest parsing can contact the original resource servers while using the extension, including before you start a download. These servers receive normal network information such as your IP address and any applicable request context. This is different from transmitting a browsing inventory to the publisher.</p>
+<h2>2. Browser storage and retention</h2>
+<p>Detected resource lists, page context and selected request headers are kept in browser memory or extension storage. Microsoft Edge uses session storage for detected lists and download queues; some other supported browsers use a local-storage fallback for detected lists. Settings, appearance and recording preferences use local storage. Recording session metadata is saved for session recovery; recorded media bytes are not saved in that session metadata.</p>
+<p>Clearing a list removes its stored detected entries. Page changes replace the relevant detection context, and tab closure removes the associated detection and download state. Queue entries can remain while their queue tab is open.</p>
+<h2>3. Website handoff and recording</h2>
+<p>Some downloads, batch queues and recording use pages hosted on <strong>https://flowpick.net</strong>. Starting a download, batch or recording action that uses these pages opens the corresponding hosted page directly and hands it the data needed for the requested feature. The data use is disclosed on the welcome page and in this policy; no separate privacy confirmation page interrupts each action.</p>
+<p>For a download or queue, the hosted page receives the selected resource URLs, filename, source page address and required request headers, and may receive related audio URLs or audio choices. These can include signed URLs, cookies or authorization tokens. A batch handoff covers the selected batch. When you start recording, the recording page receives the selected tab’s title, recording configuration, playback state and recorded audio/video data. Use the recording controls to stop an active recording.</p>
+<p>These data become accessible to the hosted page’s JavaScript. Keeping processing in the browser does not make a hosted webpage part of the extension’s private storage. The extension handoff is not itself proof that the data have been uploaded to a server. Cloud upload is a separate optional action in the website workflow. Hosted pages may load website analytics or advertising depending on site configuration; these are separate from the extension. Read the <a href="https://flowpick.net/legal/privacy-policy">website privacy policy</a> before using hosted pages or choosing server or cloud processing.</p>
+<h2>4. Purpose and user controls</h2>
+<p>The extension uses the information described here for resource detection, display, preview, download and explicitly started recording. It does not implement an advertising profile, a sale of browsing activity, or a telemetry upload of your detected resource lists. These statements concern the extension code; they do not describe unrelated websites or optional website services.</p>
+<p>You can clear detected lists, change enabled resource categories and size thresholds, and exclude domains in Settings. Category filters control which resources are offered; they do not revoke browser permissions. Disabling or uninstalling the extension stops its access. You may also restrict site access through Microsoft Edge’s extension controls. Removing extension data does not delete files you downloaded or information already handed to an external page or service.</p>
+<h2>5. Permissions</h2>
+<p>Site access, tabs, webNavigation and webRequest support page ownership and media detection. Storage holds settings and task state. Downloads saves selected resources. Declarative network rules reproduce necessary source request context for playback and downloads. Notifications reports requested task events. The side panel displays detected media; tabCapture is used for explicitly started tab recording. Browser-specific permissions may differ. The extension does not request the history permission.</p>
+<h2>6. Changes and contact</h2>
+<p>We update this policy when data practices change. To ask about privacy or report an issue, use <a href="https://github.com/ezwebtools/flowpick/discussions">FlowPick Discussions</a>. Do not post signed URLs, cookies, access tokens or private media in a public report.</p>
+</section>
+<section id="zh" lang="zh-CN">
+<h1>FlowPick 扩展隐私政策</h1>
+<p>发布者：Ezwebtools。更新日期：2026 年 10 月 28 日。适用于 FlowPick 1.1.7 及后续版本，包括 Microsoft Edge 扩展。本政策说明扩展及其与 flowpick.net 的数据交接，不替代网站对可选服务器或云端服务的说明。</p>
+<h2>1. 访问的数据及用途</h2>
+<p>FlowPick 用于检测网页媒体和可下载资源。为显示资源、预览媒体和下载文件，扩展会访问网页及框架地址、网页标题、资源地址、格式、大小、时长、缩略图等媒体信息，以及部分网络请求和响应信息。资源地址和来源网页地址可能反映浏览活动，也可能包含访问令牌或个人信息。</p>
+<p>对于浏览器标记的媒体请求或地址表明可能是可下载资源的请求，扩展可能保留所需的 Referer、Cookie、Authorization、X-Auth-Token 和 X-Access-Token 请求头，以重现您已拥有的访问权限，不用于获得您原本无权访问的内容。不会为未知 API 请求预先缓存凭据。扩展仍可能检查响应信息，以识别地址不带文件扩展名的资源。</p>
+<p>媒体预览、缩略图、大小检测和播放列表解析可能在下载开始前访问原始资源服务器。服务器会收到 IP 地址及适用请求上下文等正常网络信息。这与向发布者发送浏览活动清单不同。</p>
+<h2>2. 浏览器存储与保留时间</h2>
+<p>检测列表、网页上下文和所选请求头保存在浏览器内存或扩展存储中。Microsoft Edge 使用会话存储保存检测列表和下载队列；部分其他支持的浏览器为检测列表使用本地存储回退。设置、外观和录制偏好使用本地存储。录制会话元数据用于会话恢复，其中不保存录制媒体字节。</p>
+<p>清空列表会删除对应的已存检测条目。页面变化会替换相关检测上下文，关闭标签页会清理对应检测和下载状态。队列条目可在队列标签页打开期间保留。</p>
+<h2>3. 网站交接与录制</h2>
+<p>部分下载、批量队列和录制使用 <strong>https://flowpick.net</strong> 托管的页面。主动发起使用这些页面的下载、批量任务或录制时，扩展会直接打开对应托管页面，并交接该功能所需的数据。数据用途在欢迎页及本政策中披露，不再为每次操作单独弹出隐私确认页。</p>
+<p>下载或队列交接包含所选资源地址、文件名、来源网页地址和所需请求头，也可能包含相关音频地址或音轨选项，其中可能有签名链接、Cookie 或授权令牌。批量交接覆盖本次选中的批次。主动开始录制后，录制页面会接收所选标签页标题、录制配置、播放状态及录制的音视频数据。可使用录制控件停止已开始的录制。</p>
+<p>交接后，这些数据可由托管页面的 JavaScript 访问。在浏览器中处理并不意味着网站页面属于扩展私有存储。扩展交接本身不能证明数据已上传服务器。云端上传是网站流程中独立的可选操作。托管页面可能按网站配置加载分析或广告服务，这与扩展代码独立。使用托管页面或选择服务器、云端处理前，请阅读<a href="https://flowpick.net/legal/privacy-policy">网站隐私政策</a>。</p>
+<h2>4. 使用范围与用户控制</h2>
+<p>扩展将上述信息用于资源检测、显示、预览、下载和主动发起的录制。扩展代码不实现广告画像、浏览活动出售或检测资源列表的遥测上传。这些说明针对扩展代码，不代表无关网站或可选的网站服务。</p>
+<p>您可清空检测列表，在设置中调整资源类别、大小阈值或排除域名。类别筛选控制提供哪些资源，并不撤销浏览器权限。停用或卸载扩展可停止其访问；也可通过 Microsoft Edge 扩展控制限制网站访问。删除扩展数据不会删除已下载文件，也无法撤回已交给外部页面或服务的数据。</p>
+<h2>5. 权限用途</h2>
+<p>网站访问、tabs、webNavigation 和 webRequest 用于页面归属判断与媒体检测；storage 保存设置和任务状态；downloads 保存所选资源；声明式网络规则用于重现播放及下载所需的来源请求上下文；notifications 提示所请求任务的事件；侧边栏展示检测媒体；tabCapture 用于主动开始的标签页录制。不同浏览器的权限可能不同。扩展不申请 history 权限。</p>
+<h2>6. 更新与联系</h2>
+<p>数据处理方式变化时，我们会更新本政策。如有隐私问题，请通过 <a href="https://github.com/ezwebtools/flowpick/discussions">FlowPick Discussions</a> 联系。请勿在公开反馈中粘贴签名链接、Cookie、访问令牌或私人媒体。</p>
+</section>
+</body></html>

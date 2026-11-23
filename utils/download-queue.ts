@@ -31,7 +31,7 @@ async function write(sessions: QueueSession[]) {
   memory = sessions
   if (browser.storage.session) await browser.storage.session.set({ [key]: sessions })
 }
-export function openDownloadQueue(items: Omit<QueueSource, 'id'>[], windowId: number) {
+export function openDownloadQueue(items: Omit<QueueSource, 'id'>[], windowId: number, activate = true) {
   const operation = serial.then(async () => {
     const sessions = await read()
     const valid: QueueSession[] = []
@@ -62,7 +62,11 @@ export function openDownloadQueue(items: Omit<QueueSource, 'id'>[], windowId: nu
     }
     await write(valid)
     await browser.tabs.sendMessage(session.tabId, { type: 'FLOWPICK_QUEUE_CHANGED' }).catch(() => undefined)
-    await browser.tabs.update(session.tabId, { active: true })
+    // Activating used to be unconditional, which yanked the user off the page
+    // they were reading every time they queued a batch. The queue page starts
+    // downloads fine while it sits in the background, so only steal focus when
+    // the caller asks for it.
+    if (activate) await browser.tabs.update(session.tabId, { active: true })
     return { ok: true, added, tabId: session.tabId }
   })
   serial = operation.then(() => undefined, () => undefined)

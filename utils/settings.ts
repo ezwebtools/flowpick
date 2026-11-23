@@ -13,10 +13,22 @@ export interface Settings {
   maxItems: number
   /** 隐藏 HLS/DASH 的分片（如 .ts/.m4s），只显示父级播放列表（m3u8/mpd） */
   hideStreamSegments: boolean
+  /** Open video/audio playback in a dedicated extension tab. */
+  openPlaybackInNewTab: boolean
   /** 捕获 data: URL 内嵌图片（只扫 <img src="data:image/...">），默认关闭 */
   captureDataImages: boolean
   /** data: 图片最小字节阈值（KB），过滤 1x1 像素跟踪图等小图标 */
   dataImageMinSizeKB: number
+  /**
+   * 批量下载时把下载队列页放到后台，而不是把当前标签页切走。
+   * 队列页不在前台同样能启动下载，抢焦点只会打断用户正在看的页面。
+   */
+  queueInBackground: boolean
+  /**
+   * 后台读取 MP4/WebM 文件头，补全时长、分辨率与漏掉的体积。
+   * 关闭后扩展不再主动向媒体服务器发请求，信息只在面板里按需探测。
+   */
+  prefetchMetadata: boolean
 }
 
 export const DEFAULT_MAX_ITEMS = 1000
@@ -42,8 +54,11 @@ export const DEFAULT_SETTINGS: Settings = {
   excludeDomains: [],
   maxItems: DEFAULT_MAX_ITEMS,
   hideStreamSegments: true,
+  openPlaybackInNewTab: false,
   captureDataImages: false,
   dataImageMinSizeKB: 50,
+  queueInBackground: true,
+  prefetchMetadata: true,
 }
 
 /** Return a fully detached settings object safe for reactive mutation. */
@@ -60,8 +75,11 @@ export function createDefaultSettings(): Settings {
     excludeDomains: [...DEFAULT_SETTINGS.excludeDomains],
     maxItems: DEFAULT_SETTINGS.maxItems,
     hideStreamSegments: DEFAULT_SETTINGS.hideStreamSegments,
+    openPlaybackInNewTab: DEFAULT_SETTINGS.openPlaybackInNewTab,
     captureDataImages: DEFAULT_SETTINGS.captureDataImages,
     dataImageMinSizeKB: DEFAULT_SETTINGS.dataImageMinSizeKB,
+    queueInBackground: DEFAULT_SETTINGS.queueInBackground,
+    prefetchMetadata: DEFAULT_SETTINGS.prefetchMetadata,
   }
 }
 
@@ -79,8 +97,11 @@ export function cloneSettings(settings: Settings): Settings {
     excludeDomains: Array.from(settings.excludeDomains),
     maxItems: settings.maxItems,
     hideStreamSegments: settings.hideStreamSegments,
+    openPlaybackInNewTab: settings.openPlaybackInNewTab,
     captureDataImages: settings.captureDataImages,
     dataImageMinSizeKB: settings.dataImageMinSizeKB,
+    queueInBackground: settings.queueInBackground,
+    prefetchMetadata: settings.prefetchMetadata,
   }
 }
 
@@ -125,8 +146,11 @@ export async function loadSettings(): Promise<Settings> {
     excludeDomains: toStringArray(stored.excludeDomains),
     maxItems,
     hideStreamSegments: typeof stored.hideStreamSegments === 'boolean' ? stored.hideStreamSegments : true,
+    openPlaybackInNewTab: stored.openPlaybackInNewTab === true,
     captureDataImages: typeof stored.captureDataImages === 'boolean' ? stored.captureDataImages : false,
     dataImageMinSizeKB: typeof stored.dataImageMinSizeKB === 'number' ? stored.dataImageMinSizeKB : 50,
+    queueInBackground: stored.queueInBackground !== false,
+    prefetchMetadata: stored.prefetchMetadata !== false,
   }
 }
 
@@ -138,8 +162,11 @@ export async function saveSettings(settings: Settings): Promise<void> {
       excludeDomains: plainSettings.excludeDomains,
       maxItems: plainSettings.maxItems,
       hideStreamSegments: plainSettings.hideStreamSegments,
+      openPlaybackInNewTab: plainSettings.openPlaybackInNewTab,
       captureDataImages: plainSettings.captureDataImages,
       dataImageMinSizeKB: plainSettings.dataImageMinSizeKB,
+      queueInBackground: plainSettings.queueInBackground,
+      prefetchMetadata: plainSettings.prefetchMetadata,
     }
   })
 }
@@ -183,18 +210,35 @@ const _HIDDEN_EXCLUDED_DOMAINS = [
   'youtube.com',
 ]
 
+/**
+ * Does `hostname` fall under `domain`?
+ *
+ * An entry of `example.com` must cover `example.com`, `www.example.com` and
+ * `m.example.com`, because people type the bare domain and then wonder why the
+ * site still gets sniffed on its mobile host. The boundary check is what keeps
+ * `example.com` from also matching `notexample.com`.
+ *
+ * Accepted input shapes: `example.com`, `.example.com`, `*.example.com`,
+ * `www.example.com` (the `www.` is folded away so it still covers the apex).
+ */
+export function domainMatches(hostname: string, domain: string): boolean {
+  let d = domain.trim().toLowerCase()
+  if (!d) return false
+  // Strip the protocol and any path a user may have pasted in.
+  d = d.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').split('/')[0]!.split(':')[0]!
+  // `*.` and a leading dot are both just "this domain and below".
+  d = d.replace(/^\*\./, '').replace(/^\.+/, '')
+  if (d.startsWith('www.')) d = d.slice(4)
+  if (!d) return false
+  const host = hostname.toLowerCase()
+  return host === d || host === `www.${d}` || host.endsWith(`.${d}`)
+}
+
 export function isDomainExcluded(url: string, settings: Settings): boolean {
   try {
     const hostname = new URL(url).hostname
-    const userExcluded = settings.excludeDomains.some(domain => {
-      const d = domain.trim().toLowerCase()
-      if (!d) return false
-      return hostname === d
-    })
-    if (userExcluded) return true
-    return _HIDDEN_EXCLUDED_DOMAINS.some(domain => {
-      return hostname === domain.toLowerCase()
-    })
+    if (settings.excludeDomains.some(domain => domainMatches(hostname, domain))) return true
+    return _HIDDEN_EXCLUDED_DOMAINS.some(domain => domainMatches(hostname, domain))
   } catch {
     return false
   }

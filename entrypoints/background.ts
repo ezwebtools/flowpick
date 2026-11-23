@@ -5,13 +5,20 @@ import { parseM3U8Manifest, parseDashManifest } from '../utils/stream-parser'
 import type { MetadataBatchItem, MetadataBatchRequest, MetadataBatchResult } from './popup/types'
 import type { PlatformMediaTask } from '../utils/platform-media'
 import { PageSessions, pageIdentity, type PageContext } from '../utils/page-session'
-import { openResourceDownload, removeResourceDownloads } from '../utils/download-job'
+import { removeResourceDownloads } from '../utils/download-job'
 import { waitForNativeDownload } from '../utils/native-download'
 import { isFirefoxFamily } from '../utils/recording-support'
 import { createRecordingSessionStore } from '../utils/recording-session-store'
 import { SITE_ORIGIN } from '../utils/site'
 import { openDownloadQueue, readDownloadQueue, removeDownloadQueue } from '../utils/download-queue'
+import { mayCaptureRequestHeaders } from '../utils/privacy'
+import { containerProbeFormat, probeContainerHeader, HEADER_WINDOW_BYTES, TAIL_WINDOW_BYTES, MAX_FOLLOW_UP_BYTES, type HeaderMetadata } from '../utils/media-header'
 import { ProxyContextGate } from '../utils/proxy-context-gate'
+import { allowsSiteRuntimeMessage, proxyRequestKey } from '../utils/site-bridge'
+import { createMediaPlayerTabs } from '../utils/media-player-tabs'
+import { normalizeInstagramMediaUrl } from '../utils/instagram-media'
+import { isAllowedInstagramMediaUrl, instagramTrackIdentity } from '../utils/instagram-player'
+import { createSniffControl, normalIconPath, pageMenuLabelFor, pausedIconPath, globalMenuLabelKey } from '../utils/sniff-control'
 
 const metadataBatchControllers = new Map<string, AbortController>()
 const proxyContexts = new ProxyContextGate()
@@ -102,7 +109,127 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
   return results
 }
 
+/** Only these headers matter for a container read; credentials never go out. */
+function headerProbeHeaders(requestHeaders?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {}
+  if (!requestHeaders || typeof requestHeaders !== 'object') return headers
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    const normalized = key.toLowerCase()
+    if (normalized === 'referer' || normalized === 'origin' || normalized === 'cookie' || normalized === 'user-agent') {
+      headers[key] = value
+    }
+  }
+  return headers
+}
+
+/**
+ * Fetch one byte window without downloading the file.
+ *
+ * Servers that ignore `Range` answer 200 with the whole body, so the caller is
+ * handed the response and decides how much to read; `arrayBuffer()` on such a
+ * response would pull the entire clip.
+ */
+async function fetchByteWindow(
+  url: string,
+  start: number,
+  end: number,
+  requestHeaders: Record<string, string>,
+  signal: AbortSignal,
+): Promise<{ ok: boolean; bytes?: Uint8Array; totalSize?: number; error?: string }> {
+  try {
+    const response = await fetch(url, {
+      headers: { ...requestHeaders, Range: `bytes=${start}-${end}` },
+      credentials: 'omit',
+      cache: 'no-store',
+      signal,
+    })
+    if (!response.ok && response.status !== 206) {
+      try { await response.body?.cancel() } catch {}
+      return { ok: false, error: `HTTP ${response.status}` }
+    }
+    // A 200 means the range was ignored; bail out before reading a whole movie.
+    if (response.status !== 206) {
+      try { await response.body?.cancel() } catch {}
+      return { ok: false, error: 'range-unsupported' }
+    }
+    const totalSize = (() => {
+      const match = (response.headers.get('content-range') || '').match(/\/(\d+)\s*$/)
+      return match ? parseInt(match[1]!, 10) : undefined
+    })()
+    const buffer = await response.arrayBuffer()
+    if (signal.aborted) return { ok: false, error: 'aborted' }
+    return { ok: true, bytes: new Uint8Array(buffer), totalSize }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  }
+}
+
+/**
+ * Read duration and dimensions straight out of the container header.
+ *
+ * This replaces the renderer-side `<video preload="metadata">` probe for the
+ * formats that encode the answer in the file itself. It costs 128 KiB instead of
+ * a media pipeline, needs no DOM, and — unlike a card in the panel — survives
+ * the panel closing.
+ *
+ * The ranged response also reports the file's total length, so one request can
+ * fill in `size` as well when the sniffer missed the original headers.
+ */
+async function probeMediaHeader(
+  url: string,
+  format: string,
+  requestHeaders: Record<string, string>,
+  signal: AbortSignal,
+): Promise<{ metadata: HeaderMetadata; totalSize?: number } | null> {
+  const kind = containerProbeFormat(format)
+  if (!kind) return null
+
+  const head = await fetchByteWindow(url, 0, HEADER_WINDOW_BYTES - 1, requestHeaders, signal)
+  if (!head.ok || !head.bytes) return null
+  let verdict = probeContainerHeader(head.bytes, format, 0, 'head')
+  if (verdict.kind === 'found') {
+    return hasValues(verdict.metadata) ? { metadata: verdict.metadata, totalSize: head.totalSize } : null
+  }
+
+  // `moov` before `mdat` but larger than the first window: fetch just that box.
+  if (verdict.kind === 'need-range') {
+    const length = Math.min(verdict.end - verdict.start, MAX_FOLLOW_UP_BYTES)
+    if (length <= 0) return null
+    const span = await fetchByteWindow(url, verdict.start, verdict.start + length - 1, requestHeaders, signal)
+    if (!span.ok || !span.bytes) return null
+    const spanVerdict = probeContainerHeader(span.bytes, format, verdict.start, 'head')
+    if (spanVerdict.kind !== 'found' || !hasValues(spanVerdict.metadata)) return null
+    return { metadata: spanVerdict.metadata, totalSize: head.totalSize ?? span.totalSize }
+  }
+
+  // `moov` sits after `mdat`: jump to the tail and look for it there.
+  if (verdict.kind === 'need-tail' && kind === 'iso-bmff') {
+    const total = head.totalSize
+    if (!total) return null
+    // A file smaller than the window is already fully in hand — rescanning the
+    // same bytes as a tail costs nothing and saves a pointless second request.
+    if (total <= HEADER_WINDOW_BYTES && head.bytes.length >= total) {
+      const wholeVerdict = probeContainerHeader(head.bytes, format, 0, 'tail')
+      if (wholeVerdict.kind !== 'found' || !hasValues(wholeVerdict.metadata)) return null
+      return { metadata: wholeVerdict.metadata, totalSize: total }
+    }
+    const tailStart = Math.max(0, total - TAIL_WINDOW_BYTES)
+    const tail = await fetchByteWindow(url, tailStart, total - 1, requestHeaders, signal)
+    if (!tail.ok || !tail.bytes) return null
+    const tailVerdict = probeContainerHeader(tail.bytes, format, tailStart, 'tail')
+    if (tailVerdict.kind !== 'found' || !hasValues(tailVerdict.metadata)) return null
+    return { metadata: tailVerdict.metadata, totalSize: total }
+  }
+  return null
+}
+
+function hasValues(metadata: HeaderMetadata): boolean {
+  return metadata.duration !== undefined || (metadata.width !== undefined && metadata.height !== undefined)
+}
+
 export default defineBackground(() => {
+  const mediaPlayerTabs = createMediaPlayerTabs(browser)
+  browser.tabs.onRemoved.addListener(tabId => { void mediaPlayerTabs.remove(tabId).catch(() => {}) })
   const chromeGlobal = (globalThis as any).chrome
   const nativeBrowser = (globalThis as any).browser
   const isFirefox = !!(nativeBrowser?.sidebarAction)
@@ -267,15 +394,34 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onInstalled.addListener((details) => {
-    if (details.reason === 'install') {
+    if (details.reason === 'install' || details.reason === 'update') {
       const welcomeUrl = browser.runtime.getURL('/welcome.html' as any)
       browser.tabs.create({ url: welcomeUrl })
     }
+    // Menus are re-created on update as well as install: an update that adds a
+    // menu would otherwise leave existing profiles without it.
+    ensureSniffMenus()
   })
 
-  browser.runtime.onStartup.addListener(() => {})
+  browser.runtime.onStartup.addListener(() => {
+    ensureSniffMenus()
+  })
 
-  // browser.runtime.setUninstallURL('https://github.com/1337-ops/m3u8-downloader-ext')
+  // Both menus are also wired up here, outside any lifecycle event. A menu only
+  // created in `onInstalled` vanishes when the profile is loaded without one
+  // (dev reload, Firefox restart), which would silently remove the feature.
+  const menuSubscriber = (onClick: (info: any) => void) => {
+    const menus = (browser as any).menus || (browser as any).contextMenus
+    if (typeof menus?.onClicked?.addListener === 'function') menus.onClicked.addListener(onClick)
+    return menus
+  }
+  menuSubscriber((info: any) => { void handleSniffMenuClick(info) })
+  browser.tabs.onActivated.addListener(({ tabId }) => { void syncSniffMenus(tabId) })
+  browser.windows.onFocusChanged.addListener(() => { void syncSniffMenus() })
+
+  // Uninstall feedback points at this project, not at the upstream fork the
+  // extension was originally forked from.
+  browser.runtime.setUninstallURL('https://github.com/ezwebtools/flowpick/discussions')
 
   const tabMap = new Map<number, Map<string, MediaEntry>>()
   function removeLegacyTwitterVirtualGroups(mediaMap: Map<string, MediaEntry>): boolean {
@@ -310,6 +456,39 @@ export default defineBackground(() => {
   // 结构：tabId → (prefix → masterUrl)，prefix = masterUrl 截到最后一个 '/' 的前缀。
   // 用版本号做失效：mediaMap 重建（如清空、tab 关闭）时 bump 版本，索引作废重建。
   const masterPrefixIndex = new Map<number, { version: number; map: Map<string, string[]> }>()
+  // Per-tab "stop detecting" switch, plus a global one above it. They are kept
+  // apart on purpose: resuming everything must not quietly resume a tab the user
+  // paused deliberately, and resuming one tab must not switch the extension back
+  // on everywhere. utils/sniff-control.ts owns the truth; this file only wires
+  // it to storage, the toolbar and the context menus.
+  const sniffControl = createSniffControl()
+  // Deliberately its own storage key rather than a field in Settings: the
+  // settings screen has a "reset" button, and resetting preferences must not
+  // silently re-enable detection that the user switched off from the toolbar.
+  const GLOBAL_PAUSE_KEY = 'ext_globalPaused'
+  let sniffMenuPageId: string | number | undefined
+  let sniffMenuActionId: string | number | undefined
+
+  // Entries the user removed by hand. Without this, the very next response
+  // header for the same URL would put the row straight back and the delete
+  // would look broken. Cleared when the page navigates, since a fresh document
+  // is a fresh set of resources the user has not judged yet.
+  const dismissedMedia = new Map<number, Set<string>>()
+
+  // ── Container-header metadata queue ─────────────────────────────────
+  // Duration and dimensions for a plain MP4/WebM live in the first (or last)
+  // 128 KiB of the file, so the worker can read them without a DOM. This queue
+  // is deliberately conservative: it only ever touches formats it can parse,
+  // it stops after a single failed probe per URL, and it drains at 2 at a time
+  // so a page that just dumped 80 clips does not turn into a burst of requests.
+  const headerProbeQueue: Array<{ tabId: number; url: string }> = []
+  const headerProbeQueued = new Map<number, Set<string>>()
+  const headerProbeDone = new Map<number, Set<string>>()
+  const headerProbeFailed = new Map<number, Set<string>>()
+  const headerProbeControllers = new Map<number, AbortController>()
+  const HEADER_PROBE_CONCURRENCY = 2
+  const HEADER_PROBE_PER_TAB_MAX = 120
+  let headerProbeActive = 0
   const tabMediaVersion = new Map<number, number>()
   function bumpTabVersion(tabId: number) {
     tabMediaVersion.set(tabId, (tabMediaVersion.get(tabId) ?? 0) + 1)
@@ -381,6 +560,82 @@ export default defineBackground(() => {
     audioUrl?: string
   }
   const pendingDownloads = new Map<number, DownloadSession>()
+
+  // ── Download completion tracking ────────────────────────────────────
+  // `downloads.download()` resolving only means "started". Without a listener
+  // the extension had no idea whether a save succeeded, so the one moment the
+  // user most wants confirmation was silent. These ids are the ones this worker
+  // started; anything else (a browser-initiated save) is deliberately ignored.
+  const trackedDownloadIds = new Set<number>()
+  const TRACKED_DOWNLOADS_MAX = 200
+  function trackDownload(id: number) {
+    if (!Number.isInteger(id)) return
+    trackedDownloadIds.add(id)
+    if (trackedDownloadIds.size > TRACKED_DOWNLOADS_MAX) {
+      const oldest = trackedDownloadIds.values().next().value
+      if (oldest !== undefined) trackedDownloadIds.delete(oldest)
+    }
+  }
+  /** Is a panel currently attached, i.e. would it see an inline toast? */
+  function isAnyPanelOpen(): boolean {
+    if (sidePanelPorts.size > 0) return true
+    const now = Date.now()
+    for (const [tabId, at] of uiListeningTabs) {
+      if (now - at <= UI_LISTENING_TTL) return true
+      uiListeningTabs.delete(tabId)
+    }
+    return false
+  }
+  function downloadMessage(key: 'downloadCompleteTitle' | 'downloadCompleteBody' | 'downloadFailedTitle' | 'downloadFailedBody'): string {
+    // These four live in public/_locales/<code>/messages.json because the worker
+    // has no access to the popup's i18n bundle. A missing entry degrades to the
+    // key itself rather than throwing inside a download callback.
+    return browser.i18n.getMessage(key) || key
+  }
+  browser.downloads.onChanged.addListener(delta => {
+    if (!trackedDownloadIds.has(delta.id)) return
+    const state = delta.state?.current
+    if (state !== 'complete' && state !== 'interrupted') return
+    trackedDownloadIds.delete(delta.id as unknown as number)
+    const failed = state === 'interrupted'
+    // A visible panel gets an inline toast; a closed panel gets a system
+    // notification. Asking which one is happening is more reliable than firing
+    // both and hoping the message has no receiver.
+    const panelOpen = isAnyPanelOpen()
+    if (panelOpen) {
+      browser.runtime.sendMessage({ type: 'DOWNLOAD_STATE_CHANGED', id: delta.id, state })
+        .catch(() => undefined)
+      return
+    }
+    browser.downloads.search({ id: delta.id }).then(([item]) => {
+      const name = item?.filename ? item.filename.split(/[\\/]/).pop() : ''
+      return browser.notifications.create(`flowpick-download-${delta.id}`, {
+        type: 'basic',
+        iconUrl: browser.runtime.getURL('/icon/128.png'),
+        title: downloadMessage(failed ? 'downloadFailedTitle' : 'downloadCompleteTitle'),
+        message: failed
+          ? (item?.error ? String(item.error) : downloadMessage('downloadFailedBody'))
+          : (name || downloadMessage('downloadCompleteBody')),
+      })
+    }).catch(() => undefined)
+  })
+
+  /** Last path segment, extension repaired from the detected format. */
+  function filenameFromUrl(url: string, format: string): string {
+    let name = ''
+    try {
+      name = decodeURIComponent(new URL(url).pathname.split('/').pop() || '')
+    } catch { /* opaque URLs (data:, mse://) keep the fallback name */ }
+    name = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim()
+    if (!name) name = `flowpick-${Date.now().toString(36)}`
+    const ext = format.replace(/^\./, '').toLowerCase()
+    if (ext && !name.toLowerCase().endsWith(`.${ext}`)) {
+      const dot = name.lastIndexOf('.')
+      if (dot > 0 && dot > name.length - 8) name = name.slice(0, dot)
+      name = `${name}.${ext}`
+    }
+    return name
+  }
   type RecordingMode = 'mse' | 'msr'
   interface RecordingSession {
     id: string
@@ -552,9 +807,11 @@ export default defineBackground(() => {
 
 
   let currentSettings: Settings = createDefaultSettings()
+  let captureSettingsReady = false
   let settingsSaveQueue: Promise<void> = Promise.resolve()
   loadSettings().then(s => {
     currentSettings = s
+    captureSettingsReady = true
     refreshBadgesForLiveTabs()
   })
 
@@ -666,6 +923,10 @@ export default defineBackground(() => {
     }
     recentMedia.set(tabId, recent)
     tabMap.delete(tabId)
+    // A new document is a new set of resources; the old page's deletions must
+    // not silence a URL that legitimately reappears here. processRequests is
+    // cleared for the same reason a few lines below.
+    dismissedMedia.delete(tabId)
     bilibiliManagedUrls.delete(tabId)
     platformManagedUrls.delete(tabId)
     platformTaskPriorities.delete(tabId)
@@ -696,7 +957,11 @@ export default defineBackground(() => {
     broadcast(tabId, [])
   }
 
-  Promise.all([loadAllTabData().catch(() => new Map<number, Map<string, MediaEntry>>()), loadPageSessions().catch(() => [])]).then(([data, sessions]) => {
+  // The two pause layers are read before any tab data is restored, so a tab that
+  // is paused at wake-up never briefly shows a fresh icon and a live count.
+  const globalPauseReady = loadGlobalPause()
+
+  Promise.all([loadAllTabData().catch(() => new Map<number, Map<string, MediaEntry>>()), loadPageSessions().catch(() => []), globalPauseReady]).then(([data, sessions]) => {
     data.forEach((mediaMap, tabId) => {
       let cleanedPersistedMedia = removeLegacyTwitterVirtualGroups(mediaMap)
       for (const [url, entry] of mediaMap) {
@@ -718,7 +983,17 @@ export default defineBackground(() => {
     isDataLoaded = true
     persistPageSessions()
     refreshBadgesForLiveTabs()
-    
+    ensureSniffMenus()
+    // Restored lists can predate the header parser, so their MP4/WebM rows may
+    // still be missing duration and dimensions. Queue only those: everything the
+    // manifest parser or a page hook already answered is skipped by the queue.
+    tabMap.forEach((mediaMap, tabId) => {
+      for (const [url, entry] of mediaMap) {
+        if (entry.duration !== undefined && entry.width !== undefined && entry.height !== undefined) continue
+        queueHeaderProbe(tabId, url, entry.format, entry)
+      }
+    })
+
     pendingMessages.forEach(({msg, sender, sendResponse}) => {
       handleMessage(msg, sender, sendResponse)
     })
@@ -746,9 +1021,9 @@ export default defineBackground(() => {
       // 可能积累数十条变更，全量构建 list + IPC 序列化是纯浪费。popup/sidepanel
       // 打开时会通过 GET_LIST 拉取一次全量，后续广播恢复生效。
       if (!isUiListening(tabId)) return
-      const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean}> = []
+      const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean, drm?: boolean}> = []
       mediaMap.forEach((entry, url) => {
-        list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, frameId: entry.frameId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream })
+        list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, frameId: entry.frameId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream, drm: entry.drm })
       })
       broadcast(tabId, list)
     }, 150))
@@ -759,7 +1034,7 @@ export default defineBackground(() => {
 
   // 缓存每个请求发出时的关键头（Referer、cookie、authorization 等），
   // 以 requestId 为 key，在 onHeadersReceived 时合并到媒体条目，
-  // 下载时通过 DNR/webRequest 重放，实现携带 token/cookie 绕过鉴权
+  // 仅供用户已有访问权限的媒体预览和下载重放，不用于绕过访问控制。
   const pendingRequestHeaders = new Map<string, Record<string, string>>()
   const pendingRequestSessions = new Map<string, { tabId: number; sessionId?: number; frameId: number; frameGeneration: number }>()
 
@@ -768,7 +1043,6 @@ export default defineBackground(() => {
   const CAPTURED_REQUEST_HEADER_NAMES = new Set([
     'referer',
     'cookie', 'authorization', 'x-auth-token', 'x-access-token',
-    'token', 'api-key', 'x-api-key', 'x-csrf-token', 'wbi-key',
   ])
 
   function mergeCapturedRequestHeaders(
@@ -827,7 +1101,7 @@ export default defineBackground(() => {
 
   browser.webRequest.onSendHeaders.addListener(
     (details) => {
-      if (details.tabId <= 0) return
+      if (!captureSettingsReady || details.tabId <= 0) return
       if (details.type === 'other' && !isPotentialMediaRequest(details.url)) return
       pendingRequestSessions.set(details.requestId, {
         tabId: details.tabId,
@@ -835,6 +1109,9 @@ export default defineBackground(() => {
         frameId: details.frameId,
         frameGeneration: pageSessions.frameGeneration(details.tabId, details.frameId),
       })
+      const pageUrl = tabPageUrls.get(details.tabId) || details.initiator || details.url
+      const excluded = isDomainExcluded(pageUrl, currentSettings) || isDomainExcluded(details.url, currentSettings)
+      if (!mayCaptureRequestHeaders(details.type, isPotentialMediaRequest(details.url), excluded)) return
       const capturedHeaders: Record<string, string> = {}
       for (const h of details.requestHeaders ?? []) {
         const name = h.name.toLowerCase()
@@ -904,7 +1181,9 @@ export default defineBackground(() => {
         return undefined
       }
 
-      const requestKey = `${effectiveTabId}:${details.frameId}:${details.url}`
+      const mediaUrl = normalizeInstagramMediaUrl(details.url, tabPageUrls.get(effectiveTabId))
+      const instagramByteRequest = mediaUrl !== details.url
+      const requestKey = `${effectiveTabId}:${details.frameId}:${mediaUrl}`
       if (processedRequests.has(requestKey)) return undefined
 
       if (details.statusCode === 416) {
@@ -957,12 +1236,16 @@ export default defineBackground(() => {
       if (hasContentRange && rangeTotal !== undefined) {
         contentLength = rangeTotal
       }
+      if (instagramByteRequest && rangeTotal === undefined) {
+        // HTTP 200 here describes only bytestart..byteend, not the full file.
+        contentLength = undefined
+      }
 
       // A 206 response is normally a player preview/byte-range chunk, not an
       // independently downloadable file. Only accept it when the response
       // starts at zero and covers almost the whole resource; otherwise drop it
       // instead of turning every preview chunk into a media card.
-      if (hasContentRange && !isRangeAcceptable) {
+      if (hasContentRange && !isRangeAcceptable && !instagramByteRequest) {
         pendingRequestHeaders.delete(details.requestId)
         return undefined
       }
@@ -979,7 +1262,7 @@ export default defineBackground(() => {
         const pageUrl = tabPageUrls.get(effectiveTabId)
         if (settings && pageUrl && isDomainExcluded(pageUrl, settings)) return undefined
         if (settings && !isFormatAllowed(detectedFormat, settings)) return undefined
-        addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined)
+        addMedia(mediaUrl, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined)
         addProcessedRequest(requestKey)
         pendingRequestHeaders.delete(details.requestId)
         return undefined
@@ -1003,7 +1286,7 @@ export default defineBackground(() => {
 
       // XHR/fetch 触发的播放器资源也要保留响应 Content-Type。抖音常把
       // 分离的 audio/video 作为 XHR 请求；缺少它会使后续的配对逻辑失效。
-      addMedia(details.url, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined, tabPageTitles.get(effectiveTabId))
+      addMedia(mediaUrl, effectiveTabId, detectedFormat, contentLength, category, pendingRequestHeaders.get(details.requestId), { frameId: details.frameId }, contentType ?? undefined, tabPageTitles.get(effectiveTabId))
       addProcessedRequest(requestKey)
       pendingRequestHeaders.delete(details.requestId)
       return undefined
@@ -1185,6 +1468,8 @@ export default defineBackground(() => {
   browser.tabs.onRemoved.addListener((tabId) => {
     void removeDownloadQueue(tabId).catch(() => undefined)
     void removeResourceDownloads(tabId).catch(() => {})
+    sniffControl.forgetTab(tabId)
+    dismissedMedia.delete(tabId)
     purgeTabState(tabId)
   })
 
@@ -1197,7 +1482,7 @@ export default defineBackground(() => {
 
   async function handleNotificationClick(tag: string) {
     if (tag !== 'download-complete' && tag !== 'download-error') return
-    const target = notifyPages.get(tag) || 'https://192.168.1.3:3001/'
+    const target = notifyPages.get(tag) || SITE_ORIGIN
     let tabId: number | undefined
     try {
       const host = new URL(target).host
@@ -1221,11 +1506,18 @@ export default defineBackground(() => {
   }
 
   browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'OPEN_MEDIA_PLAYER' || msg.type === 'GET_MEDIA_PLAYER') {
+      const operation = msg.type === 'OPEN_MEDIA_PLAYER'
+        ? mediaPlayerTabs.open(msg, sender)
+        : mediaPlayerTabs.get(String(msg.sessionId || ''), sender)
+      operation.then(sendResponse).catch(error => sendResponse({ ok: false, error: String(error) }))
+      return true
+    }
     if (msg.type === 'OPEN_RESOURCE_DOWNLOAD' || msg.type === 'SAVE_PAGE_BLOB') {
       void handleMessage(msg, sender, sendResponse)
       return true
     }
-    const asyncTypes = ['OPEN_DOWNLOAD_QUEUE', 'FLOWPICK_QUEUE_READY', 'OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'OPEN_RECORDING_PAGE', 'FLOWPICK_RECORDING_PAGE_READY', 'FLOWPICK_RECORDING_SOURCE_READY', 'FLOWPICK_RECORDING_PLAYBACK_STATE', 'FLOWPICK_RECORDING_CAPTURE_REGION', 'FLOWPICK_RECORDING_STREAM_DATA', 'FLOWPICK_RECORDING_PAGE_COMMAND', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_CONTENT_LENGTH', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'REMOVE_MEDIA_IF_TOO_SMALL']
+    const asyncTypes = ['OPEN_DOWNLOAD_QUEUE', 'FLOWPICK_QUEUE_READY', 'OPEN_DOWNLOAD_PAGE', 'FLOWPICK_DOWNLOAD_READY', 'OPEN_RECORDING_PAGE', 'FLOWPICK_RECORDING_PAGE_READY', 'FLOWPICK_RECORDING_SOURCE_READY', 'FLOWPICK_RECORDING_PLAYBACK_STATE', 'FLOWPICK_RECORDING_CAPTURE_REGION', 'FLOWPICK_RECORDING_STREAM_DATA', 'FLOWPICK_RECORDING_PAGE_COMMAND', 'GET_SETTINGS', 'SAVE_SETTINGS', 'CLOSE_SIDEBAR_FOR_TAB', 'PROXY_FETCH', 'PROXY_FETCH_CANCEL', 'PREPARE_MEDIA_PLAYBACK', 'FLOWPICK_NOTIFY', 'MSE_STREAM_UPDATE', 'MSE_PLAY', 'MSE_DOWNLOAD', 'UPDATE_MEDIA_META', 'GET_MEDIA_METADATA_BATCH', 'CANCEL_MEDIA_METADATA_BATCH', 'SET_SNIFFING_PAUSED', 'GET_SNIFFING_STATE', 'RESCAN_TAB', 'OPEN_SIDE_PANEL', 'DISMISS_MEDIA']
     if (asyncTypes.includes(msg.type) || msg.type === 'FLOWPICK_MSR_SOURCE_START' || msg.type === 'FLOWPICK_RECORDING_HOOK_STATE') {
       void handleMessage(msg, sender, sendResponse).catch(error => {
         sendResponse({ ok: false, sessionId: msg.sessionId, error: String(error) })
@@ -1241,6 +1533,10 @@ export default defineBackground(() => {
   })
 
   async function handleMessage(msg: any, sender: any, sendResponse: (response?: any) => void) {
+    if (!allowsSiteRuntimeMessage(msg.type, sender, browser.runtime.id, browser.runtime.getURL('/'))) {
+      sendResponse({ ok: false, error: 'untrusted-site-bridge-sender' })
+      return
+    }
     if (msg.type === 'OPEN_RECORDING_PAGE' || String(msg.type).startsWith('FLOWPICK_RECORDING_') || msg.type === 'FLOWPICK_MSR_SOURCE_START') {
       try { await recordingStore.ready } catch (error) {
         sendResponse({ ok: false, sessionId: msg.sessionId, error: `recording-session-restore-failed: ${String(error)}` })
@@ -1254,10 +1550,12 @@ export default defineBackground(() => {
         const referrer = headers?.referer || headers?.Referer || sourceTab?.url || ''
         const resourceKind = msg.resourceKind || 'document'
         if (resourceKind === 'live') {
-          sendResponse(await openResourceDownload({
-            url: msg.url, filename: msg.filename, format: msg.format, requestHeaders: headers,
-            referrer, resourceKind,
-          }))
+          // Route inside the worker: runtime.sendMessage excludes its sending
+          // context and cannot call this same background listener reliably.
+          await handleMessage({
+            type: 'OPEN_DOWNLOAD_PAGE', url: msg.url, filename: msg.filename,
+            format: msg.format, requestHeaders: headers,
+          }, sender, sendResponse)
         } else {
           const url = String(msg.url || '')
           if (!/^https?:$/.test(new URL(url).protocol)) throw new Error('unsupported-download-url')
@@ -1267,6 +1565,7 @@ export default defineBackground(() => {
           await ensureProxyHeaderRule(url, referrer, headers)
           const id = await browser.downloads.download({ url, filename: msg.filename })
           if (!Number.isInteger(id)) throw new Error('download-not-started')
+          trackDownload(id)
           sendResponse({ ok: true, id })
         }
       } catch (error) { sendResponse({ ok: false, error: String(error) }) }
@@ -1306,6 +1605,58 @@ export default defineBackground(() => {
       persistPageSessions()
       if (epoch !== undefined && frameId === 0) tabPageUrls.set(tabId, context.url)
       sendResponse({ ok: epoch !== undefined, stale: epoch === undefined, sessionId: epoch })
+      return
+    }
+    if (msg.type === 'MATCH_PAGE_MEDIA_PICK') {
+      const tabId = sender.tab?.id
+      const frameId = sender.frameId
+      if (tabId === undefined || frameId === undefined || !msg.pageContext
+        || !pageSessions.accepts(tabId, frameId, msg.pageContext, msg.sessionId, sender.documentId)) {
+        sendResponse({ status: 'inactive' })
+        return
+      }
+      if (msg.kind === 'image') {
+        // Check the current rules even if the list still contains an older capture.
+        if (isDomainExcluded(msg.pageContext.url, currentSettings)
+          || (sender.tab?.url && isDomainExcluded(sender.tab.url, currentSettings))
+          || (typeof msg.url === 'string' && isDomainExcluded(msg.url, currentSettings))) {
+          sendResponse({ status: 'domainExcluded' })
+          return
+        }
+        if (!currentSettings.sniffingRules.image.enabled) {
+          sendResponse({ status: 'imageDisabled' })
+          return
+        }
+      }
+      const media = tabMap.get(tabId)
+      const entry = typeof msg.url === 'string' ? media?.get(msg.url) : undefined
+      const group = entry && (entry.category === 'stream' ? 'streaming' : getFormatGroup(entry.format))
+      // The store merges identical URLs across frames. Its shared card may
+      // carry another frame's request context, so only focus sole ownership.
+      const belongsToFrame = (item: MediaEntry | undefined) => item?.sourceFrameIds?.length
+        ? item.sourceFrameIds.length === 1 && item.sourceFrameIds[0] === frameId
+        : item?.frameId === frameId
+      const card = entry?.groupMasterId ? media?.get(entry.groupMasterId) : entry
+      const matchesKind = msg.blobPlayer === true
+        ? (msg.kind === 'video' || msg.kind === 'audio') && (entry?.format === 'm3u8' || entry?.format === 'mpd')
+        : msg.kind === 'image' ? group === 'image'
+          : msg.kind === 'audio' ? group === 'audio'
+            // A native <video> can play a standalone audio file as well.
+            : msg.kind === 'video' && (group === 'video' || group === 'streaming' || group === 'audio')
+      if (!belongsToFrame(entry) || !belongsToFrame(card) || !matchesKind || entry?.captureId || entry?.groupRole === 'segment'
+        || entry?.groupRole === 'audio' || entry?.groupRole === 'subtitle') {
+        // The explicitly picked image stays in the panel only. In particular,
+        // it must never be added to tabMap or broadcast as a sniffed resource.
+        if (msg.kind === 'image' && msg.imageLoaded === true && typeof msg.url === 'string'
+          && /^https?:\/\//i.test(msg.url)) {
+          const format = detectMediaFromUrl(msg.url)
+          sendResponse({ status: 'manualImage', url: msg.url, format: format && getFormatGroup(format) === 'image' ? format : '' })
+          return
+        }
+        sendResponse({ status: msg.blobPlayer === true || frameId !== 0 ? 'unconfirmed' : 'missing' })
+        return
+      }
+      sendResponse({ status: 'matched', url: msg.url })
       return
     }
     if (captureTypes.includes(msg.type)) {
@@ -1419,8 +1770,7 @@ export default defineBackground(() => {
       if (previousSession) await closeRecordingSession(previousSession)
 
       const languageMapping: Record<string, string> = {
-        'zh-CN': 'zh-Hans', 'zh-SG': 'zh-Hans', 'zh-TW': 'zh-Hant', 'zh-HK': 'zh-Hant',
-        'ja': 'ja', 'ko': 'ko', 'fr': 'fr',
+        'zh-CN': 'zh-Hans', 'zh-SG': 'zh-Hans', 'zh-TW': 'zh-Hans', 'zh-HK': 'zh-Hans'
       }
       const langSuffix = languageMapping[browser.i18n.getUILanguage()]
       // 开发环境（wxt dev）指向本地 dev server，生产构建指向 flowpick.net
@@ -1732,7 +2082,7 @@ export default defineBackground(() => {
         const result = await openDownloadQueue(msg.items.map((item: any) => ({
           ...item, sourceUrl: source.url || '',
           requestHeaders: item.requestHeaders || tabMap.get(source.id!)?.get(item.url)?.requestHeaders,
-        })), source.windowId)
+        })), source.windowId, msg.activate !== false && currentSettings.queueInBackground !== true)
         sendResponse(result)
       } catch (error) { sendResponse({ ok: false, error: String(error) }) }
       return true
@@ -1775,11 +2125,8 @@ export default defineBackground(() => {
       const languageMapping: Record<string, string> = {
         'zh-CN': 'zh-Hans',
         'zh-SG': 'zh-Hans',
-        'zh-TW': 'zh-Hant',
-        'zh-HK': 'zh-Hant',
-        'ja': 'ja',
-        'ko': 'ko',
-        'fr': 'fr'
+        'zh-TW': 'zh-Hans',
+        'zh-HK': 'zh-Hans'
       }
 
       const browserLang = browser.i18n.getUILanguage()
@@ -1808,9 +2155,38 @@ export default defineBackground(() => {
       return true
     }
 
+    if (msg.type === 'OPEN_SIDE_PANEL') {
+      // Only reachable while a popup is open, which means a real user gesture
+      // just happened — the one situation where sidePanel.open() is allowed.
+      const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender.tab?.id
+      if (tabId === undefined) { sendResponse({ ok: false }); return true }
+      ;(async () => {
+        try {
+          if (supportsFirefoxSidebar) {
+            await nativeBrowser.sidebarAction.open()
+          } else if (supportsChromeSidepanel && typeof chromeGlobal.sidePanel.open === 'function') {
+            await chromeGlobal.sidePanel.open({ tabId })
+            sidebarClosedTabs.delete(tabId)
+          } else {
+            sendResponse({ ok: false })
+            return
+          }
+          sendResponse({ ok: true })
+        } catch (error) {
+          console.warn('[FlowPick] open side panel refused:', error)
+          sendResponse({ ok: false })
+        }
+      })()
+      return true
+    }
+
     if (msg.type === 'CLEAR_LIST') {
       const tabId = msg.tabId as number
       tabMap.delete(tabId)
+      sniffControl.forgetTab(tabId)
+      // A cleared list must also drop any queued or in-flight header reads,
+      // otherwise they would repopulate a page the user just emptied.
+      cancelHeaderProbes(tabId)
       bilibiliManagedUrls.delete(tabId)
       platformManagedUrls.delete(tabId)
       platformTaskPriorities.delete(tabId)
@@ -1829,14 +2205,75 @@ export default defineBackground(() => {
       return true
     }
 
+    // Pause/resume detection for one tab. The panel asks for this every time it
+    // opens so a paused tab still reads as paused after the popup closed.
+    if (msg.type === 'SET_SNIFFING_PAUSED') {
+      const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender.tab?.id
+      if (tabId === undefined) { sendResponse({ ok: false }); return true }
+      if (sniffControl.setTab(tabId, msg.paused === true)) {
+        // "Paused" that leaves queued header reads running is not paused: the
+        // worker would keep issuing requests to the page's media servers.
+        if (msg.paused === true) cancelHeaderProbes(tabId)
+        applySniffState(tabId)
+      }
+      sendResponse({ ok: true, paused: sniffControl.isPaused(tabId), global: sniffControl.isGlobalPaused() })
+      return true
+    }
+
+    // The global layer. Kept out of the per-tab message above so a resume-everything
+    // can never be mistaken for a single-tab action.
+    if (msg.type === 'SET_GLOBAL_SNIFFING') {
+      const paused = msg.paused === true
+      if (sniffControl.setGlobal(paused)) {
+        if (paused) cancelAllHeaderProbes()
+        void persistGlobalPause()
+        void refreshSniffVisuals()
+      }
+      sendResponse({ ok: true, global: sniffControl.isGlobalPaused() })
+      return true
+    }
+
+    if (msg.type === 'GET_SNIFFING_STATE') {
+      const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender.tab?.id
+      sendResponse({
+        ok: tabId !== undefined,
+        paused: tabId !== undefined && sniffControl.isPaused(tabId),
+        global: sniffControl.isGlobalPaused(),
+        tabPaused: tabId !== undefined && sniffControl.isTabPaused(tabId),
+        scope: tabId !== undefined ? sniffControl.scopeFor(tabId) : 'none',
+      })
+      return true
+    }
+
+    // Re-detect without reloading. Fanning out to every frame matters: a player
+    // inside an iframe owns media the top document never sees, and a reload was
+    // the only way to re-walk it before this message existed.
+    if (msg.type === 'RESCAN_TAB') {
+      const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender.tab?.id
+      if (tabId === undefined) { sendResponse({ ok: false }); return true }
+      ;(async () => {
+        let frames: Array<{ frameId?: number }> = []
+        try {
+          frames = await (browser as any).webNavigation.getAllFrames({ tabId }) ?? []
+        } catch { /* a frame that cannot be listed simply has no listener */ }
+        const targets = frames.length ? frames : [{ frameId: 0 }]
+        await Promise.all(targets.map(frame =>
+          browser.tabs.sendMessage(tabId, { type: 'FLOWPICK_RESCAN_PAGE' }, frame.frameId === undefined ? undefined : { frameId: frame.frameId })
+            .catch(() => undefined),
+        ))
+        sendResponse({ ok: true, frames: targets.length })
+      })()
+      return true
+    }
+
     if (msg.type === 'GET_LIST') {
       const tabId = msg.tabId as number
       uiListeningTabs.set(tabId, Date.now())
       const mediaMap = tabMap.get(tabId)
-    const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean}> = []
+    const list: Array<{url: string, format: string, size?: number, width?: number, height?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, isLiveStream?: boolean, drm?: boolean}> = []
       if (mediaMap) {
         mediaMap.forEach((entry, url) => {
-      list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, frameId: entry.frameId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream })
+      list.push({ url, format: entry.format, size: entry.size, width: entry.width, height: entry.height, detectedAt: entry.detectedAt, category: entry.category, requestHeaders: entry.requestHeaders, captureId: entry.captureId, frameId: entry.frameId, trackCount: entry.trackCount, mseComplete: entry.mseComplete, groupId: entry.groupId, groupRole: entry.groupRole, groupLabel: entry.groupLabel, groupMasterId: entry.groupMasterId, variantBandwidth: entry.variantBandwidth, audioUrl: entry.audioUrl, audioOptions: entry.audioOptions, duration: entry.duration, coverUrl: entry.coverUrl, tabTitle: entry.tabTitle, isLiveStream: entry.isLiveStream, drm: entry.drm })
         })
       }
       sendResponse(list)
@@ -1964,44 +2401,16 @@ export default defineBackground(() => {
         width: typeof msg.width === 'number' ? msg.width : entry.width,
         height: typeof msg.height === 'number' ? msg.height : entry.height,
         size: typeof msg.size === 'number' ? msg.size : entry.size,
+        // Playback is the only place DRM surfaces, and it surfaces once. Persist
+        // it so every later render can badge the card instead of making the user
+        // rediscover the wall by clicking play again.
+        drm: typeof msg.drm === 'boolean' ? msg.drm : entry.drm,
       })
       saveTabList(tabId, mediaMap).catch(() => {})
+      // The list is stale after a DRM flag lands; a size-only patch is not worth
+      // a full broadcast.
+      if (typeof msg.drm === 'boolean') broadcastDebounced(tabId)
       sendResponse({ ok: true })
-      return true
-    }
-
-
-    // popup 拿到真实 size 后，按嗅探规则过滤：不符合最小大小阈值的条目从 mediaMap 移除
-    // （background 在 onHeadersReceived 拿不到 content-length 时会放行，这里做异步兜底）
-    if (msg.type === 'REMOVE_MEDIA_IF_TOO_SMALL') {
-      const tabId = msg.tabId as number
-      const url = msg.url as string
-      const size = msg.size as number
-      const mediaMap = tabMap.get(tabId)
-      if (!mediaMap) { sendResponse({ ok: false }); return true }
-      const entry = mediaMap.get(url)
-      if (!entry) { sendResponse({ ok: false, reason: 'not_found' }); return true }
-      // stream / mse 不做 size 过滤
-      const fmt = entry.format.toLowerCase()
-      if (fmt === 'm3u8' || fmt === 'mpd' || fmt === 'mse') {
-        sendResponse({ ok: true, removed: false })
-        return true
-      }
-      const settings = currentSettings
-      const group = getFormatGroup(fmt)
-      if (!group) { sendResponse({ ok: true, removed: false }); return true }
-      const minKB = settings.sniffingRules[group]?.minSizeKB ?? 0
-      if (minKB <= 0) { sendResponse({ ok: true, removed: false }); return true }
-      if (size >= minKB * 1024) {
-        sendResponse({ ok: true, removed: false })
-        return true
-      }
-      // 不符合阈值，移除
-      mediaMap.delete(url)
-      saveTabList(tabId, mediaMap).catch(() => {})
-      try { updateBadge(tabId) } catch {}
-      broadcastDebounced(tabId)
-      sendResponse({ ok: true, removed: true })
       return true
     }
 
@@ -2087,10 +2496,21 @@ export default defineBackground(() => {
     }
     if (msg.type === 'PROXY_FETCH') {
       const { url, options } = msg
+      try {
+        if (!/^https?:$/.test(new URL(url).protocol)) throw new Error('unsupported-proxy-url')
+      } catch {
+        sendResponse({ ok: false, error: 'unsupported-proxy-url' })
+        return true
+      }
       const requestId = (msg.requestId as string) || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      const requestKey = proxyRequestKey(sender, requestId)
+      if (pendingProxyFetches.has(requestKey)) {
+        sendResponse({ ok: false, error: 'duplicate-proxy-request' })
+        return true
+      }
       const tabId = sender?.tab?.id
       const controller = new AbortController()
-      pendingProxyFetches.set(requestId, { controller, tabId })
+      pendingProxyFetches.set(requestKey, { controller, tabId })
       ;(async () => {
         let releaseContext: (() => void) | undefined
         try {
@@ -2198,7 +2618,7 @@ export default defineBackground(() => {
           sendResponse({ ok: false, error: e.message })
         } finally {
           releaseContext?.()
-          pendingProxyFetches.delete(requestId)
+          if (pendingProxyFetches.get(requestKey)?.controller === controller) pendingProxyFetches.delete(requestKey)
         }
       })()
       return true
@@ -2206,10 +2626,11 @@ export default defineBackground(() => {
 
     if (msg.type === 'PROXY_FETCH_CANCEL') {
       const { requestId } = msg
-      const entry = requestId ? pendingProxyFetches.get(requestId) : undefined
+      const requestKey = proxyRequestKey(sender, requestId)
+      const entry = requestId ? pendingProxyFetches.get(requestKey) : undefined
       if (entry) {
         entry.controller.abort()
-        pendingProxyFetches.delete(requestId)
+        pendingProxyFetches.delete(requestKey)
       }
       sendResponse({ ok: true })
       return true
@@ -2233,15 +2654,59 @@ export default defineBackground(() => {
       return true
     }
 
-
-    if (msg.type === 'GET_CONTENT_LENGTH') {
-      fetchContentLength(msg.url, msg.requestHeaders).then(sendResponse)
+    // Manual removal of one row. The URL is remembered so re-sniffing cannot
+    // resurrect it, which is what makes a per-item delete actually stick.
+    if (msg.type === 'DISMISS_MEDIA') {
+      const tabId = typeof msg.tabId === 'number' ? msg.tabId : sender.tab?.id
+      if (tabId === undefined) { sendResponse({ ok: false }); return true }
+      const urls = Array.isArray(msg.urls)
+        ? msg.urls.filter((url: unknown): url is string => typeof url === 'string' && url.length > 0)
+        : (typeof msg.url === 'string' && msg.url ? [msg.url] : [])
+      if (!urls.length) { sendResponse({ ok: false }); return true }
+      let dismissed = dismissedMedia.get(tabId)
+      if (!dismissed) { dismissed = new Set(); dismissedMedia.set(tabId, dismissed) }
+      const mediaMap = tabMap.get(tabId)
+      let removedAny = false
+      for (const url of urls) {
+        dismissed.add(url)
+        if (mediaMap?.delete(url)) removedAny = true
+      }
+      // Variants and separated-audio children live as their own entries; a
+      // dismissed master that left them behind would look like a ghost row.
+      if (mediaMap) {
+        for (const [candidateUrl, entry] of mediaMap) {
+          if (entry.groupMasterId && dismissed.has(entry.groupMasterId)) {
+            mediaMap.delete(candidateUrl)
+            removedAny = true
+          }
+        }
+      }
+      if (removedAny) {
+        saveTabList(tabId, mediaMap!).catch(() => {})
+        try { updateBadge(tabId) } catch {}
+        broadcastDebounced(tabId)
+      }
+      sendResponse({ ok: true, removed: removedAny })
       return true
     }
+
     return false
   }
 
   function addMedia(url: string, tabId: number, format: string, size?: number, category: MediaCategory = 'media', requestHeaders?: Record<string, string>, extra?: { captureId?: string; frameId?: number; trackCount?: number; mseComplete?: boolean }, contentType?: string, tabTitle?: string) {
+    // A paused tab still runs its page hooks; the pause has to be enforced here,
+    // at the single funnel every capture path goes through, or network sniffing
+    // would keep growing the list under a button that says it is paused. The
+    // global switch is checked first because it outranks any per-tab resume.
+    if (sniffControl.isPaused(tabId)) return
+    const normalizedUrl = normalizeInstagramMediaUrl(url, tabPageUrls.get(tabId))
+    if (normalizedUrl !== url) {
+      url = normalizedUrl
+      size = undefined
+    }
+    // Same funnel argument as the pause switch: a resource the user deleted must
+    // stay deleted, no matter which capture path announces it next.
+    if (dismissedMedia.get(tabId)?.has(url)) return
     const recovered = recentMedia.get(tabId)?.get(url)
     if (recovered && Date.now() - recovered.at < 30_000) {
       size ??= recovered.entry.size
@@ -2250,6 +2715,8 @@ export default defineBackground(() => {
     }
     if (url.startsWith('blob:') || url.startsWith('data:')) return
     if (bilibiliManagedUrls.get(tabId)?.has(url) || platformManagedUrls.get(tabId)?.has(url)) return
+    const instagramIdentity = instagramTrackIdentity(url)
+    if (instagramIdentity && [...(platformManagedUrls.get(tabId) || [])].some(candidate => instagramTrackIdentity(candidate) === instagramIdentity)) return
     if (!tabMap.has(tabId)) {
       tabMap.set(tabId, new Map())
     }
@@ -2398,6 +2865,10 @@ export default defineBackground(() => {
       // child roles (such as subtitle renditions) to migrate old entries.
       if (upgradedFormat === 'm3u8' || upgradedFormat === 'mpd') {
         parseAndGroupManifest(url, tabId, upgradedFormat, upgradedHeaders).catch(() => {})
+      } else {
+        // A restored entry (or one whose format only just resolved to MP4) still
+        // deserves a header read; the queue dedupes by URL.
+        queueHeaderProbe(tabId, url, upgradedFormat, mediaMap.get(url))
       }
       return
     }
@@ -2449,6 +2920,10 @@ export default defineBackground(() => {
     if (format === 'm3u8' || format === 'mpd') {
       parseAndGroupManifest(url, tabId, format as 'm3u8' | 'mpd', requestHeaders).catch(() => {})
     }
+
+    // 普通 MP4/WebM：容器头里就写着时长和分辨率，发一个 128KB 的 Range 就能读到，
+    // 不必等面板里的 <video> 去加载——面板关着的时候也能补全。
+    queueHeaderProbe(tabId, url, format, mediaMap.get(url))
   }
 
   function isMissingTabError(error: unknown): boolean {
@@ -2457,6 +2932,7 @@ export default defineBackground(() => {
   }
 
   function purgeTabState(tabId: number) {
+    cancelHeaderProbes(tabId)
     // A close event can arrive while the worker is restoring its metadata.
     void recordingStore.ready.then(async () => {
       const targetSession = recordingSessionsByTarget.get(tabId)
@@ -2590,10 +3066,15 @@ export default defineBackground(() => {
     })
     const action = (browser as any).action || (browser as any).browserAction
     if (!action) return
+    // A paused tab shows a "blocked" icon and no count. A red "12" next to a
+    // slash reads as "12 things blocked", when it actually means "12 things that
+    // were already there before you paused" — the two signals must not coexist.
+    const paused = sniffControl.isPaused(tabId)
     try {
       const operations: Array<Promise<unknown>> = [
-        Promise.resolve(action.setBadgeText({ text: count > 0 ? count.toString() : '', tabId })),
+        Promise.resolve(action.setBadgeText({ text: paused || count <= 0 ? '' : count.toString(), tabId })),
         Promise.resolve(action.setBadgeBackgroundColor({ color: '#EF4444', tabId })),
+        Promise.resolve(action.setIcon({ path: paused ? pausedIconPath() : normalIconPath(), tabId })),
       ]
       if (action.setBadgeTextColor) {
         operations.push(Promise.resolve(action.setBadgeTextColor({ color: '#FFFFFF', tabId })))
@@ -2610,8 +3091,176 @@ export default defineBackground(() => {
     }
   }
 
-  function broadcast(tabId: number, list: Array<{url: string, format: string, size?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string}>) {
+  function broadcast(tabId: number, list: Array<{url: string, format: string, size?: number, detectedAt?: number, category?: MediaCategory, requestHeaders?: Record<string, string>, captureId?: string, frameId?: number, trackCount?: number, mseComplete?: boolean, groupId?: string, groupRole?: string, groupLabel?: string, groupMasterId?: string, variantBandwidth?: number, audioUrl?: string, audioOptions?: Array<{ url: string, label: string }>, duration?: number, coverUrl?: string, tabTitle?: string, drm?: boolean}>) {
     browser.runtime.sendMessage({ type: 'LIST_UPDATED', tabId, list }).catch(() => {})
+  }
+
+  // ── Sniffing pause: storage, toolbar, menus ─────────────────────────
+  // Everything that reads or writes the two pause layers goes through this
+  // block, so the toolbar icon, the badge and the two context menus can never
+  // disagree about whether detection is running.
+
+  async function loadGlobalPause() {
+    try {
+      const stored = await browser.storage.local.get(GLOBAL_PAUSE_KEY)
+      sniffControl.setGlobal(stored?.[GLOBAL_PAUSE_KEY] === true)
+    } catch (error) {
+      console.warn('[FlowPick] failed to read the global pause flag:', error)
+    }
+  }
+
+  async function persistGlobalPause() {
+    try {
+      await browser.storage.local.set({ [GLOBAL_PAUSE_KEY]: sniffControl.isGlobalPaused() })
+    } catch (error) {
+      console.warn('[FlowPick] failed to save the global pause flag:', error)
+    }
+  }
+
+  /** Refresh one tab's icon/badge and tell any open panel about the change. */
+  function applySniffState(tabId: number) {
+    updateBadge(tabId)
+    void syncSniffMenus(tabId)
+    browser.runtime.sendMessage({
+      type: 'SNIFF_STATE_CHANGED',
+      tabId,
+      global: sniffControl.isGlobalPaused(),
+      tabPaused: sniffControl.isTabPaused(tabId),
+      scope: sniffControl.scopeFor(tabId),
+    }).catch(() => {})
+  }
+
+  /**
+   * Repaint every tab. Used for the global switch, which by definition changes
+   * the icon on tabs the user is not looking at.
+   */
+  async function refreshSniffVisuals() {
+    try {
+      const tabs = await browser.tabs.query({})
+      for (const tab of tabs) {
+        if (typeof tab.id === 'number') updateBadge(tab.id)
+      }
+    } catch (error) {
+      console.warn('[FlowPick] failed to refresh sniffing state:', error)
+    }
+    // The panel reads its own tab id, so it needs the message rather than a
+    // repaint to update its button.
+    browser.runtime.sendMessage({
+      type: 'SNIFF_STATE_CHANGED',
+      global: sniffControl.isGlobalPaused(),
+      scope: 'global',
+    }).catch(() => {})
+    void syncSniffMenus()
+  }
+
+  function sniffMenuLabel(key: 'pauseThisTab' | 'resumeThisTab' | 'pauseAllSites' | 'resumeAllSites'): string {
+    // Menu labels live in public/_locales/<code>/messages.json because the worker
+    // has no access to the popup's i18n bundle.
+    return browser.i18n.getMessage(key) || key
+  }
+
+  /**
+   * Re-label both menus for the tab the user is on.
+   *
+   * Menus are global objects whose titles are baked in at creation, so this has
+   * to run whenever the active tab or either pause layer changes. Cheap enough
+   * for tab activation; it is two `update` calls.
+   */
+  async function syncSniffMenus(tabId?: number) {
+    if (sniffMenuPageId === undefined && sniffMenuActionId === undefined) return
+    let target = tabId
+    if (target === undefined) {
+      try {
+        const [active] = await browser.tabs.query({ active: true, lastFocusedWindow: true })
+        if (typeof active?.id === 'number') target = active.id
+      } catch { /* window may be closing */ }
+    }
+    const scope = target === undefined ? (sniffControl.isGlobalPaused() ? 'global' : 'none') : sniffControl.scopeFor(target)
+    const pageLabel = sniffMenuLabel(pageMenuLabelFor(scope))
+    const globalLabel = sniffMenuLabel(globalMenuLabelKey(sniffControl.isGlobalPaused()))
+    const menus = (browser as any).menus || (browser as any).contextMenus
+    if (!menus) return
+    try {
+      if (sniffMenuPageId !== undefined) {
+        await Promise.resolve(menus.update(sniffMenuPageId, { title: pageLabel }))
+      }
+    } catch { /* the menu was removed (extension reloaded) */ }
+    try {
+      if (sniffMenuActionId !== undefined) {
+        await Promise.resolve(menus.update(sniffMenuActionId, { title: globalLabel }))
+      }
+    } catch { /* same */ }
+  }
+
+  /**
+   * Register the two menus.
+   *
+   * `contexts: ['action']` puts the second one on the toolbar icon; Firefox MV2
+   * spells that `'browser_action'`. Both are created on install/update and again
+   * on every worker start, because a menu created only in `onInstalled` is gone
+   * after a dev reload or a Firefox restart.
+   */
+  const MENU_PAGE_ID = 'flowpick-pause-tab'
+  const MENU_ACTION_ID = 'flowpick-pause-all'
+
+  function ensureSniffMenus() {
+    const menus = (browser as any).menus || (browser as any).contextMenus
+    if (!menus?.create) return
+    const firefox = import.meta.env.FIREFOX || isFirefoxFamily(navigator.userAgent)
+    const actionContext = firefox ? 'browser_action' : 'action'
+    // Duplicate ids are the normal path here: every worker wake-up re-runs this.
+    // Chrome reports it through lastError (or a rejected promise) rather than
+    // throwing, and the existing menu is already correct, so it is ignored.
+    const silent = (call: () => unknown) => {
+      try {
+        const result = call() as any
+        if (result && typeof result.catch === 'function') result.catch(() => {})
+      } catch { /* duplicate id, or the API is unavailable */ }
+    }
+    silent(() => menus.create({
+      id: MENU_PAGE_ID,
+      title: sniffMenuLabel(pageMenuLabelFor('none')),
+      contexts: ['page', 'frame'],
+    }))
+    silent(() => menus.create({
+      id: MENU_ACTION_ID,
+      title: sniffMenuLabel(globalMenuLabelKey(sniffControl.isGlobalPaused())),
+      contexts: [actionContext],
+    }))
+    sniffMenuPageId = MENU_PAGE_ID
+    sniffMenuActionId = MENU_ACTION_ID
+    void syncSniffMenus()
+  }
+
+  async function handleSniffMenuClick(info: any) {
+    const id = String(info?.menuItemId ?? '')
+    // `info.tab` is present for page menus; the toolbar menu reports the tab the
+    // icon was clicked on the same way in both engines.
+    const tabId = typeof info?.tab?.id === 'number' ? info.tab.id : undefined
+    if (id === MENU_PAGE_ID) {
+      if (tabId === undefined) return
+      // While the global layer is on the item reads "resume all sites", so it has
+      // to do exactly that rather than clear a per-tab flag nobody can see.
+      if (sniffControl.isGlobalPaused()) {
+        if (sniffControl.setGlobal(false)) {
+          await persistGlobalPause()
+          await refreshSniffVisuals()
+        }
+        return
+      }
+      if (sniffControl.setTab(tabId, !sniffControl.isTabPaused(tabId))) {
+        if (sniffControl.isTabPaused(tabId)) cancelHeaderProbes(tabId)
+        applySniffState(tabId)
+      }
+      return
+    }
+    if (id === MENU_ACTION_ID) {
+      if (sniffControl.setGlobal(!sniffControl.isGlobalPaused())) {
+        if (sniffControl.isGlobalPaused()) cancelAllHeaderProbes()
+        await persistGlobalPause()
+        await refreshSniffVisuals()
+      }
+    }
   }
 
   /** Convert Bilibili's playurl response into one virtual stream group. */
@@ -2716,6 +3365,13 @@ export default defineBackground(() => {
   function isValidPlatformTask(task: unknown, senderUrl?: string): task is PlatformMediaTask {
     if (!task || typeof task !== 'object' || !senderUrl) return false
     const value = task as PlatformMediaTask
+    if (value.provider === 'instagram') {
+      try { if (!/(^|\.)instagram\.com$/i.test(new URL(senderUrl).hostname)) return false } catch { return false }
+      return typeof value.key === 'string' && Array.isArray(value.candidates) && value.candidates.length > 0
+        && value.candidates.every(candidate => !!candidate && isAllowedInstagramMediaUrl(candidate.url))
+        && value.candidates.some(candidate => candidate.role === 'video')
+        && value.candidates.some(candidate => candidate.role === 'audio')
+    }
     try {
       if (!DOUYIN_PAGE_HOST.test(new URL(senderUrl).hostname)) return false
     } catch {
@@ -2806,6 +3462,13 @@ export default defineBackground(() => {
 
     const previousMaster = mediaMap.get(masterUrl)
     const managed = platformManagedUrls.get(tabId) || new Set<string>()
+    if (task.provider === 'instagram') {
+      const identities = new Set(candidates.map(candidate => instagramTrackIdentity(candidate.url)).filter(Boolean))
+      for (const url of mediaMap.keys()) {
+        const identity = instagramTrackIdentity(url)
+        if (identity && identities.has(identity)) { mediaMap.delete(url); managed.add(url) }
+      }
+    }
     for (const [url, entry] of mediaMap) {
       if (entry.groupMasterId === masterUrl) mediaMap.delete(url)
     }
@@ -3042,6 +3705,11 @@ export default defineBackground(() => {
   }
 
   function tryGroupVideoAudio(newUrl: string, tabId: number, contentType: string, newSize?: number) {
+    // Instagram's feed preloads adjacent Reels. Only its manifest can prove
+    // that two otherwise unrelated CDN tracks belong to the same video.
+    if (isAllowedInstagramMediaUrl(newUrl)) {
+      try { if (/(^|\.)instagram\.com$/i.test(new URL(tabPageUrls.get(tabId) || '').hostname)) return } catch {}
+    }
     // X/Twitter exposes a complete HLS master playlist. Pairing its underlying
     // track requests again creates a duplicate synthetic "Separated stream".
     if (isTwitterVideoCdnUrl(newUrl)) return
@@ -3184,6 +3852,140 @@ export default defineBackground(() => {
     let common = 0
     for (const p of aParams) { if (bParams.has(p)) common++ }
     return common / Math.max(aParams.size, bParams.size)
+  }
+
+  // ── Container-header metadata queue: scheduling ─────────────────────
+  function headerProbeSet(tabId: number, store: Map<number, Set<string>>): Set<string> {
+    let set = store.get(tabId)
+    if (!set) { set = new Set(); store.set(tabId, set) }
+    return set
+  }
+
+  function cancelHeaderProbes(tabId: number) {
+    headerProbeControllers.get(tabId)?.abort()
+    headerProbeControllers.delete(tabId)
+    for (let index = headerProbeQueue.length - 1; index >= 0; index--) {
+      if (headerProbeQueue[index]!.tabId === tabId) headerProbeQueue.splice(index, 1)
+    }
+    headerProbeQueued.delete(tabId)
+    headerProbeDone.delete(tabId)
+    headerProbeFailed.delete(tabId)
+  }
+
+  /** Abort every tab's header reads; used by the global pause. */
+  function cancelAllHeaderProbes() {
+    for (const [tabId, controller] of headerProbeControllers) {
+      controller.abort()
+      headerProbeControllers.delete(tabId)
+    }
+    headerProbeQueue.length = 0
+    headerProbeQueued.clear()
+    headerProbeDone.clear()
+    headerProbeFailed.clear()
+  }
+
+  /**
+   * Queue a header read for one entry.
+   *
+   * Skipped when the answer is already known (a page hook or the manifest
+   * parser got there first), when the format has no parseable container, and
+   * when this URL already failed once — a dead CDN must not be retried per
+   * broadcast.
+   */
+  function queueHeaderProbe(tabId: number, url: string, format: string, entry: MediaEntry | undefined) {
+    // The switch used to only gate the panel's batch probe, which made its label
+    // ("probe in the background") untrue. The worker-side queue is exactly what
+    // that label describes, so honouring it here is the honest reading.
+    if (currentSettings.prefetchMetadata === false) return
+    if (!containerProbeFormat(format)) return
+    if (!entry) return
+    if (entry.duration !== undefined && entry.width !== undefined && entry.height !== undefined) return
+    if (headerProbeFailed.get(tabId)?.has(url)) return
+    if (headerProbeDone.get(tabId)?.has(url)) return
+    const queued = headerProbeSet(tabId, headerProbeQueued)
+    if (queued.has(url)) return
+    if (queued.size >= HEADER_PROBE_PER_TAB_MAX) return
+    queued.add(url)
+    headerProbeQueue.push({ tabId, url })
+    pumpHeaderProbes()
+  }
+
+  function pumpHeaderProbes() {
+    while (headerProbeActive < HEADER_PROBE_CONCURRENCY && headerProbeQueue.length) {
+      const task = headerProbeQueue.shift()!
+      if (!tabMap.get(task.tabId)?.has(task.url)) {
+        headerProbeQueued.get(task.tabId)?.delete(task.url)
+        continue
+      }
+      headerProbeActive++
+      void runHeaderProbe(task.tabId, task.url)
+        .catch(() => undefined)
+        .finally(() => {
+          headerProbeActive--
+          // Deliberately a lookup, not `headerProbeSet`: a cancel may have
+          // dropped the tab's maps while this probe was in flight, and the
+          // bookkeeping should stay dropped rather than be resurrected empty.
+          headerProbeQueued.get(task.tabId)?.delete(task.url)
+          pumpHeaderProbes()
+        })
+    }
+  }
+
+  async function runHeaderProbe(tabId: number, url: string) {
+    const entry = tabMap.get(tabId)?.get(url)
+    if (!entry) return
+    let controller = headerProbeControllers.get(tabId)
+    if (!controller) {
+      controller = new AbortController()
+      headerProbeControllers.set(tabId, controller)
+    }
+    const metadata = await probeMediaHeader(
+      url,
+      entry.format,
+      headerProbeHeaders(entry.requestHeaders),
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+
+    const mediaMap = tabMap.get(tabId)
+    // The entry may have been cleared, replaced or already answered while the
+    // request was in flight; re-read it instead of trusting the stale copy.
+    const current = mediaMap?.get(url)
+    if (!mediaMap || !current) return
+    if (!metadata) {
+      headerProbeSet(tabId, headerProbeFailed).add(url)
+      return
+    }
+    headerProbeSet(tabId, headerProbeDone).add(url)
+
+    const duration = current.duration ?? metadata.metadata.duration
+    const width = current.width ?? metadata.metadata.width
+    const height = current.height ?? metadata.metadata.height
+    // A ranged read also reveals the true total length, which is worth keeping
+    // when the original response carried no Content-Length.
+    const probedSize = metadata.totalSize && metadata.totalSize > 0 ? metadata.totalSize : undefined
+    const size = current.size ?? (['m3u8', 'mpd', 'mse'].includes(current.format.toLowerCase()) ? undefined : probedSize)
+
+    // The popup's batch probe used to be what enforced the minimum-size rule for
+    // files whose length only arrived later. It now leaves MP4/WebM to this
+    // queue, so the same rule has to be applied here or small files would survive.
+    if (size !== undefined && current.size === undefined) {
+      const group = getFormatGroup(current.format.toLowerCase())
+      const minKB = group ? (currentSettings.sniffingRules[group]?.minSizeKB ?? 0) : 0
+      if (minKB > 0 && size < minKB * 1024) {
+        mediaMap.delete(url)
+        saveTabList(tabId, mediaMap).catch(() => {})
+        try { updateBadge(tabId) } catch {}
+        broadcastDebounced(tabId)
+        return
+      }
+    }
+
+    if (duration === current.duration && width === current.width
+      && height === current.height && size === current.size) return
+    mediaMap.set(url, { ...current, duration, width, height, size })
+    saveTabList(tabId, mediaMap).catch(() => {})
+    broadcastDebounced(tabId)
   }
 
   // ── Manifest 解析缓存与分组 ──────────────────────────────────────
@@ -3360,5 +4162,94 @@ export default defineBackground(() => {
     } finally {
       if (cache.pending.get(masterUrl) === parseToken) cache.pending.delete(masterUrl)
     }
+  }
+
+  // ── Keyboard commands ────────────────────────────────────────────────
+  // Chrome/Firefox dispatch these only when the manifest declares them; the
+  // settings screen previously linked to chrome://extensions/shortcuts with no
+  // `commands` block, which showed an empty page.
+
+  /**
+   * Highest-quality playable resource on one tab: a manifest when there is one
+   * (it carries every rendition), otherwise the largest direct file.
+   */
+  function pickBestResource(tabId: number): { url: string; format: string } | undefined {
+    const mediaMap = tabMap.get(tabId)
+    if (!mediaMap?.size) return undefined
+    let bestManifest: { url: string; format: string; score: number } | undefined
+    let bestFile: { url: string; format: string; score: number } | undefined
+    for (const [url, entry] of mediaMap) {
+      // Children of a group are reachable through their master; MSE captures
+      // live in page memory and cannot be handed to the hosted downloader.
+      if (entry.groupRole === 'variant' || entry.groupRole === 'audio' ||
+        entry.groupRole === 'subtitle' || entry.groupRole === 'segment') continue
+      if (entry.format === 'mse' || url.startsWith('mse://')) continue
+      const score = (entry.variantBandwidth || 0) * 1000 + (entry.height || 0) * (entry.width || 0) + (entry.size || 0) / 1024
+      const candidate = { url, format: entry.format.toLowerCase(), score }
+      if (entry.format === 'm3u8' || entry.format === 'mpd') {
+        // A real manifest always beats a bare file: it exposes every rendition.
+        if (!bestManifest || score > bestManifest.score) bestManifest = candidate
+      } else if (!bestFile || score > bestFile.score) {
+        bestFile = candidate
+      }
+    }
+    return bestManifest ?? bestFile
+  }
+
+  /** `action.openPopup` requires a user gesture; a keyboard command is one. */
+  async function openPanelFallback() {
+    try {
+      const action = (browser as any).action || (browser as any).browserAction
+      if (action?.openPopup) await action.openPopup()
+    } catch { /* no popup available, e.g. already showing a side panel */ }
+  }
+
+  async function runDownloadBestCommand() {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
+    if (tab?.id === undefined) return
+    if (!isDataLoaded) {
+      // Cold start: the background may still be restoring per-tab state.
+      await new Promise<void>(resolve => {
+        const timer = setInterval(() => {
+          if (!isDataLoaded) return
+          clearInterval(timer)
+          resolve()
+        }, 100)
+        setTimeout(() => { clearInterval(timer); resolve() }, 3000)
+      })
+    }
+    const best = pickBestResource(tab.id)
+    if (!best) {
+      // Nothing to download: opening the panel is the useful outcome, not a
+      // silent no-op the user cannot tell apart from a broken shortcut.
+      await openPanelFallback()
+      return
+    }
+    // Reuse the panel's own path so the command cannot drift from a click.
+    await handleMessage({
+      type: 'OPEN_DOWNLOAD_PAGE',
+      url: best.url,
+      format: best.format,
+      filename: filenameFromUrl(best.url, best.format),
+    }, { tab }, () => undefined)
+  }
+
+  async function runOpenQueueCommand() {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
+    if (tab?.windowId === undefined) return
+    await openDownloadQueue([], tab.windowId)
+  }
+
+  const commandApi = (browser as any).commands
+  if (commandApi?.onCommand?.addListener) {
+    commandApi.onCommand.addListener((command: string) => {
+      const run = command === 'download-best-stream'
+        ? runDownloadBestCommand
+        : command === 'open-download-queue'
+          ? runOpenQueueCommand
+          : undefined
+      if (!run) return
+      void run().catch(error => console.warn('[FlowPick] command failed:', command, error))
+    })
   }
 })

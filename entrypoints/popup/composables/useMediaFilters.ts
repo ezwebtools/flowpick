@@ -30,6 +30,14 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
   const dimensionFilter = ref({ minWidth: 0, minHeight: 0 })
   const resolutionFilter = ref('any')
   const sortOrder = ref<'asc' | 'desc'>('asc')
+  /**
+   * Size is unknown until the metadata HEAD batch lands, and for a lot of
+   * resources it never lands (no Content-Length, CORS, live streams). Treating
+   * `undefined` as 0 used to hide most of the list the moment a minimum size
+   * was typed, which reads as "sniffing broke". Unknown items are kept unless
+   * the user opts into the strict interpretation.
+   */
+  const includeUnknownSize = ref(true)
 
   const mediaCatalog = computed(() => {
     const all: T[] = []
@@ -107,8 +115,13 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
       list = list.filter(item => regex ? regex.test(item.url) : item.url.toLowerCase().includes(lowered))
     }
     list = list.filter(item => {
-      if (sizeFilter.value.min > 0 && (item.size ?? 0) < sizeFilter.value.min * 1024) return false
-      if (sizeFilter.value.max > 0 && (item.size ?? 0) > sizeFilter.value.max * 1024) return false
+      // An unknown size only fails the filter when the user asked for the
+      // strict reading; the default keeps the row visible with "—" for size.
+      const unknownSize = item.size == null
+      if (!(unknownSize && includeUnknownSize.value)) {
+        if (sizeFilter.value.min > 0 && (item.size ?? 0) < sizeFilter.value.min * 1024) return false
+        if (sizeFilter.value.max > 0 && (item.size ?? 0) > sizeFilter.value.max * 1024) return false
+      }
       if (activeTab.value === 'image') {
         if (dimensionFilter.value.minWidth > 0 && (item.width ?? 0) < dimensionFilter.value.minWidth) return false
         if (dimensionFilter.value.minHeight > 0 && (item.height ?? 0) < dimensionFilter.value.minHeight) return false
@@ -152,6 +165,7 @@ export function useMediaFilters<T extends FilterableMedia>(options: {
 
   return {
     activeTab, typeFilter, sizeFilter, dimensionFilter, resolutionFilter, sortOrder,
+    includeUnknownSize,
     mediaCatalog, sizeFilteredMediaList: computed(() => mediaCatalog.value.all),
     tabCounts: computed(() => mediaCatalog.value.counts), typeOptions,
     searchQuery, useRegex, regexValid, searchError, clearSearch, filteredMediaList,
