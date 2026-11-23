@@ -146,8 +146,6 @@ Automatically fetched and displayed:
 
 The downloader pages below are where this extension hands resources off; the rest are standalone browser tools that are handy right after (or instead of) downloading. Browse them all at **[flowpick.net/tools](https://flowpick.net/tools)** — free, no account required. Local-file tools process your media inside the browser tab, so the file itself is not uploaded; only the decoder / WASM / AI model files are fetched the first time a tool needs them. Cloud transfer is a separate, opt-in feature.
 
-![Tools index](docs/screenshots/tools-index.png)
-
 ### Download media — the hand-off targets of this extension
 
 When you hit **Download** on a stream / video / audio item, FlowPick opens the matching page and passes the URL, filename, source page and captured request headers over a one-shot message channel (nothing is put into the URL).
@@ -160,10 +158,6 @@ When you hit **Download** on a stream / video / audio item, FlowPick opens the m
 | **Audio Downloader** | [flowpick.net/audio-downloader](https://flowpick.net/audio-downloader) | Save direct MP3 / M4A / AAC / WAV / OGG / FLAC audio files |
 | **Download Queue** | [flowpick.net/download-queue](https://flowpick.net/download-queue) | Batch target of the panel's *Download Selected* — queues up to 500 items per window |
 | **Media Recorder** | [flowpick.net/recording](https://flowpick.net/recording) | Target of the MSE / MediaRecorder capture flow |
-
-![M3U8 downloader](docs/screenshots/tool-m3u8-downloader.png)
-
-![Download queue](docs/screenshots/tool-download-queue.png)
 
 ### Edit and process
 
@@ -374,7 +368,7 @@ flowpick/
 │   └── i18n.ts            # i18n + theme/density management (23 languages)
 ├── tests/                 # Unit tests (Node.js built-in test runner)
 ├── docs/
-│   └── screenshots/       # Images used by these READMEs
+│   └── screenshots/       # Extension UI screenshots
 ├── public/
 │   ├── _locales/          # Extension manifest strings (25 locale folders)
 │   └── icon/              # Extension icons

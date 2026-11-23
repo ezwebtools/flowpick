@@ -147,8 +147,6 @@
 
 下面第一组下载器页面就是扩展"下载"按钮的交接目标，其余是下载之后（或下载不了时）很顺手的独立工具。全部工具入口在 **[flowpick.net/tools](https://flowpick.net/tools)**，免费、无需登录。本地文件类工具全程在浏览器标签页内处理，文件本身不会上传，只有首次使用某个工具时才会拉取对应的解码器 / WASM / AI 模型文件；云端传输是另一个需要手动开启的独立功能。
 
-![在线工具总览](docs/screenshots/tools-index.png)
-
 ### 下载媒体 —— 扩展"下载"按钮的跳转目标
 
 在面板里点流媒体 / 视频 / 音频的**下载**按钮时，扩展会打开对应页面，并通过一次性消息通道把地址、文件名、来源页与抓到的请求头传过去（不写进 URL）。
@@ -161,10 +159,6 @@
 | **音频下载器** | [flowpick.net/zh-Hans/audio-downloader](https://flowpick.net/zh-Hans/audio-downloader) | 保存 MP3 / M4A / AAC / WAV / OGG / FLAC 等直链音频 |
 | **批量下载队列** | [flowpick.net/zh-Hans/download-queue](https://flowpick.net/zh-Hans/download-queue) | "下载所选"的批量目标；需先授权保存目录，每个窗口最多排队 500 项 |
 | **媒体录制** | [flowpick.net/zh-Hans/recording](https://flowpick.net/zh-Hans/recording) | MSE / MediaRecorder 两种录制模式的落点页面 |
-
-![M3U8 下载器](docs/screenshots/tool-m3u8-downloader.png)
-
-![批量下载队列](docs/screenshots/tool-download-queue.png)
 
 ### 剪辑与处理
 
@@ -375,7 +369,7 @@ flowpick/
 │   └── i18n.ts            # 国际化与主题/密度管理（23 种语言）
 ├── tests/                 # 单元测试（Node.js 内置测试运行器）
 ├── docs/
-│   └── screenshots/       # 本 README 用到的截图
+│   └── screenshots/       # 扩展界面截图
 ├── public/
 │   ├── _locales/          # 扩展清单文案（25 个语言目录）
 │   └── icon/              # 扩展图标
